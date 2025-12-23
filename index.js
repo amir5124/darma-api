@@ -29,11 +29,18 @@ const logger = {
 
 // --- HELPER FIXER: Memperbaiki format Bulan 00 menjadi bulan yang benar ---
 const fixSchDepart = (sch, dateStr) => {
-    if (!sch || !sch.includes('00/')) return sch;
-    // Mengambil bulan dari departDate (contoh: "2025-12-23" -> ambil "12")
-    const correctMonth = dateStr.split('-')[1]; 
-    logger.info(`[AUTO-PATCH] Mengubah bulan 00/ menjadi ${correctMonth}/ pada string referensi.`);
-    return sch.replace(/00\//g, `${correctMonth}/`);
+    if (!sch) return sch;
+    // Jika mengandung 00/ kita coba perbaiki
+    if (sch.includes('00/')) {
+        const parts = dateStr.split('-');
+        const correctMonth = parts[1]; 
+        const correctYear = parts[0];
+        
+        // Pola regex untuk menangkap 00/XX/2025
+        const pattern = new RegExp(`00\/(\\d{2})\/${correctYear}`, 'g');
+        return sch.replace(pattern, `${correctMonth}/$1/${correctYear}`);
+    }
+    return sch;
 };
 
 async function getConsistentToken(forceRefresh = false) {
