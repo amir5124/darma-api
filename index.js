@@ -27,6 +27,15 @@ const logger = {
     }
 };
 
+// --- HELPER FIXER: Memperbaiki format Bulan 00 menjadi bulan yang benar ---
+const fixSchDepart = (sch, dateStr) => {
+    if (!sch || !sch.includes('00/')) return sch;
+    // Mengambil bulan dari departDate (contoh: "2025-12-23" -> ambil "12")
+    const correctMonth = dateStr.split('-')[1]; 
+    logger.info(`[AUTO-PATCH] Mengubah bulan 00/ menjadi ${correctMonth}/ pada string referensi.`);
+    return sch.replace(/00\//g, `${correctMonth}/`);
+};
+
 async function getConsistentToken(forceRefresh = false) {
     if (forceRefresh) globalAccessToken = null;
     if (!globalAccessToken) {
@@ -63,7 +72,7 @@ app.get('/api/get-all-schedules', async (req, res) => {
     }
 });
 
-// 2. GET PRICE (Mendapatkan journeyDepartReference yang valid)
+// 2. GET PRICE (Validasi Harga & Ambil Referensi Segar)
 app.post('/api/get-price', async (req, res) => {
     try {
         const token = await getConsistentToken();
@@ -72,7 +81,9 @@ app.post('/api/get-price', async (req, res) => {
             airlineID: b.airlineID, origin: b.origin, destination: b.destination,
             tripType: "OneWay", departDate: b.departDate.split('T')[0] + "T00:00:00",
             returnDate: "0001-01-01T00:00:00", paxAdult: 1, paxChild: 0, paxInfant: 0,
-            journeyDepartReference: b.schDepart, userID: USER_CONFIG.userID, accessToken: token 
+            // PATCH DISINI
+            journeyDepartReference: fixSchDepart(b.schDepart, b.departDate), 
+            userID: USER_CONFIG.userID, accessToken: token 
         };
         logger.debug("REQ_PRICE", payload);
         const response = await axios.post(`${BASE_URL}/Airline/PriceAllAirline`, payload, { httpsAgent: agent });
@@ -82,20 +93,11 @@ app.post('/api/get-price', async (req, res) => {
     }
 });
 
-// 3. SEAT MAP (AirlineSeatAllAirline)
+// 3. SEAT MAP (Pilih Kursi)
 app.post('/api/get-seats', async (req, res) => {
     try {
         const token = await getConsistentToken();
         const b = req.body;
-
-        // Validasi String schDepart untuk mencegah format tanggal rusak 00/
-        if (!b.schDepart || b.schDepart.includes('00/')) {
-            logger.error("Invalid schDepart string detected");
-            return res.json({ 
-                status: "FAILED", 
-                respMessage: "Referensi jadwal tidak valid (Bulan 00). Mohon ulangi pilih jadwal." 
-            });
-        }
 
         const payload = {
             airlineID: b.airlineID,
@@ -104,7 +106,8 @@ app.post('/api/get-seats', async (req, res) => {
             tripType: "OneWay",
             departDate: b.departDate.split('T')[0] + "T00:00:00",
             returnDate: "0001-01-01T00:00:00",
-            schDepart: b.schDepart, 
+            // PATCH DISINI
+            schDepart: fixSchDepart(b.schDepart, b.departDate), 
             schReturn: "",
             paxAdult: 1, paxChild: 0, paxInfant: 0,
             departureAirlineSegmentCode: null,
@@ -141,7 +144,7 @@ app.post('/api/get-seats', async (req, res) => {
         logger.error("Seat Map API Error: " + JSON.stringify(errorData));
         res.status(error.response?.status || 500).json({ 
             status: "ERROR", 
-            message: "API Gagal merespon peta kursi (404/Not Found).",
+            message: "API Gagal merespon peta kursi.",
             detail: errorData 
         });
     }
@@ -156,7 +159,9 @@ app.post('/api/get-addons', async (req, res) => {
             airlineID: b.airlineID, origin: b.origin, destination: b.destination,
             tripType: "OneWay", departDate: b.departDate.split('T')[0] + "T00:00:00",
             returnDate: "0001-01-01T00:00:00", paxAdult: 1, paxChild: 0, paxInfant: 0,
-            schDepart: b.schDepart, paxDetails: b.paxDetails || [],
+            // PATCH DISINI
+            schDepart: fixSchDepart(b.schDepart, b.departDate), 
+            paxDetails: b.paxDetails || [],
             userID: USER_CONFIG.userID, accessToken: token
         };
         const response = await axios.post(`${BASE_URL}/Airline/BaggageAndMeal`, payload, { httpsAgent: agent });
@@ -171,14 +176,22 @@ app.post('/api/create-booking', async (req, res) => {
     try {
         const token = await getConsistentToken();
         const b = req.body;
+        
+        // Memperbaiki schDepart di dalam array schDeparts jika ada
+        if (b.schDeparts && b.schDeparts.length > 0) {
+            b.schDeparts[0].detailSchedule = fixSchDepart(b.schDeparts[0].detailSchedule, b.departDate);
+        }
+
         const payload = {
             ...b,
             departDate: b.departDate.split('T')[0] + "T00:00:00",
             returnDate: "0001-01-01T00:00:00",
             userID: USER_CONFIG.userID, accessToken: token
         };
+        
         logger.debug("REQ_BOOKING", payload);
         const response = await axios.post(`${BASE_URL}/Airline/Booking`, payload, { httpsAgent: agent });
+        logger.debug("RES_BOOKING", response.data);
         res.json(response.data);
     } catch (error) {
         res.status(500).json({ status: "ERROR", message: error.message });
