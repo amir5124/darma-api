@@ -295,4 +295,32 @@ app.post('/api/issued-ticket', async (req, res) => {
     }
 });
 
+// 7. GET AGENT BALANCE
+app.post('/api/get-balance', async (req, res) => {
+    try {
+        // Mengambil token yang masih aktif atau login ulang jika perlu
+        const token = await getConsistentToken();
+
+        const payload = {
+            userID: USER_CONFIG.userID,
+            accessToken: token
+        };
+
+        logger.info("Checking Balance...");
+        
+        const response = await axios.post(`${BASE_URL}/Agent/Balance`, payload, {
+            httpsAgent: agent,
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        logger.debug("RES_BALANCE", response.data);
+        
+        // Response biasanya berisi: { balance: 1000000, userID: "...", status: "SUCCESS", ... }
+        res.json(response.data);
+    } catch (error) {
+        logger.error("Balance Error: " + error.message);
+        res.status(500).json({ status: "ERROR", respMessage: error.message });
+    }
+});
+
 app.listen(3000, () => logger.success("SERVER RUNNING ON PORT 3000"));
