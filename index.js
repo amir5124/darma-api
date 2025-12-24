@@ -27,18 +27,6 @@ const logger = {
     }
 };
 
-/**
- * Memperbaiki string journeyReference yang mengandung bulan "00"
- * Contoh: "00/30/2025" -> "12/30/2025"
- */
-function fixJourneyReference(ref) {
-    if (!ref || typeof ref !== 'string') return ref;
-    
-    // Cari tanggal keberangkatan dari departDate untuk mendapatkan bulan yang benar
-    // Jika data statis, kita bisa asumsikan bulan 12 berdasarkan log Anda
-    return ref.replace(/00\/(\d{2})\/(\d{4})/g, "12/$1/$2");
-}
-
 async function getConsistentToken(forceRefresh = false) {
     if (forceRefresh) globalAccessToken = null;
     if (!globalAccessToken) {
@@ -58,7 +46,7 @@ async function getConsistentToken(forceRefresh = false) {
     return globalAccessToken;
 }
 
-// 1. SEARCH
+// 1. SEARCH SCHEDULE
 app.get('/api/get-all-schedules', async (req, res) => {
     try {
         const token = await getConsistentToken(true); 
@@ -68,19 +56,14 @@ app.get('/api/get-all-schedules', async (req, res) => {
             airlineAccessCode: null, cacheType: 0, isShowEachAirline: false,
             userID: USER_CONFIG.userID, accessToken: token
         };
-
-        logger.debug("REQ_SEARCH_SCHEDULE", payload);
         const response = await axios.post(`${BASE_URL}/Airline/ScheduleAllAirline`, payload, { httpsAgent: agent });
-        logger.debug("RES_SEARCH_SCHEDULE", response.data);
-
         res.json({ data: response.data.journeyDepart || [] });
     } catch (error) {
-        logger.error("Search Error: " + error.message);
         res.status(500).json({ status: "ERROR", error: error.message });
     }
 });
 
-// 2. PRICE
+// 2. PRICE VALIDATION
 app.post('/api/get-price', async (req, res) => {
     try {
         const token = await getConsistentToken();
@@ -88,115 +71,154 @@ app.post('/api/get-price', async (req, res) => {
         const payload = { 
             airlineID: b.airlineID, origin: b.origin, destination: b.destination,
             tripType: "OneWay", departDate: b.departDate.split('T')[0] + "T00:00:00",
-            returnDate: "0001-01-01T00:00:00", paxAdult: 1, paxChild: 0, paxInfant: 0,
+            returnDate: "0001-01-01T00:00:00", paxAdult: b.paxAdult || 1, paxChild: 0, paxInfant: 0,
             journeyDepartReference: b.schDepart, userID: USER_CONFIG.userID, accessToken: token 
         };
-
-        logger.debug("REQ_PRICE", payload);
         const response = await axios.post(`${BASE_URL}/Airline/PriceAllAirline`, payload, { httpsAgent: agent });
-        logger.debug("RES_PRICE", response.data);
-
         res.json(response.data);
     } catch (error) {
-        logger.error("Price Error: " + error.message);
         res.status(500).json({ status: "ERROR", error: error.message });
     }
 });
 
-
-app.post('/api/get-seats', async (req, res) => {
-    try {
-        const token = await getConsistentToken();
-        const b = req.body;
-
-        const payload = {
-            ...b,
-            // Pastikan schDepart sudah difix jika ada bulan "00"
-            schDepart: fixJourneyReference(b.schDepart),
-            userID: USER_CONFIG.userID,
-            accessToken: token
-        };
-
-        // ENDPOINT YANG BENAR: /Airline/Seat
-        const response = await axios.post(`${BASE_URL}/Airline/Seat`, payload, { 
-            httpsAgent: agent,
-            headers: { 'Content-Type': 'application/json' }
-        });
-
-        res.json(response.data);
-    } catch (error) {
-        console.error("Error Get Seat:", error.response?.data || error.message);
-        res.status(500).json({ status: "FAILED", respMessage: error.message });
-    }
-});
-// 4. ADDONS
-// 3. ADDONS (Baggage)
+// 3. GET ADDONS (Baggage & Meals)
 app.post('/api/get-addons', async (req, res) => {
     try {
         const token = await getConsistentToken();
         const b = req.body;
         
-        // Perbaikan: Tambahkan field kontak agar tidak error "field is required"
         const payload = {
             airlineID: b.airlineID, 
             origin: b.origin, 
             destination: b.destination,
-            tripType: "OneWay", 
+            tripType: b.tripType || "OneWay", 
             departDate: b.departDate.split('T')[0] + "T00:00:00",
             returnDate: "0001-01-01T00:00:00", 
-            paxAdult: 1, 
-            paxChild: 0, 
-            paxInfant: 0,
+            paxAdult: b.paxAdult, 
+            paxChild: b.paxChild || 0, 
+            paxInfant: b.paxInfant || 0,
             schDepart: b.schDepart, 
-            paxDetails: b.paxDetails || [],
-            // Field wajib yang diminta oleh API berdasarkan log error Anda:
-            contactTitle: "Mr",
-            contactFirstName: b.paxDetails[0]?.firstName || "Traveler",
-            contactLastName: b.paxDetails[0]?.lastName || "Name",
+            paxDetails: b.paxDetails.map(p => ({
+                title: p.title,
+                firstName: p.firstName.toUpperCase(),
+                lastName: (p.lastName || p.firstName).toUpperCase(),
+                birthDate: p.birthDate.includes('T') ? p.birthDate : p.birthDate + "T00:00:00",
+                gender: p.gender,
+                nationality: "ID",
+                birthCountry: "ID",
+                type: p.type
+            })),
+            contactTitle: b.contactTitle || "MR",
+            contactFirstName: b.contactFirstName.toUpperCase(),
+            contactLastName: b.contactLastName.toUpperCase(),
             contactCountryCodePhone: "62",
             contactAreaCodePhone: "812",
-            contactRemainingPhoneNo: "12345678",
-            contactEmail: "traveler@mail.com",
+            contactRemainingPhoneNo: b.contactRemainingPhoneNo,
+            contactEmail: b.contactEmail,
             userID: USER_CONFIG.userID, 
             accessToken: token
         };
 
         logger.debug("REQ_ADDONS", payload);
         const response = await axios.post(`${BASE_URL}/Airline/BaggageAndMeal`, payload, { httpsAgent: agent });
-        logger.debug("RES_ADDONS", response.data);
-        
         res.json(response.data);
     } catch (error) {
-        logger.error("Addons API Error: " + error.message);
         res.json({ status: "FAILED", respMessage: error.message });
     }
 });
 
-// 5. BOOKING
+// 4. GET SEAT MAP
+app.post('/api/get-seats', async (req, res) => {
+    try {
+        const token = await getConsistentToken();
+        const b = req.body;
+        const payload = {
+            airlineID: b.airlineID,
+            origin: b.origin,
+            destination: b.destination,
+            tripType: b.tripType || "OneWay",
+            departDate: b.departDate.split('T')[0] + "T00:00:00",
+            paxAdult: b.paxAdult,
+            paxChild: b.paxChild || 0,
+            paxInfant: b.paxInfant || 0,
+            schDepart: b.schDepart,
+            paxDetails: b.paxDetails.map(p => ({
+                title: p.title,
+                firstName: p.firstName.toUpperCase(),
+                lastName: (p.lastName || p.firstName).toUpperCase(),
+                birthDate: p.birthDate.includes('T') ? p.birthDate : p.birthDate + "T00:00:00",
+                gender: p.gender,
+                nationality: "ID",
+                birthCountry: "ID",
+                type: p.type
+            })),
+            contactTitle: b.contactTitle || "MR",
+            contactFirstName: b.contactFirstName.toUpperCase(),
+            contactLastName: b.contactLastName.toUpperCase(),
+            contactEmail: b.contactEmail,
+            contactCountryCodePhone: "62",
+            contactAreaCodePhone: "812",
+            contactRemainingPhoneNo: b.contactRemainingPhoneNo,
+            userID: USER_CONFIG.userID,
+            accessToken: token
+        };
+        const response = await axios.post(`${BASE_URL}/Airline/Seat`, payload, { httpsAgent: agent });
+        res.json(response.data);
+    } catch (error) {
+        res.json({ status: "FAILED", respMessage: error.message });
+    }
+});
+
+// 5. CREATE BOOKING
 app.post('/api/create-booking', async (req, res) => {
     try {
         const token = await getConsistentToken();
         const b = req.body;
 
-        // JANGAN gunakan fixJourneyReference di sini.
-        // DetailSchedule harus 100% sama dengan classFare dari API Price.
         const payload = {
-            ...b,
+            tripType: b.tripType || "OneWay",
+            airlineID: b.airlineID,
+            origin: b.origin,
+            destination: b.destination,
+            departDate: b.departDate,
+            returnDate: b.returnDate || "0001-01-01T00:00:00",
+            paxAdult: b.paxAdult,
+            paxChild: b.paxChild || 0,
+            paxInfant: b.paxInfant || 0,
+            contactTitle: b.contactTitle,
+            contactFirstName: b.contactFirstName.toUpperCase(),
+            contactLastName: b.contactLastName.toUpperCase(),
+            contactEmail: b.contactEmail,
+            contactCountryCodePhone: "62",
+            contactAreaCodePhone: "812",
+            contactRemainingPhoneNo: b.contactRemainingPhoneNo,
+            paxDetails: b.paxDetails.map(p => ({
+                title: p.title,
+                firstName: p.firstName.toUpperCase(),
+                lastName: (p.lastName || p.firstName).toUpperCase(),
+                birthDate: p.birthDate.includes('T') ? p.birthDate : p.birthDate + "T00:00:00",
+                gender: p.gender,
+                nationality: "ID",      // Ditambahkan untuk fix error nationality invalid
+                birthCountry: "ID",     // Ditambahkan
+                IDNumber: p.IDNumber,   
+                type: p.type,
+                DocType: "KTP",         
+                addOns: p.addOns || []
+            })),
+            schDeparts: b.schDeparts,
             userID: USER_CONFIG.userID,
             accessToken: token
         };
 
-        // Tambahkan logger untuk memastikan detailSchedule yang dikirim mengandung "00" (jika dari price memang 00)
-        console.log("DEBUG BOOKING PAYLOAD:", JSON.stringify(payload, null, 2));
-
+        logger.debug("REQ_BOOKING", payload);
         const response = await axios.post(`${BASE_URL}/Airline/Booking`, payload, { 
             httpsAgent: agent,
             headers: { 'Content-Type': 'application/json' }
         });
-
+        logger.debug("RES_BOOKING", response.data);
         res.json(response.data);
     } catch (error) {
-        console.error("BOOKING ERROR:", error.response?.data || error.message);
+        logger.error("Booking Error: " + error.message);
         res.status(500).json({ status: "FAILED", respMessage: error.message });
     }
 });
