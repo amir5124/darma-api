@@ -223,4 +223,76 @@ app.post('/api/create-booking', async (req, res) => {
     }
 });
 
+// 6. AIRLINE BOOKING DETAIL
+app.post('/api/booking-detail', async (req, res) => {
+    try {
+        const token = await getConsistentToken();
+        const b = req.body;
+
+        // Validasi input minimal
+        if (!b.bookingCode) {
+            return res.status(400).json({ status: "FAILED", respMessage: "Booking Code wajib diisi" });
+        }
+
+        const payload = {
+            bookingCode: b.bookingCode,
+            // Jika bookingDate tidak dikirim dari frontend, gunakan nilai default atau kosong
+            bookingDate: b.bookingDate || moment().tz("Asia/Jakarta").format("YYYY-MM-DDTHH:mm:ss"),
+            userID: USER_CONFIG.userID,
+            accessToken: token
+        };
+
+        logger.debug("REQ_BOOKING_DETAIL", payload);
+
+        const response = await axios.post(`${BASE_URL}/Airline/BookingDetail`, payload, { 
+            httpsAgent: agent,
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        logger.debug("RES_BOOKING_DETAIL", response.data);
+        res.json(response.data);
+    } catch (error) {
+        logger.error("Booking Detail Error: " + error.message);
+        res.status(500).json({ 
+            status: "FAILED", 
+            respMessage: error.response ? JSON.stringify(error.response.data) : error.message 
+        });
+    }
+});
+
+// 7. AIRLINE ISSUED TICKET
+app.post('/api/issued-ticket', async (req, res) => {
+    try {
+        const token = await getConsistentToken();
+        const b = req.body;
+
+        const payload = {
+            airlineID: b.airlineID || "QG",
+            origin: b.origin,
+            destination: b.destination,
+            tripType: b.tripType || "OneWay",
+            departDate: b.departDate,
+            returnDate: b.returnDate || "0001-01-01T00:00:00",
+            bookingCode: b.bookingCode,
+            bookingDate: b.bookingDate, // <--- TAMBAHKAN INI
+            airlineAccessCode: b.airlineID || "QG",
+            userID: USER_CONFIG.userID,
+            accessToken: token
+        };
+
+        logger.debug("REQ_ISSUED", payload);
+
+        const response = await axios.post(`${BASE_URL}/Airline/Issued`, payload, { 
+            httpsAgent: agent,
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        logger.debug("RES_ISSUED", response.data);
+        res.json(response.data);
+    } catch (error) {
+        logger.error("Issued Error: " + error.message);
+        res.status(500).json({ status: "FAILED", respMessage: error.message });
+    }
+});
+
 app.listen(3000, () => logger.success("SERVER RUNNING ON PORT 3000"));
