@@ -104,10 +104,7 @@ router.post('/price-info', async (req, res) => {
             accessToken: token
         };
 
-        logger.debug("REQ_HOTEL_PRICE_INFO", payload);
-        const response = await axios.post(`${BASE_URL}/Hotel/PriceInfo`, payload, { httpsAgent: agent });
-        logger.debug("RES_HOTEL_PRICE_INFO", response.data);
-
+        const response = await axios.post(`${BASE_URL}/Hotel/PriceAndPolicyInfo`, payload, { httpsAgent: agent });
         res.json(response.data);
     } catch (error) {
         res.status(500).json({ status: "ERROR", respMessage: error.message });
@@ -145,20 +142,52 @@ router.get('/room-image', async (req, res) => {
 });
 
 // 4. HOTEL BOOKING ALL SUPPLIER
-router.post('/create-booking', async (req, res) => {
+// 4. HOTEL BOOKING ALL SUPPLIER
+router.post('/booking', async (req, res) => {
     try {
         const token = await getConsistentToken();
         const b = req.body;
+
         const payload = {
-            ...b,
+            paxPassport: b.paxPassport || "ID",
+            countryID: b.countryID || "ID",
+            cityID: String(b.cityID),
+            // PASTIKAN ada Z di akhir jika di frontend belum ada
+            checkInDate: b.checkInDate.endsWith('Z') ? b.checkInDate : b.checkInDate + 'Z',
+            checkOutDate: b.checkOutDate.endsWith('Z') ? b.checkOutDate : b.checkOutDate + 'Z',
+            roomRequest: b.roomRequest.map(room => ({
+                paxes: room.paxes.map(pax => ({
+                    title: pax.title,
+                    firstName: pax.firstName.trim(),
+                    lastName: pax.lastName.trim()
+                })),
+                isSmokingRoom: Boolean(room.isSmokingRoom),
+                phone: String(room.phone),
+                email: String(room.email),
+                specialRequestArray: null,
+                requestDescription: room.requestDescription || null,
+                roomType: 0,
+                isRequestChildBed: false,
+                childNum: parseInt(room.childNum) || 0,
+                childAges: room.childAges || [0]
+            })),
+            internalCode: b.internalCode,
+            hotelID: b.hotelID,
+            breakfast: b.breakfast,
+            roomID: b.roomID,
+            bedType: { ID: null, bed: null },
+            agentOsRef: b.agentOsRef,
             userID: USER_CONFIG.userID,
             accessToken: token
         };
 
-        logger.debug("REQ_HOTEL_BOOKING", payload);
-        const response = await axios.post(`${BASE_URL}/Hotel/Booking`, payload, { httpsAgent: agent });
-        logger.debug("RES_HOTEL_BOOKING", response.data);
-
+        logger.debug("REQ_HOTEL_BOOKING_FINAL", JSON.stringify(payload));
+        const response = await axios.post(`${BASE_URL}/Hotel/BookingAllSupplier`, payload, { 
+            httpsAgent: agent,
+            headers: { 'Content-Type': 'application/json' }
+        });
+        logger.debug("RES_HOTEL_BOOKING_FINAL", JSON.stringify(response.data));
+        
         res.json(response.data);
     } catch (error) {
         res.status(500).json({ status: "ERROR", respMessage: error.message });
