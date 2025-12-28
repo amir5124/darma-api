@@ -249,4 +249,40 @@ router.post('/issued', async (req, res) => {
     }
 });
 
+/**
+ * SHIP BOOKING DETAIL
+ * Mendapatkan detail lengkap transaksi berdasarkan Nomor Booking atau NumCode
+ */
+router.post('/booking-detail', async (req, res) => {
+    try {
+        const token = await getConsistentToken(); // Mengambil token yang valid
+        const b = req.body;
+
+        const payload = {
+            bokingNumber: b.bokingNumber || "", // Nomor PNR/Booking
+            numCode: b.numCode || "",           // Kode transaksi internal
+            bookingDate: b.bookingDate,         // Format ISO "2025-12-28T01:27:24Z"
+            userID: USER_CONFIG.userID,
+            accessToken: token
+        };
+
+        logger.info(`REQ_BOOKING_DETAIL: Fetching detail for ${payload.bokingNumber || payload.numCode}`);
+
+        const response = await axios.post(`${BASE_URL}/Ship/BookingDetail`, payload, {
+            httpsAgent: agent,
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        logger.debug("RES_BOOKING_DETAIL", response.data);
+        res.json(response.data);
+
+    } catch (error) {
+        logger.error("Ship Booking Detail Error: " + error.message);
+        res.status(500).json({ 
+            status: "ERROR", 
+            respMessage: error.response ? error.response.data : error.message 
+        });
+    }
+});
+
 module.exports = router;
