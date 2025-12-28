@@ -7,7 +7,8 @@ const { logger } = require('./helpers/darmaHelper');
 const flightRoutes = require('./routes/flightRoutes');
 const agentRoutes = require('./routes/agentRoutes');
 const hotelRoutes = require('./routes/hotelRoutes');
-const shipRoutes = require('./routes/shipRoutes'); // 1. Import Rute Kapal
+const shipRoutes = require('./routes/shipRoutes'); 
+const shpdluRoutes = require('./routes/shipdluRoutes');
 
 const app = express();
 app.use(express.json());
@@ -17,7 +18,8 @@ app.use(cors());
 app.use('/api/flights', flightRoutes);
 app.use('/api/agent', agentRoutes);
 app.use('/api/hotels', hotelRoutes);
-app.use('/api/ship', shipRoutes); // 2. Aktifkan endpoint Kapal Laut
+app.use('/api/ship', shipRoutes);
+app.use('/api/shipdlu', shpdluRoutes);
 
 const PORT = 3000;
 app.listen(PORT, () => {
