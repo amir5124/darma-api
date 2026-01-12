@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
+const db = require('../config/db');
 const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('../helpers/darmaHelper');
 
 // Helper untuk log request dan response secara rapi
@@ -10,6 +11,24 @@ const logFullAction = (name, payload, response) => {
     logger.debug(`RES_${name}: ${JSON.stringify(response, null, 2)}`);
     logger.info(`=== [END ${name}] ===`);
 };
+
+router.get('/test-db', async (req, res) => {
+    try {
+        // Mencoba melakukan query sederhana ke database
+        const [rows] = await db.execute('SELECT 1 + 1 AS result');
+        res.json({
+            status: 'SUCCESS',
+            message: 'Aplikasi terhubung ke database MySQL Coolify!',
+            data: rows
+        });
+    } catch (err) {
+        res.status(500).json({
+            status: 'ERROR',
+            message: 'Gagal terhubung ke database',
+            error: err.message
+        });
+    }
+});
 
 // 1. AIRLINE LIST
 router.post('/airline-list', async (req, res) => {
