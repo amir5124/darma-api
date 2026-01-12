@@ -12,23 +12,96 @@ const logFullAction = (name, payload, response) => {
     logger.info(`=== [END ${name}] ===`);
 };
 
-router.get('/test-db', async (req, res) => {
+/**
+ * HELPER: ARCHIVE DATA KE DATABASE
+ * Menyimpan data booking lengkap ke 4 tabel berbeda dalam satu transaksi
+ */
+async function archiveBookingToDB(payload, response, username) {
+    let conn;
     try {
-        // Mencoba melakukan query sederhana ke database
-        const [rows] = await db.execute('SELECT 1 + 1 AS result');
-        res.json({
-            status: 'SUCCESS',
-            message: 'Aplikasi terhubung ke database MySQL Coolify!',
-            data: rows
-        });
+        conn = await db.getConnection();
+        await conn.beginTransaction();
+
+        // 1. Insert ke tabel bookings
+        const [resBooking] = await conn.execute(
+            `INSERT INTO bookings (
+                booking_code, reference_no, airline_id, airline_name, 
+                trip_type, origin, destination, depart_date, 
+                ticket_status, total_price, time_limit, user_id, pengguna,
+                payload_request, raw_response
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                response.bookingCode,
+                response.referenceNo,
+                payload.airlineID,
+                payload.airlineID, // Maskapai
+                payload.tripType,
+                payload.origin,
+                payload.destination,
+                payload.departDate.replace('T', ' ').substring(0, 19),
+                "HOLD",
+                response.salesPrice,
+                response.timeLimit,
+                USER_CONFIG.userID,
+                username || "SISTEM",
+                JSON.stringify(payload),  // Menyimpan payload request mentah
+                JSON.stringify(response) // Menyimpan response partner mentah
+            ]
+        );
+
+        const bookingId = resBooking.insertId;
+
+        // 2. Insert Penumpang (Passengers)
+        if (payload.paxDetails && payload.paxDetails.length > 0) {
+            for (const p of payload.paxDetails) {
+                const [resPax] = await conn.execute(
+                    `INSERT INTO passengers (booking_id, title, first_name, last_name, pax_type, phone, id_number, birth_date, pengguna) 
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [
+                        bookingId, p.title, p.firstName, p.lastName || p.firstName, 
+                        p.type === 0 ? 'Adult' : 'Child', payload.contactRemainingPhoneNo, 
+                        p.IDNumber || "", p.birthDate || null, username || "SISTEM"
+                    ]
+                );
+
+                const paxId = resPax.insertId;
+
+                // 3. Insert Add-ons (Baggage/Meal/Seat) per Penumpang
+                if (p.addOns && p.addOns.length > 0) {
+                    for (const ad of p.addOns) {
+                        await conn.execute(
+                            `INSERT INTO passenger_addons (passenger_id, segment_idx, baggage_code, seat_number, meals_json, pengguna) 
+                             VALUES (?, ?, ?, ?, ?, ?)`,
+                            [paxId, 0, ad.baggageString || null, ad.seat || null, JSON.stringify(ad.meals || []), username || "SISTEM"]
+                        );
+                    }
+                }
+            }
+        }
+
+        // 4. Insert Itinerary (Flight Segments)
+        const flights = response.flightDeparts || [];
+        for (const f of flights) {
+            await conn.execute(
+                `INSERT INTO flight_itinerary (booking_id, category, flight_number, origin, destination, depart_time, arrival_time, flight_class, pengguna) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    bookingId, 'Departure', f.flightNumber, f.fdOrigin, f.fdDestination,
+                    f.fdDepartTime.replace('T', ' '), f.fdArrivalTime.replace('T', ' '), 
+                    f.fdFlightClass, username || "SISTEM"
+                ]
+            );
+        }
+
+        await conn.commit();
+        console.log(`[DB] Berhasil mengarsipkan Booking: ${response.bookingCode}`);
     } catch (err) {
-        res.status(500).json({
-            status: 'ERROR',
-            message: 'Gagal terhubung ke database',
-            error: err.message
-        });
+        if (conn) await conn.rollback();
+        console.error("[DB ERROR] Gagal simpan booking:", err.message);
+    } finally {
+        if (conn) conn.release();
     }
-});
+}
 
 // 1. AIRLINE LIST
 router.post('/airline-list', async (req, res) => {
@@ -48,33 +121,23 @@ router.get('/schedules', async (req, res) => {
     try {
         const token = await getConsistentToken(true);
         const q = req.query;
-
         const payload = {
-            // Sesuai Dokumen API
             airlineID: q.airlineID || "",
             tripType: q.tripType || "OneWay",
             origin: q.origin,
             destination: q.destination,
-            departDate: q.departDate, // Sesuaikan format: YYYY-MM-DD (Dokumentasi tidak minta jam)
+            departDate: q.departDate,
             returnDate: q.tripType === "RoundTrip" ? q.returnDate : "0001-01-01",
-
-            // Perbaikan Error: Ambil dari q, bukan this.paxCount
             paxAdult: parseInt(q.paxAdult) || 1,
             paxChild: parseInt(q.paxChild) || 0,
             paxInfant: parseInt(q.paxInfant) || 0,
-
             promoCode: "",
             airlineAccessCode: "",
             userID: USER_CONFIG.userID,
             accessToken: token
         };
-
-        // Menggunakan endpoint /Airline/Schedule sesuai dokumen baru Anda
         const response = await axios.post(`${BASE_URL}/Airline/Schedule`, payload, { httpsAgent: agent });
-
         logFullAction("SCHEDULE", payload, response.data);
-
-        // Sesuaikan mapping data response dari vendor
         res.json({
             data: response.data.journeyDepart || [],
             dataReturn: response.data.journeyReturn || []
@@ -90,13 +153,11 @@ router.post('/get-price', async (req, res) => {
     try {
         const token = await getConsistentToken();
         const b = req.body;
-
         const payload = {
             airlineID: b.airlineID,
             origin: b.origin,
             destination: b.destination,
             tripType: b.tripType || "OneWay",
-            // Gunakan langsung dari body karena frontend sudah memformatnya
             departDate: b.departDate,
             returnDate: b.returnDate || "0001-01-01T00:00:00Z",
             paxAdult: b.paxAdult,
@@ -109,7 +170,6 @@ router.post('/get-price', async (req, res) => {
             userID: USER_CONFIG.userID,
             accessToken: token
         };
-
         const response = await axios.post(`${BASE_URL}/Airline/Price`, payload, { httpsAgent: agent });
         res.json(response.data);
     } catch (error) {
@@ -117,26 +177,20 @@ router.post('/get-price', async (req, res) => {
     }
 });
 
+// POOLING SCHEDULE ALL AIRLINE
 router.get('/get-all-schedules', async (req, res) => {
     try {
         const token = await getConsistentToken(true);
         const q = req.query;
-
         let allJourneyDepart = [];
         let allJourneyReturn = [];
         let totalAirline = 0;
-        let airlineIndex = -1; // Mulai dari -1 agar loop pertama berjalan
+        let airlineIndex = -1;
         let currentAccessCode = null; 
         let safetyCounter = 0;
 
-        console.log(`=== [UAT POOLING START] Route: ${q.origin} -> ${q.destination} ===`);
-
-        // POIN PENTING: REPEAT UNTIL airlineIndex == totalAirline
-        // Kita gunakan while (airlineIndex < totalAirline)
-        // Safety counter 30 untuk mencegah infinite loop jika API partner error
         while ((airlineIndex < totalAirline || airlineIndex === -1) && safetyCounter < 30) {
             safetyCounter++;
-
             const payload = {
                 "tripType": q.tripType || "OneWay",
                 "origin": q.origin,
@@ -147,76 +201,41 @@ router.get('/get-all-schedules', async (req, res) => {
                 "paxChild": parseInt(q.paxChild) || 0,
                 "paxInfant": parseInt(q.paxInfant) || 0,
                 "promoCode": null,
-                "airlineAccessCode": currentAccessCode, // null pada request pertama
-                "cacheType": 2, // FullLive
+                "airlineAccessCode": currentAccessCode,
+                "cacheType": 2,
                 "isShowEachAirline": true,
                 "userID": USER_CONFIG.userID,
                 "accessToken": token
             };
-
-            const response = await axios.post(`${BASE_URL}/Airline/ScheduleAllAirline`, payload, { 
-                httpsAgent: agent,
-                timeout: 60000 
-            });
-
+            const response = await axios.post(`${BASE_URL}/Airline/ScheduleAllAirline`, payload, { httpsAgent: agent, timeout: 60000 });
             const result = response.data;
-
             if (result.status === "SUCCESS") {
-                // Update total dan index dari response terbaru
                 totalAirline = result.totalAirline;
                 airlineIndex = result.airlineIndex;
                 currentAccessCode = result.airlineAccessCode;
-
-                const foundNow = result.journeyDepart?.length || 0;
-                console.log(`[UAT LOG] Step ${safetyCounter}: Index ${airlineIndex}/${totalAirline} | Ditemukan: ${foundNow} jadwal | AccessCode: ${currentAccessCode ? 'YES' : 'NULL'}`);
-
-                // Gabungkan data jika ada (biarpun 0 tetap lanjut loop)
-                if (result.journeyDepart && result.journeyDepart.length > 0) {
-                    allJourneyDepart = allJourneyDepart.concat(result.journeyDepart);
-                }
-                
-                if (result.journeyReturn && result.journeyReturn.length > 0) {
-                    allJourneyReturn = allJourneyReturn.concat(result.journeyReturn);
-                }
-
-                // Jika sudah mencapai total, paksa berhenti
+                if (result.journeyDepart) allJourneyDepart = allJourneyDepart.concat(result.journeyDepart);
+                if (result.journeyReturn) allJourneyReturn = allJourneyReturn.concat(result.journeyReturn);
                 if (airlineIndex >= totalAirline && totalAirline > 0) break;
-
-            } else {
-                console.error(`[UAT ERROR] Stop di Index ${airlineIndex}: ${result.respMessage}`);
-                break;
-            }
-
-            // Tambahkan jeda 1 detik agar tidak terlalu cepat (opsional)
+            } else break;
             await new Promise(resolve => setTimeout(resolve, 1000));
         }
-
-        console.log(`=== [UAT POOLING FINISHED] Total Gabungan: ${allJourneyDepart.length} jadwal ===`);
-
-        res.json({
-            status: "SUCCESS",
-            totalAirline: totalAirline,
-            data: allJourneyDepart,
-            dataReturn: allJourneyReturn
-        });
-
+        res.json({ status: "SUCCESS", totalAirline, data: allJourneyDepart, dataReturn: allJourneyReturn });
     } catch (error) {
-        console.error("Backend Error:", error.message);
         res.status(500).json({ status: "ERROR", error: error.message });
     }
 });
 
+// PRICE ALL AIRLINE
 router.post('/get-all-price', async (req, res) => {
     try {
         const token = await getConsistentToken();
         const b = req.body;
-
         const payload = {
             "airlineID": b.airlineID,
             "origin": b.origin,
             "destination": b.destination,
             "tripType": b.tripType || "OneWay",
-            "departDate": b.departDate, // Format ISO (YYYY-MM-DDTHH:mm:ss)
+            "departDate": b.departDate,
             "returnDate": b.returnDate || "0001-01-01T00:00:00",
             "paxAdult": parseInt(b.paxAdult),
             "paxChild": parseInt(b.paxChild),
@@ -227,15 +246,9 @@ router.post('/get-all-price', async (req, res) => {
             "userID": USER_CONFIG.userID,
             "accessToken": token
         };
-
-        const response = await axios.post(`${BASE_URL}/Airline/PriceAllAirline`, payload, { 
-            httpsAgent: agent,
-            timeout: 30000 
-        });
-        
+        const response = await axios.post(`${BASE_URL}/Airline/PriceAllAirline`, payload, { httpsAgent: agent, timeout: 30000 });
         logFullAction("PRICE_ALL_AIRLINE", payload, response.data);
         res.json(response.data);
-
     } catch (error) {
         res.status(500).json({ status: "ERROR", error: error.message });
     }
@@ -246,11 +259,7 @@ router.post('/get-addons', async (req, res) => {
     try {
         const token = await getConsistentToken();
         const b = req.body;
-        const payload = {
-            ...b,
-            userID: USER_CONFIG.userID,
-            accessToken: token
-        };
+        const payload = { ...b, userID: USER_CONFIG.userID, accessToken: token };
         const response = await axios.post(`${BASE_URL}/Airline/BaggageAndMeal`, payload, { httpsAgent: agent });
         logFullAction("ADDONS", payload, response.data);
         res.json(response.data);
@@ -264,11 +273,7 @@ router.post('/get-seats', async (req, res) => {
     try {
         const token = await getConsistentToken();
         const b = req.body;
-        const payload = {
-            ...b,
-            userID: USER_CONFIG.userID,
-            accessToken: token
-        };
+        const payload = { ...b, userID: USER_CONFIG.userID, accessToken: token };
         const response = await axios.post(`${BASE_URL}/Airline/Seat`, payload, { httpsAgent: agent });
         logFullAction("SEATS", payload, response.data);
         res.json(response.data);
@@ -277,13 +282,11 @@ router.post('/get-seats', async (req, res) => {
     }
 });
 
-// 6. CREATE BOOKING
+// 6. CREATE BOOKING + ARCHIVE TO DB
 router.post('/create-booking', async (req, res) => {
     try {
         const token = await getConsistentToken();
-
-        // Membersihkan payload dari field yang mungkin mengganggu/duplikat
-        const { userID: bodyUserID, accessToken: bodyToken, ...cleanBody } = req.body;
+        const { userID: bodyUserID, accessToken: bodyToken, usernameFromFrontend, ...cleanBody } = req.body;
 
         const payload = {
             ...cleanBody,
@@ -292,37 +295,25 @@ router.post('/create-booking', async (req, res) => {
             accessToken: token
         };
 
-        // --- LOGGING REQUEST ---
-        console.log("==================== [API REQUEST: CREATE BOOKING] ====================");
-        console.log("Time:", new Date().toLocaleString());
-        console.log("To Partner URL:", `${BASE_URL}/Airline/Booking`);
-        console.log("Payload:", JSON.stringify(payload, null, 2));
+        console.log("=== [DB DEBUG] Memulai Proses Booking Partner ===");
 
         const response = await axios.post(`${BASE_URL}/Airline/Booking`, payload, {
             httpsAgent: agent,
-            timeout: 60000 // Beri timeout 1 menit karena proses booking sering lama
+            timeout: 60000 
         });
 
-        // --- LOGGING RESPONSE ---
-        console.log("-------------------- [PARTNER RESPONSE] --------------------");
-        console.log("Status Code:", response.status);
-        console.log("Response Data:", JSON.stringify(response.data, null, 2));
-        console.log("========================================================================");
+        // JIKA SUKSES, SIMPAN KE DB (Background process)
+        if (response.data.status === "SUCCESS") {
+            archiveBookingToDB(payload, response.data, usernameFromFrontend);
+        }
 
         res.json(response.data);
     } catch (error) {
-        console.error("!!! [BOOKING ERROR] !!!");
-        console.error("Message:", error.message);
-        if (error.response) {
-            console.error("Response dari Partner:", JSON.stringify(error.response.data, null, 2));
-        }
-        res.json({
-            status: "FAILED",
-            respMessage: "Terjadi kesalahan saat menghubungi partner: " + error.message
-        });
+        res.json({ status: "FAILED", respMessage: error.message });
     }
 });
-// 7. BOOKING DETAIL & ISSUED (Sama seperti sebelumnya dengan tambahan logFullAction)
+
+// 7. BOOKING DETAIL & ISSUED
 router.post('/booking-detail', async (req, res) => {
     try {
         const token = await getConsistentToken();
