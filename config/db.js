@@ -2,11 +2,14 @@ const mysql = require('mysql2/promise');
 
 // Definisi Pool Anda
 const db = mysql.createPool({
-    host: process.env.MYSQL_HOST || 'mysql-database-vw0gcgoockwgckogcc0ss4g4',
+    host: process.env.MYSQL_HOST || '31.97.48.240',
     user: process.env.MYSQL_USER || 'mysql',
     password: process.env.MYSQL_PASSWORD || 'bjDn1rW3iM0FZdAWGh7iALAl9878Za4RTtwOnKrzDbSIAVuCJf9ASEP8zKVxDcB0',
     database: process.env.MYSQL_DATABASE || 'default',
     port: process.env.MYSQL_PORT || 3306,
+    ssl: {
+        rejectUnauthorized: false // Wajib ada agar tidak ETIMEDOUT
+    },
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
