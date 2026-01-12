@@ -186,6 +186,7 @@ router.get('/get-all-schedules', async (req, res) => {
         res.status(500).json({ status: "ERROR", error: error.message });
     }
 });
+
 router.post('/get-all-price', async (req, res) => {
     try {
         const token = await getConsistentToken();
