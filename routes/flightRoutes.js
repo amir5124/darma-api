@@ -4,17 +4,9 @@ const axios = require('axios');
 const db = require('../config/db');
 const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('../helpers/darmaHelper');
 
-// Helper untuk log request dan response secara rapi
-const logFullAction = (name, payload, response) => {
-    logger.info(`=== [DEBUG] ${name} ===`);
-    logger.debug(`REQ_${name}: ${JSON.stringify(payload, null, 2)}`);
-    logger.debug(`RES_${name}: ${JSON.stringify(response, null, 2)}`);
-    logger.info(`=== [END ${name}] ===`);
-};
-
 /**
  * HELPER: ARCHIVE DATA KE DATABASE
- * Menyimpan data booking lengkap ke 4 tabel berbeda dalam satu transaksi
+ * Membersihkan format ISO (T/Z) agar kompatibel dengan MySQL DATE & DATETIME
  */
 async function archiveBookingToDB(payload, response, username) {
     let conn;
@@ -23,6 +15,10 @@ async function archiveBookingToDB(payload, response, username) {
         await conn.beginTransaction();
 
         // 1. Insert ke tabel bookings
+        // Membersihkan format ISO ke MySQL Datetime (YYYY-MM-DD HH:mm:ss)
+        const cleanDepartDate = payload.departDate ? payload.departDate.replace('T', ' ').substring(0, 19) : null;
+        const cleanTimeLimit = response.timeLimit ? response.timeLimit.replace('T', ' ').substring(0, 19) : null;
+
         const [resBooking] = await conn.execute(
             `INSERT INTO bookings (
                 booking_code, reference_no, airline_id, airline_name, 
@@ -34,18 +30,18 @@ async function archiveBookingToDB(payload, response, username) {
                 response.bookingCode,
                 response.referenceNo,
                 payload.airlineID,
-                payload.airlineID, // Maskapai
+                payload.airlineID, 
                 payload.tripType,
                 payload.origin,
                 payload.destination,
-                payload.departDate.replace('T', ' ').substring(0, 19),
+                cleanDepartDate,
                 "HOLD",
                 response.salesPrice,
-                response.timeLimit,
+                cleanTimeLimit,
                 USER_CONFIG.userID,
                 username || "SISTEM",
-                JSON.stringify(payload),  // Menyimpan payload request mentah
-                JSON.stringify(response) // Menyimpan response partner mentah
+                JSON.stringify(payload),
+                JSON.stringify(response)
             ]
         );
 
@@ -54,19 +50,24 @@ async function archiveBookingToDB(payload, response, username) {
         // 2. Insert Penumpang (Passengers)
         if (payload.paxDetails && payload.paxDetails.length > 0) {
             for (const p of payload.paxDetails) {
+                // MySQL DATE hanya menerima YYYY-MM-DD, potong string ISO
+                const cleanBirthDate = (p.birthDate && p.birthDate.length >= 10) 
+                    ? p.birthDate.substring(0, 10) 
+                    : null;
+
                 const [resPax] = await conn.execute(
                     `INSERT INTO passengers (booking_id, title, first_name, last_name, pax_type, phone, id_number, birth_date, pengguna) 
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     [
                         bookingId, p.title, p.firstName, p.lastName || p.firstName, 
                         p.type === 0 ? 'Adult' : 'Child', payload.contactRemainingPhoneNo, 
-                        p.IDNumber || "", p.birthDate || null, username || "SISTEM"
+                        p.IDNumber || "", cleanBirthDate, username || "SISTEM"
                     ]
                 );
 
                 const paxId = resPax.insertId;
 
-                // 3. Insert Add-ons (Baggage/Meal/Seat) per Penumpang
+                // 3. Insert Add-ons
                 if (p.addOns && p.addOns.length > 0) {
                     for (const ad of p.addOns) {
                         await conn.execute(
@@ -87,7 +88,8 @@ async function archiveBookingToDB(payload, response, username) {
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     bookingId, 'Departure', f.flightNumber, f.fdOrigin, f.fdDestination,
-                    f.fdDepartTime.replace('T', ' '), f.fdArrivalTime.replace('T', ' '), 
+                    f.fdDepartTime.replace('T', ' ').substring(0, 19), 
+                    f.fdArrivalTime.replace('T', ' ').substring(0, 19), 
                     f.fdFlightClass, username || "SISTEM"
                 ]
             );
@@ -103,13 +105,13 @@ async function archiveBookingToDB(payload, response, username) {
     }
 }
 
+// --- ENDPOINTS ---
+
 // 1. AIRLINE LIST
 router.post('/airline-list', async (req, res) => {
     try {
         const token = await getConsistentToken();
-        const payload = { userID: USER_CONFIG.userID, accessToken: token };
-        const response = await axios.post(`${BASE_URL}/Airline/List`, payload, { httpsAgent: agent });
-        logFullAction("AIRLINE_LIST", payload, response.data);
+        const response = await axios.post(`${BASE_URL}/Airline/List`, { userID: USER_CONFIG.userID, accessToken: token }, { httpsAgent: agent });
         res.json(response.data);
     } catch (error) {
         res.status(500).json({ status: "FAILED", respMessage: error.message });
@@ -137,13 +139,11 @@ router.get('/schedules', async (req, res) => {
             accessToken: token
         };
         const response = await axios.post(`${BASE_URL}/Airline/Schedule`, payload, { httpsAgent: agent });
-        logFullAction("SCHEDULE", payload, response.data);
         res.json({
             data: response.data.journeyDepart || [],
             dataReturn: response.data.journeyReturn || []
         });
     } catch (error) {
-        console.error("Backend Error:", error.message);
         res.status(500).json({ status: "ERROR", error: error.message });
     }
 });
@@ -152,32 +152,14 @@ router.get('/schedules', async (req, res) => {
 router.post('/get-price', async (req, res) => {
     try {
         const token = await getConsistentToken();
-        const b = req.body;
-        const payload = {
-            airlineID: b.airlineID,
-            origin: b.origin,
-            destination: b.destination,
-            tripType: b.tripType || "OneWay",
-            departDate: b.departDate,
-            returnDate: b.returnDate || "0001-01-01T00:00:00Z",
-            paxAdult: b.paxAdult,
-            paxChild: b.paxChild,
-            paxInfant: b.paxInfant,
-            searchKey: "",
-            promoCode: "",
-            schDeparts: b.schDeparts,
-            schReturns: b.schReturns,
-            userID: USER_CONFIG.userID,
-            accessToken: token
-        };
-        const response = await axios.post(`${BASE_URL}/Airline/Price`, payload, { httpsAgent: agent });
+        const response = await axios.post(`${BASE_URL}/Airline/Price`, { ...req.body, userID: USER_CONFIG.userID, accessToken: token }, { httpsAgent: agent });
         res.json(response.data);
     } catch (error) {
         res.status(500).json({ status: "ERROR", error: error.message });
     }
 });
 
-// POOLING SCHEDULE ALL AIRLINE
+// 4. POOLING SCHEDULE ALL AIRLINE
 router.get('/get-all-schedules', async (req, res) => {
     try {
         const token = await getConsistentToken(true);
@@ -200,7 +182,6 @@ router.get('/get-all-schedules', async (req, res) => {
                 "paxAdult": parseInt(q.paxAdult) || 1,
                 "paxChild": parseInt(q.paxChild) || 0,
                 "paxInfant": parseInt(q.paxInfant) || 0,
-                "promoCode": null,
                 "airlineAccessCode": currentAccessCode,
                 "cacheType": 2,
                 "isShowEachAirline": true,
@@ -225,7 +206,7 @@ router.get('/get-all-schedules', async (req, res) => {
     }
 });
 
-// PRICE ALL AIRLINE
+// 5. PRICE ALL AIRLINE (Sesuai Permintaan)
 router.post('/get-all-price', async (req, res) => {
     try {
         const token = await getConsistentToken();
@@ -247,46 +228,38 @@ router.post('/get-all-price', async (req, res) => {
             "accessToken": token
         };
         const response = await axios.post(`${BASE_URL}/Airline/PriceAllAirline`, payload, { httpsAgent: agent, timeout: 30000 });
-        logFullAction("PRICE_ALL_AIRLINE", payload, response.data);
         res.json(response.data);
     } catch (error) {
         res.status(500).json({ status: "ERROR", error: error.message });
     }
 });
 
-// 4. GET ADDONS
+// 6. ADDONS & SEATS
 router.post('/get-addons', async (req, res) => {
     try {
         const token = await getConsistentToken();
-        const b = req.body;
-        const payload = { ...b, userID: USER_CONFIG.userID, accessToken: token };
-        const response = await axios.post(`${BASE_URL}/Airline/BaggageAndMeal`, payload, { httpsAgent: agent });
-        logFullAction("ADDONS", payload, response.data);
+        const response = await axios.post(`${BASE_URL}/Airline/BaggageAndMeal`, { ...req.body, userID: USER_CONFIG.userID, accessToken: token }, { httpsAgent: agent });
         res.json(response.data);
     } catch (error) {
         res.json({ status: "FAILED", respMessage: error.message });
     }
 });
 
-// 5. GET SEATS
 router.post('/get-seats', async (req, res) => {
     try {
         const token = await getConsistentToken();
-        const b = req.body;
-        const payload = { ...b, userID: USER_CONFIG.userID, accessToken: token };
-        const response = await axios.post(`${BASE_URL}/Airline/Seat`, payload, { httpsAgent: agent });
-        logFullAction("SEATS", payload, response.data);
+        const response = await axios.post(`${BASE_URL}/Airline/Seat`, { ...req.body, userID: USER_CONFIG.userID, accessToken: token }, { httpsAgent: agent });
         res.json(response.data);
     } catch (error) {
         res.status(500).json({ status: "FAILED", respMessage: error.message });
     }
 });
 
-// 6. CREATE BOOKING + ARCHIVE TO DB
+// 7. CREATE BOOKING + ARCHIVE TO DB
 router.post('/create-booking', async (req, res) => {
     try {
         const token = await getConsistentToken();
-        const { userID: bodyUserID, accessToken: bodyToken, usernameFromFrontend, ...cleanBody } = req.body;
+        const { usernameFromFrontend, ...cleanBody } = req.body;
 
         const payload = {
             ...cleanBody,
@@ -295,15 +268,10 @@ router.post('/create-booking', async (req, res) => {
             accessToken: token
         };
 
-        console.log("=== [DB DEBUG] Memulai Proses Booking Partner ===");
+        const response = await axios.post(`${BASE_URL}/Airline/Booking`, payload, { httpsAgent: agent, timeout: 60000 });
 
-        const response = await axios.post(`${BASE_URL}/Airline/Booking`, payload, {
-            httpsAgent: agent,
-            timeout: 60000 
-        });
-
-        // JIKA SUKSES, SIMPAN KE DB (Background process)
         if (response.data.status === "SUCCESS") {
+            // Jalankan penyimpanan di background
             archiveBookingToDB(payload, response.data, usernameFromFrontend);
         }
 
@@ -313,25 +281,29 @@ router.post('/create-booking', async (req, res) => {
     }
 });
 
-// 7. BOOKING DETAIL & ISSUED
+// 8. BOOKING DETAIL
 router.post('/booking-detail', async (req, res) => {
     try {
         const token = await getConsistentToken();
-        const payload = { ...req.body, userID: USER_CONFIG.userID, accessToken: token };
-        const response = await axios.post(`${BASE_URL}/Airline/BookingDetail`, payload, { httpsAgent: agent });
-        logFullAction("BOOKING_DETAIL", payload, response.data);
+        const response = await axios.post(`${BASE_URL}/Airline/BookingDetail`, { ...req.body, userID: USER_CONFIG.userID, accessToken: token }, { httpsAgent: agent });
         res.json(response.data);
     } catch (error) {
         res.json({ status: "FAILED", respMessage: error.message });
     }
 });
 
+// 9. ISSUED TICKET + AUTO UPDATE STATUS DB
 router.post('/issued-ticket', async (req, res) => {
     try {
         const token = await getConsistentToken();
-        const payload = { ...req.body, userID: USER_CONFIG.userID, accessToken: token };
-        const response = await axios.post(`${BASE_URL}/Airline/Issued`, payload, { httpsAgent: agent });
-        logFullAction("ISSUED", payload, response.data);
+        const response = await axios.post(`${BASE_URL}/Airline/Issued`, { ...req.body, userID: USER_CONFIG.userID, accessToken: token }, { httpsAgent: agent });
+        
+        if (response.data.status === "SUCCESS") {
+            // Update status di database agar sinkron
+            db.execute("UPDATE bookings SET ticket_status = 'Ticketed' WHERE booking_code = ?", [req.body.bookingCode])
+              .catch(e => console.error("[DB UPDATE ERROR] Issued status failed:", e.message));
+        }
+
         res.json(response.data);
     } catch (error) {
         res.json({ status: "FAILED", respMessage: error.message });
