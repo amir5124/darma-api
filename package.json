@@ -19,6 +19,7 @@
     "moment-timezone": "^0.6.0",
     "mysql2": "^3.16.0",
     "nodemon": "^3.1.11",
-    "puppeteer": "^21.5.0"
+    "puppeteer": "^21.5.0",
+    "qrcode": "^1.5.3"
   }
 }
