@@ -332,7 +332,7 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
         // --- GENERATE QR CODE ---
         const qrDataUrl = await QRCode.toDataURL(booking.booking_code);
 
-        // --- LOGIKA RENDER PENERBANGAN (PERGI & PULANG) ---
+        // --- LOGIKA RENDER PENERBANGAN ---
         const renderFlights = (flightSegments, titleLabel) => {
             if (!flightSegments || flightSegments.length === 0) return '';
             
@@ -388,16 +388,34 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
             </div>
         `;
 
-        // --- LOGIKA RENDER TABEL PENUMPANG ---
-        const paxRows = payload.paxDetails.map((p) => {
-            const isInfant = parseInt(p.type) === 2;
-            const typeLabel = isInfant ? 'Bayi' : (parseInt(p.type) === 1 ? 'Anak' : 'Dewasa');
-            const pName = isInfant && p.parent ? `(${payload.paxDetails[parseInt(p.parent)-1].firstName})` : '';
+        // --- LOGIKA RENDER TABEL PENUMPANG (MENGGUNAKAN RESPONSE PARTNER AGAR INFANT MUNCUL) ---
+        const passengers = response.passengers || payload.paxDetails || [];
+        
+        const paxRows = passengers.map((p, pIdx) => {
+            const isInfant = p.type === 'Infant' || parseInt(p.type) === 2;
+            const isChild = p.type === 'Child' || parseInt(p.type) === 1;
+            
+            let typeLabel = 'Dewasa';
+            if (isChild) typeLabel = 'Anak';
+            if (isInfant) typeLabel = 'Bayi';
 
-            // Render Addons per Flight Segment
-            const addonDetails = (p.addOns || []).map((ad, idx) => {
+            // Nama pemangku untuk bayi
+            let pName = '';
+            if (isInfant) {
+                const adult = passengers.find(px => px.type === 'Adult' || parseInt(px.type) === 0);
+                pName = adult ? `(${adult.firstName})` : '';
+            }
+
+            // Ambil Addons dari payload asli berdasarkan index
+            const originalPax = payload.paxDetails ? payload.paxDetails[pIdx] : null;
+            const paxAddons = (originalPax && originalPax.addOns && originalPax.addOns.length > 0) 
+                ? originalPax.addOns 
+                : [{ baggageString: '-', meals: [], seat: '-' }];
+
+            return paxAddons.map((ad, idx) => {
                 const fNumber = (idx === 0 && response.flightDeparts) ? response.flightDeparts[0].flightNumber : 
-                               (response.flightReturns ? response.flightReturns[0].flightNumber : '-');
+                               (response.flightReturns ? response.flightReturns[0].flightNumber : (response.flightDeparts ? response.flightDeparts[0].flightNumber : '-'));
+                
                 const bag = baggageMap[ad.baggageString] || ad.baggageString || '-';
                 const meal = (ad.meals || []).map(m => mealMap[m] || m).join(', ') || '-';
                 const seat = ad.seat || '-';
@@ -406,12 +424,11 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                     <tr class="pax-data-row">
                         <td>${p.title} ${p.firstName} ${p.lastName} /${typeLabel} ${pName}</td>
                         <td style="text-align:center">${fNumber}</td>
-                        <td style="text-align:center">${seat}</td>
-                        <td style="text-align:center">${bag}</td>
-                        <td>${meal}</td>
+                        <td style="text-align:center">${isInfant ? '-' : seat}</td>
+                        <td style="text-align:center">${isInfant ? '-' : bag}</td>
+                        <td>${isInfant ? '-' : meal}</td>
                     </tr>`;
             }).join('');
-            return addonDetails;
         }).join('');
 
         const htmlContent = `
@@ -444,22 +461,18 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                 <div>Check-in Paling Lambat 90 Menit Sebelum<br>Keberangkatan</div>
                 <div>Waktu Tertera Adalah Waktu<br>Bandara Setempat</div>
             </div>
-
             ${flightContentHtml}
-
             <table>
                 <thead>
                     <tr>
-                        <th style="width:30%">Penumpang</th>
+                        <th style="width:35%">Penumpang</th>
                         <th style="text-align:center">Penerbangan</th>
                         <th style="text-align:center">Seat</th>
                         <th style="text-align:center">Baggage</th>
                         <th>Meals</th>
                     </tr>
                 </thead>
-                <tbody>
-                    ${paxRows}
-                </tbody>
+                <tbody>${paxRows}</tbody>
             </table>
         </body>
         </html>`;
@@ -473,6 +486,7 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
         res.contentType("application/pdf");
         res.send(pdfBuffer);
     } catch (e) {
+        console.error(e);
         res.status(500).send(e.message);
     }
 });
