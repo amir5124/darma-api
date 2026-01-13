@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const db = require('../config/db');
+const puppeteer = require('puppeteer');
 const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('../helpers/darmaHelper');
 
 /**
@@ -307,6 +308,134 @@ router.post('/issued-ticket', async (req, res) => {
         res.json(response.data);
     } catch (error) {
         res.json({ status: "FAILED", respMessage: error.message });
+    }
+});
+
+router.get('/generate-ticket/:bookingCode', async (req, res) => {
+    try {
+        const { bookingCode } = req.params;
+
+        // 1. Ambil data dari database
+        const [rows] = await db.execute("SELECT * FROM bookings WHERE booking_code = ?", [bookingCode]);
+        if (rows.length === 0) return res.status(404).send("Booking tidak ditemukan");
+
+        const booking = rows[0];
+        const payload = JSON.parse(booking.payload_request);
+        const response = JSON.parse(booking.raw_response);
+
+        // 2. Olah Data Penumpang & Infant
+        const paxHtml = payload.paxDetails.map((p, index) => {
+            const isInfant = p.type === 2;
+            const parentName = isInfant && p.parent ? payload.paxDetails[parseInt(p.parent) - 1].firstName : '';
+            
+            // Ambil Addons (Bagasi/Seat/Meals)
+            const addOn = p.addOns ? p.addOns[0] : {};
+            const facilities = [
+                addOn.baggageString ? `🧳 ${addOn.baggageString}` : '',
+                addOn.meals ? `🍴 ${addOn.meals.join(', ')}` : '',
+                addOn.seat ? `💺 Seat: ${addOn.seat}` : ''
+            ].filter(x => x).join(' | ');
+
+            return `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td><b>${p.title} ${p.firstName} ${p.lastName}</b> ${isInfant ? `<br><small>(Dipangku oleh ${parentName})</small>` : ''}</td>
+                    <td>${isInfant ? 'Bayi' : 'Dewasa'}</td>
+                    <td>${response.bookingCodeAirline || booking.booking_code}</td>
+                    <td>${facilities || '-'}</td>
+                </tr>`;
+        }).join('');
+
+        // 3. Olah Data Penerbangan (Pergi & Pulang)
+        const flights = response.flightDeparts || [];
+        if (response.flightReturns) flights.push(...response.flightReturns);
+
+        const flightHtml = flights.map((f, idx) => `
+            <div class="flight-section">
+                <div class="section-title">${idx === 0 ? 'Penerbangan Pergi' : 'Penerbangan Pulang'}</div>
+                <div class="flight-card">
+                    <div class="airline-info">
+                        <b>${booking.airline_id} ${f.flightNumber}</b><br>
+                        <small>ECONOMY (subclass ${f.fdFlightClass})</small>
+                    </div>
+                    <div class="time-info">
+                        <div>
+                            <b>${f.fdDepartTime.split('T')[1].substring(0,5)}</b><br>
+                            ${f.fdOrigin}
+                        </div>
+                        <div class="duration-line">---------- ✈ ----------</div>
+                        <div>
+                            <b>${f.fdArrivalTime.split('T')[1].substring(0,5)}</b><br>
+                            ${f.fdDestination}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+
+        // 4. Template HTML (Desain mirip gambar)
+        const htmlContent = `
+        <html>
+        <head>
+            <style>
+                body { font-family: Arial, sans-serif; color: #333; padding: 20px; }
+                .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0052cc; padding-bottom: 10px; }
+                .logo { font-size: 24px; font-weight: bold; color: #0052cc; }
+                .pnr-box { background: #0052cc; color: white; padding: 10px 20px; border-radius: 50px; text-align: center; }
+                .section-title { background: #0052cc; color: white; padding: 8px; margin-top: 20px; font-weight: bold; }
+                .flight-card { border: 1px solid #ddd; padding: 15px; display: flex; justify-content: space-between; align-items: center; }
+                .time-info { display: flex; align-items: center; gap: 20px; text-align: center; }
+                .duration-line { color: #ccc; font-size: 12px; }
+                table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                th { background: #f4f4f4; text-align: left; padding: 10px; border-bottom: 2px solid #ddd; }
+                td { padding: 10px; border-bottom: 1px solid #eee; font-size: 13px; }
+                .footer { margin-top: 30px; font-size: 11px; color: #777; border-top: 1px solid #ddd; padding-top: 10px; }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <div class="logo">E-tiket Pesawat</div>
+                <div class="pnr-box">Kode Booking: <b>${response.bookingCodeAirline || booking.booking_code}</b></div>
+            </div>
+            <p>Order ID: ${booking.reference_no} | Admin: ${booking.pengguna}</p>
+            
+            ${flightHtml}
+
+            <h3>Detail Penumpang</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>No</th>
+                        <th>Penumpang</th>
+                        <th>Tipe</th>
+                        <th>No. Penerbangan</th>
+                        <th>Fasilitas (Bagasi, Makan, Kursi)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${paxHtml}
+                </tbody>
+            </table>
+            <div class="footer">
+                * Waktu tertera adalah waktu bandara setempat. Mohon check-in 90 menit sebelum keberangkatan.
+            </div>
+        </body>
+        </html>`;
+
+        // 5. Generate PDF dengan Puppeteer
+        const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+        const page = await browser.newPage();
+        await page.setContent(htmlContent);
+        const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
+        await browser.close();
+
+        // 6. Kirim PDF ke Browser
+        res.contentType("application/pdf");
+        res.send(pdfBuffer);
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).send("Gagal generate PDF: " + error.message);
     }
 });
 
