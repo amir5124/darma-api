@@ -312,7 +312,6 @@ router.post('/issued-ticket', async (req, res) => {
     }
 });
 
-
 router.get('/generate-ticket/:bookingCode', async (req, res) => {
     try {
         const { bookingCode } = req.params;
@@ -332,7 +331,7 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
 
         const qrDataUrl = await QRCode.toDataURL(booking.booking_code);
 
-        // --- LOGIKA RENDER PENERBANGAN (Dukungan OneWay, RoundTrip, & Transit) ---
+        // --- LOGIKA RENDER PENERBANGAN ---
         const renderFlights = (flightSegments, titleLabel) => {
             if (!flightSegments || flightSegments.length === 0) return '';
             
@@ -388,7 +387,7 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
             </div>
         `;
 
-        // --- LOGIKA RENDER TABEL PENUMPANG (Dukungan Per Segmen Penerbangan) ---
+        // --- LOGIKA RENDER TABEL PENUMPANG (DENGAN PROTEKSI BAYI & DEFAULT 15KG) ---
         const passengers = response.passengers || payload.paxDetails || [];
         const allSegments = [...(response.flightDeparts || []), ...(response.flightReturns || [])];
 
@@ -397,29 +396,40 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
             const isChild = p.type === 'Child' || parseInt(p.type) === 1;
             let typeLabel = isInfant ? 'Bayi' : (isChild ? 'Anak' : 'Dewasa');
             
-            let pName = isInfant ? `(${passengers.find(px => px.type === 'Adult')?.firstName || 'Dewasa'})` : '';
+            let pName = isInfant ? `(${passengers.find(px => px.type === 'Adult' || px.type === 0)?.firstName || 'Dewasa'})` : '';
 
-            // Render baris untuk setiap segmen penerbangan (untuk menunjukkan detail transit/PP)
             return allSegments.map((seg, sIdx) => {
                 const originalPax = payload.paxDetails ? payload.paxDetails[pIdx] : null;
-                // Ambil addon berdasarkan index segmen jika tersedia
                 const ad = (originalPax && originalPax.addOns && originalPax.addOns[sIdx]) 
                            ? originalPax.addOns[sIdx] 
-                           : (originalPax?.addOns?.[0] || { baggageString: '-', meals: [], seat: '-' });
+                           : (originalPax?.addOns?.[0] || null);
 
-                const bag = baggageMap[ad.baggageString] || ad.baggageString || '-';
-                const meal = (ad.meals || []).map(m => mealMap[m] || m).join(', ') || '-';
-                const seat = ad.seat || '-';
+                let bag = '-';
+                let meal = '-';
+                let seat = '-';
+
+                // Hanya Adult dan Child yang mendapatkan fasilitas
+                if (!isInfant) {
+                    const rawBag = ad?.baggageString || "";
+                    // Jika kosong, set ke Default 15kg
+                    if (rawBag === "" || rawBag === "-") {
+                        bag = "15kg"; 
+                    } else {
+                        bag = baggageMap[rawBag] || rawBag;
+                    }
+                    meal = (ad?.meals || []).map(m => mealMap[m] || m).join(', ') || '-';
+                    seat = ad?.seat || '-';
+                }
 
                 return `
-                    <tr class="pax-data-row">
+                    <tr class="pax-data-row" style="${isInfant ? 'background-color: #fafafa;' : ''}">
                         <td style="${sIdx > 0 ? 'border-top: none; color: transparent;' : ''}">
                             ${sIdx === 0 ? `<b>${p.title} ${p.firstName} ${p.lastName}</b> /${typeLabel} ${pName}` : ''}
                         </td>
-                        <td style="text-align:center">${seg.flightNumber}</td>
-                        <td style="text-align:center">${isInfant ? '-' : seat}</td>
-                        <td style="text-align:center">${isInfant ? '-' : bag}</td>
-                        <td>${isInfant ? '-' : meal}</td>
+                        <td style="text-align:center; font-weight: bold;">${seg.flightNumber}</td>
+                        <td style="text-align:center">${seat}</td>
+                        <td style="text-align:center">${bag}</td>
+                        <td>${meal}</td>
                     </tr>`;
             }).join('');
         }).join('');
