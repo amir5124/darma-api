@@ -324,12 +324,11 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
         const payload = typeof booking.payload_request === 'string' ? JSON.parse(booking.payload_request) : booking.payload_request;
         const response = typeof booking.raw_response === 'string' ? JSON.parse(booking.raw_response) : booking.raw_response;
 
-        // --- MAPPING DESKRIPSI ADDONS ---
+        // --- MAPPING DATA ---
         const baggageMap = { "PBAA": "15kg", "PBAB": "20kg", "PBAC": "25kg", "PBAD": "30kg", "PBAF": "40kg" };
         const mealMap = { "NPCB": "Nasi Padang", "NLCB": "Pak Nasser", "NKCB": "Nasi Kuning", "GCCB": "Thai Green", "CRCB": "Uncle Chin" };
         const airlineNames = { "QZ": "AirAsia", "ID": "Batik Air", "GA": "Garuda Indonesia", "JT": "Lion Air", "QG": "Citilink" };
 
-        // --- GENERATE QR CODE ---
         const qrDataUrl = await QRCode.toDataURL(booking.booking_code);
 
         // --- LOGIKA RENDER PENERBANGAN ---
@@ -363,12 +362,12 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                                 <span class="city-code">${f.fdOrigin}</span>
                                 <span class="time-bold">${jamDep}</span>
                             </div>
-                            <div class="date-small">${dayName} ${dateStr}</div>
+                            <div class="date-small">${dayName}, ${dateStr}</div>
                             <div class="station-row" style="margin-top:15px;">
                                 <span class="city-code">${f.fdDestination}</span>
                                 <span class="time-bold">${jamArr}</span>
                             </div>
-                            <div class="date-small">${dayName} ${dateStr}</div>
+                            <div class="date-small">${dayName}, ${dateStr}</div>
                         </div>
                     </div>
                 </div>`;
@@ -379,8 +378,8 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
         const flightContentHtml = `
             <div style="display: flex; gap: 20px;">
                 <div style="flex: 1;">${renderFlights(response.flightDeparts, 'Pergi')}</div>
-                <div style="flex: 1;">${renderFlights(response.flightReturns, 'Pulang')}</div>
-                <div style="width: 120px; text-align: center;">
+                <div style="flex: 1;">${renderFlights(response.flightReturns || [], 'Pulang')}</div>
+                <div style="width: 120px; text-align: center; border-left: 1px solid #eee; padding-left: 10px;">
                     <img src="${qrDataUrl}" width="100">
                     <div style="font-size: 10px; color: #666; margin-top: 5px;">Booking Code</div>
                     <div style="font-size: 14px; font-weight: bold;">${response.bookingCodeAirline || booking.booking_code}</div>
@@ -388,45 +387,49 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
             </div>
         `;
 
-        // --- LOGIKA RENDER TABEL PENUMPANG (MENGGUNAKAN RESPONSE PARTNER AGAR INFANT MUNCUL) ---
+        // --- LOGIKA RENDER TABEL PENUMPANG (DENGAN PROTEKSI BAYI & DEFAULT 15KG) ---
         const passengers = response.passengers || payload.paxDetails || [];
-        
+        const allSegments = [...(response.flightDeparts || []), ...(response.flightReturns || [])];
+
         const paxRows = passengers.map((p, pIdx) => {
             const isInfant = p.type === 'Infant' || parseInt(p.type) === 2;
             const isChild = p.type === 'Child' || parseInt(p.type) === 1;
+            let typeLabel = isInfant ? 'Bayi' : (isChild ? 'Anak' : 'Dewasa');
             
-            let typeLabel = 'Dewasa';
-            if (isChild) typeLabel = 'Anak';
-            if (isInfant) typeLabel = 'Bayi';
+            let pName = isInfant ? `(${passengers.find(px => px.type === 'Adult' || px.type === 0)?.firstName || 'Dewasa'})` : '';
 
-            // Nama pemangku untuk bayi
-            let pName = '';
-            if (isInfant) {
-                const adult = passengers.find(px => px.type === 'Adult' || parseInt(px.type) === 0);
-                pName = adult ? `(${adult.firstName})` : '';
-            }
+            return allSegments.map((seg, sIdx) => {
+                const originalPax = payload.paxDetails ? payload.paxDetails[pIdx] : null;
+                const ad = (originalPax && originalPax.addOns && originalPax.addOns[sIdx]) 
+                           ? originalPax.addOns[sIdx] 
+                           : (originalPax?.addOns?.[0] || null);
 
-            // Ambil Addons dari payload asli berdasarkan index
-            const originalPax = payload.paxDetails ? payload.paxDetails[pIdx] : null;
-            const paxAddons = (originalPax && originalPax.addOns && originalPax.addOns.length > 0) 
-                ? originalPax.addOns 
-                : [{ baggageString: '-', meals: [], seat: '-' }];
+                let bag = '-';
+                let meal = '-';
+                let seat = '-';
 
-            return paxAddons.map((ad, idx) => {
-                const fNumber = (idx === 0 && response.flightDeparts) ? response.flightDeparts[0].flightNumber : 
-                               (response.flightReturns ? response.flightReturns[0].flightNumber : (response.flightDeparts ? response.flightDeparts[0].flightNumber : '-'));
-                
-                const bag = baggageMap[ad.baggageString] || ad.baggageString || '-';
-                const meal = (ad.meals || []).map(m => mealMap[m] || m).join(', ') || '-';
-                const seat = ad.seat || '-';
+                // Hanya Adult dan Child yang mendapatkan fasilitas
+                if (!isInfant) {
+                    const rawBag = ad?.baggageString || "";
+                    // Jika kosong, set ke Default 15kg
+                    if (rawBag === "" || rawBag === "-") {
+                        bag = "15kg"; 
+                    } else {
+                        bag = baggageMap[rawBag] || rawBag;
+                    }
+                    meal = (ad?.meals || []).map(m => mealMap[m] || m).join(', ') || '-';
+                    seat = ad?.seat || '-';
+                }
 
                 return `
-                    <tr class="pax-data-row">
-                        <td>${p.title} ${p.firstName} ${p.lastName} /${typeLabel} ${pName}</td>
-                        <td style="text-align:center">${fNumber}</td>
-                        <td style="text-align:center">${isInfant ? '-' : seat}</td>
-                        <td style="text-align:center">${isInfant ? '-' : bag}</td>
-                        <td>${isInfant ? '-' : meal}</td>
+                    <tr class="pax-data-row" style="${isInfant ? 'background-color: #fafafa;' : ''}">
+                        <td style="${sIdx > 0 ? 'border-top: none; color: transparent;' : ''}">
+                            ${sIdx === 0 ? `<b>${p.title} ${p.firstName} ${p.lastName}</b> /${typeLabel} ${pName}` : ''}
+                        </td>
+                        <td style="text-align:center; font-weight: bold;">${seg.flightNumber}</td>
+                        <td style="text-align:center">${seat}</td>
+                        <td style="text-align:center">${bag}</td>
+                        <td>${meal}</td>
                     </tr>`;
             }).join('');
         }).join('');
@@ -437,39 +440,43 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
             <style>
                 body { font-family: 'Helvetica', sans-serif; padding: 20px; font-size: 12px; color: #333; }
                 .top-icons { display: flex; justify-content: space-around; border-bottom: 1px solid #ddd; padding-bottom: 15px; margin-bottom: 20px; text-align: center; font-size: 10px; color: #0052cc; }
-                .journey-container { margin-bottom: 15px; }
-                .journey-header { font-size: 16px; font-weight: bold; margin-bottom: 10px; }
+                .journey-container { margin-bottom: 15px; border: 1px solid #eee; padding: 10px; border-radius: 5px; }
+                .journey-header { font-size: 14px; font-weight: bold; margin-bottom: 10px; color: #0052cc; border-bottom: 1px solid #eee; padding-bottom: 5px; }
                 .flight-detail-row { display: flex; gap: 15px; align-items: flex-start; }
-                .airline-col { width: 80px; }
-                .airline-name { font-weight: bold; color: #d32f2f; font-size: 14px; }
-                .flight-code { font-weight: bold; margin-top: 5px; }
+                .airline-col { width: 90px; }
+                .airline-name { font-weight: bold; color: #d32f2f; font-size: 13px; }
+                .flight-code { font-weight: bold; margin-top: 5px; color: #333; }
                 .route-col { display: flex; flex-direction: column; align-items: center; width: 20px; }
-                .dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid #0052cc; }
+                .dot { width: 8px; height: 8px; border-radius: 50%; border: 2px solid #0052cc; }
                 .dot.blue { background: #0052cc; }
-                .line { width: 2px; height: 50px; background: #ddd; }
+                .line { width: 2px; height: 40px; background: #ddd; }
                 .info-col { flex-grow: 1; }
-                .station-row { display: flex; justify-content: space-between; font-size: 14px; font-weight: bold; width: 150px; }
-                .date-small { font-size: 10px; color: #666; }
-                table { width: 100%; border-collapse: collapse; margin-top: 30px; }
-                th { text-align: left; border-bottom: 1px solid #eee; padding: 8px; color: #666; font-weight: normal; }
-                .pax-data-row td { padding: 12px 8px; border-bottom: 1px solid #eee; font-size: 12px; }
+                .station-row { display: flex; justify-content: space-between; font-size: 13px; font-weight: bold; width: 160px; }
+                .time-bold { font-size: 15px; }
+                .date-small { font-size: 10px; color: #777; }
+                table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                th { text-align: left; border-bottom: 2px solid #0052cc; padding: 10px 8px; color: #333; font-size: 11px; text-transform: uppercase; }
+                .pax-data-row td { padding: 10px 8px; border-bottom: 1px solid #eee; font-size: 11px; vertical-align: middle; }
+                .special-request-header { background: #f9f9f9; font-weight: bold; font-size: 10px; }
             </style>
         </head>
         <body>
             <div class="top-icons">
-                <div>Tunjukkan E-Tiket dan Identitas Para<br>Penumpang Saat Check-in</div>
-                <div>Check-in Paling Lambat 90 Menit Sebelum<br>Keberangkatan</div>
-                <div>Waktu Tertera Adalah Waktu<br>Bandara Setempat</div>
+                <div><img src="https://cdn-icons-png.flaticon.com/512/712/712032.png" width="15"><br>Tunjukkan E-Tiket dan Identitas</div>
+                <div><img src="https://cdn-icons-png.flaticon.com/512/483/483356.png" width="15"><br>Check-in Minimal 90 Menit Sebelum</div>
+                <div><img src="https://cdn-icons-png.flaticon.com/512/2088/2088617.png" width="15"><br>Waktu Bandara Setempat</div>
             </div>
+
             ${flightContentHtml}
+
             <table>
                 <thead>
-                    <tr>
+                    <tr class="special-request-header">
                         <th style="width:35%">Penumpang</th>
                         <th style="text-align:center">Penerbangan</th>
-                        <th style="text-align:center">Seat</th>
-                        <th style="text-align:center">Baggage</th>
-                        <th>Meals</th>
+                        <th style="text-align:center; width:10%">Seat</th>
+                        <th style="text-align:center; width:15%">Baggage</th>
+                        <th style="width:25%">Meals</th>
                     </tr>
                 </thead>
                 <tbody>${paxRows}</tbody>
@@ -480,7 +487,7 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
         const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
         const page = await browser.newPage();
         await page.setContent(htmlContent, { waitUntil: 'domcontentloaded' });
-        const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
+        const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true, margin: { top: '1cm', bottom: '1cm', left: '1cm', right: '1cm' } });
         await browser.close();
 
         res.contentType("application/pdf");
