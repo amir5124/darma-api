@@ -2,7 +2,8 @@ const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const db = require('../config/db');
-
+const puppeteer = require('puppeteer');
+const QRCode = require('qrcode');
 const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('../helpers/darmaHelper');
 
 /**
@@ -106,6 +107,9 @@ async function archiveBookingToDB(payload, response, username) {
     }
 }
 
+// --- ENDPOINTS ---
+
+// 1. AIRLINE LIST
 router.post('/airline-list', async (req, res) => {
     try {
         const token = await getConsistentToken();
