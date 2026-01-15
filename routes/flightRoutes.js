@@ -2,8 +2,7 @@ const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const db = require('../config/db');
-const puppeteer = require('puppeteer');
-const QRCode = require('qrcode');
+
 const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('../helpers/darmaHelper');
 
 /**
@@ -32,7 +31,7 @@ async function archiveBookingToDB(payload, response, username) {
                 response.bookingCode,
                 response.referenceNo,
                 payload.airlineID,
-                payload.airlineID, 
+                payload.airlineID,
                 payload.tripType,
                 payload.origin,
                 payload.destination,
@@ -53,16 +52,16 @@ async function archiveBookingToDB(payload, response, username) {
         if (payload.paxDetails && payload.paxDetails.length > 0) {
             for (const p of payload.paxDetails) {
                 // MySQL DATE hanya menerima YYYY-MM-DD, potong string ISO
-                const cleanBirthDate = (p.birthDate && p.birthDate.length >= 10) 
-                    ? p.birthDate.substring(0, 10) 
+                const cleanBirthDate = (p.birthDate && p.birthDate.length >= 10)
+                    ? p.birthDate.substring(0, 10)
                     : null;
 
                 const [resPax] = await conn.execute(
                     `INSERT INTO passengers (booking_id, title, first_name, last_name, pax_type, phone, id_number, birth_date, pengguna) 
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     [
-                        bookingId, p.title, p.firstName, p.lastName || p.firstName, 
-                        p.type === 0 ? 'Adult' : 'Child', payload.contactRemainingPhoneNo, 
+                        bookingId, p.title, p.firstName, p.lastName || p.firstName,
+                        p.type === 0 ? 'Adult' : 'Child', payload.contactRemainingPhoneNo,
                         p.IDNumber || "", cleanBirthDate, username || "SISTEM"
                     ]
                 );
@@ -90,8 +89,8 @@ async function archiveBookingToDB(payload, response, username) {
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     bookingId, 'Departure', f.flightNumber, f.fdOrigin, f.fdDestination,
-                    f.fdDepartTime.replace('T', ' ').substring(0, 19), 
-                    f.fdArrivalTime.replace('T', ' ').substring(0, 19), 
+                    f.fdDepartTime.replace('T', ' ').substring(0, 19),
+                    f.fdArrivalTime.replace('T', ' ').substring(0, 19),
                     f.fdFlightClass, username || "SISTEM"
                 ]
             );
@@ -107,9 +106,6 @@ async function archiveBookingToDB(payload, response, username) {
     }
 }
 
-// --- ENDPOINTS ---
-
-// 1. AIRLINE LIST
 router.post('/airline-list', async (req, res) => {
     try {
         const token = await getConsistentToken();
@@ -117,6 +113,39 @@ router.post('/airline-list', async (req, res) => {
         res.json(response.data);
     } catch (error) {
         res.status(500).json({ status: "FAILED", respMessage: error.message });
+    }
+});
+
+// 2. AIRLINE ROUTE
+router.post('/airline-route', async (req, res) => {
+    try {
+        // Mengambil token konsisten seperti endpoint list
+        const token = await getConsistentToken();
+
+        // Mengambil airlineID dari body request yang dikirim frontend
+        const { airlineID } = req.body;
+
+        if (!airlineID) {
+            return res.status(400).json({
+                status: "FAILED",
+                respMessage: "airlineID is required"
+            });
+        }
+
+        // Request ke BASE_URL/Airline/Route
+        const response = await axios.post(`${BASE_URL}/Airline/Route`, {
+            airlineID: airlineID,
+            userID: USER_CONFIG.userID,
+            accessToken: token
+        }, { httpsAgent: agent });
+
+        res.json(response.data);
+    } catch (error) {
+        console.error("Error Airline Route:", error.message);
+        res.status(500).json({
+            status: "FAILED",
+            respMessage: error.response?.data?.respMessage || error.message
+        });
     }
 });
 
@@ -170,7 +199,7 @@ router.get('/get-all-schedules', async (req, res) => {
         let allJourneyReturn = [];
         let totalAirline = 0;
         let airlineIndex = -1;
-        let currentAccessCode = null; 
+        let currentAccessCode = null;
         let safetyCounter = 0;
 
         while ((airlineIndex < totalAirline || airlineIndex === -1) && safetyCounter < 30) {
@@ -299,11 +328,11 @@ router.post('/issued-ticket', async (req, res) => {
     try {
         const token = await getConsistentToken();
         const response = await axios.post(`${BASE_URL}/Airline/Issued`, { ...req.body, userID: USER_CONFIG.userID, accessToken: token }, { httpsAgent: agent });
-        
+
         if (response.data.status === "SUCCESS") {
             // Update status di database agar sinkron
             db.execute("UPDATE bookings SET ticket_status = 'Ticketed' WHERE booking_code = ?", [req.body.bookingCode])
-              .catch(e => console.error("[DB UPDATE ERROR] Issued status failed:", e.message));
+                .catch(e => console.error("[DB UPDATE ERROR] Issued status failed:", e.message));
         }
 
         res.json(response.data);
@@ -334,13 +363,13 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
         // --- LOGIKA RENDER PENERBANGAN ---
         const renderFlights = (flightSegments, titleLabel) => {
             if (!flightSegments || flightSegments.length === 0) return '';
-            
+
             let html = ``;
             flightSegments.forEach((f, idx) => {
                 const dateObj = new Date(f.fdDepartTime);
                 const dayName = dateObj.toLocaleDateString('id-ID', { weekday: 'short' });
                 const dateStr = dateObj.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
-                
+
                 const jamDep = f.fdDepartTime.includes('T') ? f.fdDepartTime.split('T')[1].substring(0, 5) : f.fdDepartTime.substring(11, 16);
                 const jamArr = f.fdArrivalTime.includes('T') ? f.fdArrivalTime.split('T')[1].substring(0, 5) : f.fdArrivalTime.substring(11, 16);
 
@@ -395,14 +424,14 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
             const isInfant = p.type === 'Infant' || parseInt(p.type) === 2;
             const isChild = p.type === 'Child' || parseInt(p.type) === 1;
             let typeLabel = isInfant ? 'Bayi' : (isChild ? 'Anak' : 'Dewasa');
-            
+
             let pName = isInfant ? `(${passengers.find(px => px.type === 'Adult' || px.type === 0)?.firstName || 'Dewasa'})` : '';
 
             return allSegments.map((seg, sIdx) => {
                 const originalPax = payload.paxDetails ? payload.paxDetails[pIdx] : null;
-                const ad = (originalPax && originalPax.addOns && originalPax.addOns[sIdx]) 
-                           ? originalPax.addOns[sIdx] 
-                           : (originalPax?.addOns?.[0] || null);
+                const ad = (originalPax && originalPax.addOns && originalPax.addOns[sIdx])
+                    ? originalPax.addOns[sIdx]
+                    : (originalPax?.addOns?.[0] || null);
 
                 let bag = '-';
                 let meal = '-';
@@ -413,7 +442,7 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                     const rawBag = ad?.baggageString || "";
                     // Jika kosong, set ke Default 15kg
                     if (rawBag === "" || rawBag === "-") {
-                        bag = "15kg"; 
+                        bag = "15kg";
                     } else {
                         bag = baggageMap[rawBag] || rawBag;
                     }
