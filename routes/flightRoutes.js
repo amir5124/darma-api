@@ -196,11 +196,14 @@ router.post('/get-price', async (req, res) => {
 
 // 4. POOLING SCHEDULE ALL AIRLINE
 router.get('/get-all-schedules', async (req, res) => {
+    // Setup Header SSE
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
     try {
         const token = await getConsistentToken(true);
         const q = req.query;
-        let allJourneyDepart = [];
-        let allJourneyReturn = [];
         let totalAirline = 0;
         let airlineIndex = -1;
         let currentAccessCode = null;
@@ -223,21 +226,43 @@ router.get('/get-all-schedules', async (req, res) => {
                 "userID": USER_CONFIG.userID,
                 "accessToken": token
             };
-            const response = await axios.post(`${BASE_URL}/Airline/ScheduleAllAirline`, payload, { httpsAgent: agent, timeout: 60000 });
+
+            const response = await axios.post(`${BASE_URL}/Airline/ScheduleAllAirline`, payload, { 
+                httpsAgent: agent, 
+                timeout: 60000 
+            });
+            
             const result = response.data;
+
             if (result.status === "SUCCESS") {
                 totalAirline = result.totalAirline;
                 airlineIndex = result.airlineIndex;
                 currentAccessCode = result.airlineAccessCode;
-                if (result.journeyDepart) allJourneyDepart = allJourneyDepart.concat(result.journeyDepart);
-                if (result.journeyReturn) allJourneyReturn = allJourneyReturn.concat(result.journeyReturn);
+
+                // KIRIM DATA KE FRONTEND SAAT INI JUGA (PUSH)
+                res.write(`data: ${JSON.stringify({
+                    status: "PARTIAL",
+                    totalAirline,
+                    airlineIndex,
+                    journeyDepart: result.journeyDepart || [],
+                    journeyReturn: result.journeyReturn || []
+                })}\n\n`);
+
                 if (airlineIndex >= totalAirline && totalAirline > 0) break;
-            } else break;
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            } else {
+                break;
+            }
+            // Memberi jeda sedikit agar server tidak overload
+            await new Promise(resolve => setTimeout(resolve, 500));
         }
-        res.json({ status: "SUCCESS", totalAirline, data: allJourneyDepart, dataReturn: allJourneyReturn });
+
+        // Kirim tanda bahwa proses sudah selesai semua
+        res.write(`data: ${JSON.stringify({ status: "COMPLETED" })}\n\n`);
+        res.end();
+
     } catch (error) {
-        res.status(500).json({ status: "ERROR", error: error.message });
+        res.write(`data: ${JSON.stringify({ status: "ERROR", message: error.message })}\n\n`);
+        res.end();
     }
 });
 
