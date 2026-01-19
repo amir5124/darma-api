@@ -386,9 +386,9 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
         const calculateDuration = (depart, arrival) => {
             const start = new Date(depart);
             const end = new Date(arrival);
-            const diffMs = end - start; // Selisih dalam milidetik
-            const diffHrs = Math.floor(diffMs / 3600000); // Jam
-            const diffMins = Math.round(((diffMs % 3600000) / 60000)); // Menit
+            const diffMs = end - start; 
+            const diffHrs = Math.floor(diffMs / 3600000); 
+            const diffMins = Math.round(((diffMs % 3600000) / 60000)); 
             return `${diffHrs}j ${diffMins}m`;
         };
 
@@ -410,8 +410,6 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                 
                 const jamDep = f.fdDepartTime.includes('T') ? f.fdDepartTime.split('T')[1].substring(0, 5) : f.fdDepartTime.substring(11, 16);
                 const jamArr = f.fdArrivalTime.includes('T') ? f.fdArrivalTime.split('T')[1].substring(0, 5) : f.fdArrivalTime.substring(11, 16);
-
-                // Hitung durasi otomatis menggunakan helper
                 const durationText = calculateDuration(f.fdDepartTime, f.fdArrivalTime);
 
                 return `
@@ -448,7 +446,7 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
             }).join('');
         };
 
-        // --- LOGIKA RENDER PENUMPANG ---
+        // --- LOGIKA RENDER TABEL PENUMPANG (SEAT & MEALS ADDED) ---
         const passengers = response.passengers || payload.paxDetails || [];
         const paxRows = passengers.map((p, pIdx) => {
             const isInfant = p.type === 'Infant' || parseInt(p.type) === 2;
@@ -492,8 +490,8 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                 .top-icons { display: flex; justify-content: space-between; margin: 15px 0; border-bottom: 1px solid #ddd; padding-bottom: 10px; }
                 .icon-item { display: flex; align-items: center; gap: 8px; width: 32%; }
                 .icon-item img { width: 30px; height: 30px; }
-                .icon-text { font-size: 8.5px; color: #444; }
-                .icon-text b { display: block; font-size: 9px; color: #000; margin-bottom: 1px; }
+                .icon-text { font-size: 8px; color: #444; }
+                .icon-text b { display: block; font-size: 8.5px; color: #000; margin-bottom: 1px; }
 
                 .flight-box { border: 1px solid #0194f3; border-radius: 6px; overflow: hidden; margin-bottom: 15px; }
                 .flight-header { background: #0194f3; color: white; padding: 6px 15px; font-weight: bold; font-size: 10.5px; }
@@ -501,7 +499,6 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                 .airline-info { width: 130px; border-right: 1px solid #eee; }
                 .airline-name { font-weight: bold; font-size: 12px; color: #000; }
                 .flight-number { font-weight: bold; font-size: 11px; margin: 2px 0; }
-                .class-info { color: #888; font-size: 9px; }
                 
                 .route-display { flex-grow: 1; display: flex; justify-content: space-between; align-items: center; padding-left: 15px; }
                 .time-text { font-size: 16px; font-weight: bold; color: #000; }
@@ -515,17 +512,26 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                 .circle-solid { width: 7px; height: 7px; background: #0194f3; border-radius: 50%; }
                 .hr-line { flex-grow: 1; height: 1px; background: #ddd; margin: 0 3px; }
 
-                .section-title { background: #015693; color: white; padding: 7px 15px; font-weight: bold; border-radius: 6px 6px 0 0; font-size: 10.5px; }
+                .section-title { background: #015693; color: white; padding: 7px 15px; font-weight: bold; border-radius: 6px 6px 0 0; font-size: 10px; }
                 .table-container { border: 1px solid #015693; border-radius: 0 0 6px 6px; margin-bottom: 15px; }
                 table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-                th { text-align: left; padding: 8px; background: #fff; border-bottom: 1px solid #0194f3; color: #000; font-size: 9px; }
-                td { padding: 8px; border-bottom: 1px solid #eee; font-size: 9.5px; word-wrap: break-word; vertical-align: middle; }
+                th { text-align: left; padding: 6px; background: #fff; border-bottom: 1px solid #0194f3; color: #000; font-size: 8.5px; }
+                th small { display: block; color: #666; font-weight: normal; font-size: 7.5px; }
+                td { padding: 8px 6px; border-bottom: 1px solid #eee; font-size: 9px; word-wrap: break-word; vertical-align: middle; }
 
                 .fare-section { margin-top: 15px; }
                 .fare-title { color: #015693; font-weight: bold; font-size: 12px; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 4px; }
-                .fare-row { background: #f2f2f2; padding: 10px 15px; display: flex; justify-content: space-between; font-weight: bold; border-radius: 4px; font-size: 11px; }
+                .fare-row { background: #f2f2f2; padding: 10px 15px; display: flex; justify-content: space-between; font-weight: bold; border-radius: 4px; font-size: 10.5px; }
                 .total-row { padding: 10px 15px; display: flex; justify-content: flex-end; align-items: center; gap: 30px; }
                 .total-amount { font-size: 18px; font-weight: 900; color: #000; }
+
+                .important-note { margin-top: 20px; background: #fff; }
+                .note-header { background: #e9ecef; padding: 5px 15px; font-weight: bold; display: flex; align-items: center; gap: 10px; font-size: 11px; }
+                .note-content { padding: 10px 0; list-style: none; }
+                .note-content li { margin-bottom: 10px; position: relative; padding-left: 20px; }
+                .note-content li::before { content: attr(data-number); position: absolute; left: 0; font-weight: bold; }
+                .note-content small { display: block; color: #777; font-size: 9px; }
+                .footer-border { border-bottom: 5px solid #0194f3; margin-top: 10px; }
             </style>
         </head>
         <body>
@@ -533,8 +539,13 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                 <table class="header-table">
                     <tr>
                         <td>
+
+                            <div class="purchased-from">Purchased From / Pembelian Dari :</div>
+
                             <div class="agency-name">LinkQU</div>
-                            <div class="purchased-from">Jl. Negara RT16 Tengin Baru, Telp: 085247777710<br>E-mail: linku_official@gmail.com</div>
+
+                            <div class="purchased-from">Jl. Negara RT.16 Tengin Baru<br> Telp: 085247777710<br>E-mail: linkutransport@gmail.com</div>
+
                         </td>
                         <td align="right">
                             <img src="${qrDataUrl}" width="75">
@@ -542,12 +553,12 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                     </tr>
                 </table>
 
-                <h2 style="color:#0194f3; border-bottom: 1.5px solid #0194f3; padding-bottom:5px; margin: 10px 0;">E-ticket | E-tiket</h2>
+                <h2 style="color:#0194f3; border-bottom: 1.5px solid #0194f3; padding-bottom:5px; margin: 10px 0;">E-ticket | <small>E-tiket</small></h2>
                 
                 <div class="top-icons">
                     <div class="icon-item">
                         <img src="https://i.ibb.co.com/SwVNHCKP/ticket.png">
-                        <div class="icon-text"><b>Show E-ticket & ID Card</b>Tunjukkan E-tiket & Identitas</div>
+                        <div class="icon-text"><b>Show E-ticket & ID Card</b>Perlihatkan E-tiket & Identitas</div>
                     </div>
                     <div class="icon-item">
                         <img src="https://i.ibb.co.com/C5TX1Hny/schedule.png">
@@ -562,17 +573,17 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                 ${renderFlightSection(response.flightDeparts, 'Departure / Pergi')}
                 ${response.flightReturns ? renderFlightSection(response.flightReturns, 'Return / Pulang') : ''}
 
-                <div class="section-title">Detail Penumpang</div>
+                <div class="section-title">Passenger Detail / Detail Penumpang</div>
                 <div class="table-container">
                     <table>
                         <thead>
                             <tr>
                                 <th style="width:25px; text-align:center">No</th>
-                                <th style="width:150px;">Nama Penumpang</th>
-                                <th style="width:50px;">Tipe</th>
-                                <th style="width:40px; text-align:center">Kursi</th>
-                                <th style="width:40px; text-align:center">Bagasi</th>
-                                <th>Makanan</th>
+                                <th style="width:130px;">Passenger<small>Penumpang</small></th>
+                                <th style="width:50px;">Type<small>Tipe</small></th>
+                                <th style="width:40px; text-align:center">Seat<small>Kursi</small></th>
+                                <th style="width:40px; text-align:center">Baggage<small>Bagasi</small></th>
+                                <th>Meals<small>Makanan</small></th>
                             </tr>
                         </thead>
                         <tbody>${paxRows}</tbody>
@@ -580,16 +591,46 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                 </div>
 
                 <div class="fare-section">
-                    <div class="fare-title">Detail Harga</div>
+                    <div class="fare-title">Fares Detail | Detail Harga</div>
                     <div class="fare-row">
-                        <span>Tiket untuk ${passengers.length} Penumpang</span>
+                        <span>Ticket for ${passengers.length} Passenger <br>
+                        <small style="font-weight:normal; color:#666;">Tiket untuk ${passengers.length} penumpang</small></span>
                         <span>IDR ${ticketPrice.toLocaleString('id-ID')},-</span>
                     </div>
                     <div class="total-row">
-                        <div style="text-align:right"><b>Total Pembayaran</b></div>
+                        <div style="text-align:right"><b>Total Amount</b><br><small style="color:#666">Total Pembayaran</small></div>
                         <div class="total-amount">IDR ${ticketPrice.toLocaleString('id-ID')},-</div>
                     </div>
                 </div>
+
+                <div class="important-note">
+                    <div class="note-header">
+                        <img src="https://cdn-icons-png.flaticon.com/512/471/471663.png" width="12"> Important Note | Catatan Penting
+                    </div>
+                    <ul class="note-content">
+                        <li data-number="1.">
+                            The name of the <b>identity card (Indonesians KTP)</b> or passport must match the name passenger shown above
+                            <small>Nama dalam KTP/Paspor harus sesuai dengan nama penumpang yang ditunjukkan di atas</small>
+                        </li>
+                        <li data-number="2.">
+                            Please arrive at the airport <b>90 minutes</b> before the flight for domestic travel and <b>2 hours</b> for international travel
+                            <small>Harap tiba di bandara 90 menit sebelum penerbangan untuk perjalanan domestik dan 2 jam sebelum penerbangan untuk perjalanan internasional</small>
+                        </li>
+                        <li data-number="3.">
+                            Check-in closes 45 minutes before departure time.
+                            <small>Check-in tutup 45 menit sebelum waktu keberangkatan</small>
+                        </li>
+                        <li data-number="4.">
+                            Passengers are allowed to bring up to 7kg of hand luggage onboard Air Flights. Please refer to airlines terms and condition for more information.
+                            <small>Penumpang diperbolehkan membawa barang hingga 7 kg ke dalam pesawat</small>
+                        </li>
+                        <li data-number="5.">
+                            Passengers agree with Terms and Conditions of Carriage outlined by Carrier.
+                            <small>Harap menyesuaikan dengan kebijakan maskapai. Penumpang setuju dengan kebijakan dan aturan yang ditetapkan Operator</small>
+                        </li>
+                    </ul>
+                </div>
+                <div class="footer-border"></div>
             </div>
         </body>
         </html>`;
@@ -600,7 +641,7 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
         const pdfBuffer = await page.pdf({ 
             format: 'A4', 
             printBackground: true,
-            margin: { top: '0.5cm', bottom: '0.5cm', left: '0.5cm', right: '0.5cm' } 
+            margin: { top: '0.4cm', bottom: '0.4cm', left: '0.4cm', right: '0.4cm' } 
         });
         await browser.close();
 
@@ -609,7 +650,8 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
 
     } catch (e) {
         console.error(e);
-        res.status(500).send("Gagal membuat tiket: " + e.message);
+        res.status(500).send("Error generating ticket: " + e.message);
     }
 });
+
 module.exports = router;
