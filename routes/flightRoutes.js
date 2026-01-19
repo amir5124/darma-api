@@ -388,33 +388,35 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
 
         const qrDataUrl = await QRCode.toDataURL(response.bookingCodeAirline || booking.booking_code);
 
-        // --- LOGIKA RENDER PENERBANGAN ---
+        // --- LOGIKA RENDER PENERBANGAN (DESAIN KOTAK BIRU) ---
         const renderFlightSection = (flightSegments, titleLabel) => {
             if (!flightSegments || flightSegments.length === 0) return '';
             
             return flightSegments.map((f, idx) => {
                 const dateObj = new Date(f.fdDepartTime);
                 const dateStr = dateObj.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+                const fullDateTitle = dateObj.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+                
                 const jamDep = f.fdDepartTime.includes('T') ? f.fdDepartTime.split('T')[1].substring(0, 5) : f.fdDepartTime.substring(11, 16);
                 const jamArr = f.fdArrivalTime.includes('T') ? f.fdArrivalTime.split('T')[1].substring(0, 5) : f.fdArrivalTime.substring(11, 16);
 
                 return `
                 <div class="flight-box">
-                    <div class="flight-header">${titleLabel} - ${new Date(f.fdDepartTime).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
+                    <div class="flight-header">${titleLabel} - ${fullDateTitle}</div>
                     <div class="flight-content">
                         <div class="airline-info">
-                            <div class="airline-name">${airlineNames[f.airlineCode] || f.airlineCode}</div>
-                            <div class="flight-number">${f.airlineCode} ${f.flightNumber}</div>
+                            <div class="airline-name">${airlineNames[booking.airline_id] || booking.airline_id}</div>
+                            <div class="flight-number">${booking.airline_id} ${f.flightNumber}</div>
                             <div class="class-info">Class ${f.fdFlightClass || 'Y'} (eco)</div>
                         </div>
                         <div class="route-display">
                             <div class="time-block">
                                 <div class="date-text">${dateStr}</div>
                                 <div class="time-text">${jamDep}</div>
-                                <div class="station-text">${f.fdOriginName || f.fdOrigin}</div>
+                                <div class="station-text">${f.fdOrigin}</div>
                             </div>
                             <div class="path-line">
-                                <div class="duration">02 Hours 30 Minutes</div>
+                                <div class="duration">Durasi Perjalanan</div>
                                 <div class="line-container">
                                     <span class="circle-hollow"></span>
                                     <span class="hr-line"></span>
@@ -424,7 +426,7 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                             <div class="time-block" style="text-align: right;">
                                 <div class="date-text">${dateStr}</div>
                                 <div class="time-text">${jamArr}</div>
-                                <div class="station-text">${f.fdDestinationName || f.fdDestination}</div>
+                                <div class="station-text">${f.fdDestination}</div>
                             </div>
                         </div>
                     </div>
@@ -432,73 +434,84 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
             }).join('');
         };
 
-        // --- LOGIKA PENUMPANG ---
+        // --- LOGIKA RENDER TABEL PENUMPANG ---
         const passengers = response.passengers || payload.paxDetails || [];
         const paxRows = passengers.map((p, pIdx) => {
             const isInfant = p.type === 'Infant' || parseInt(p.type) === 2;
             const typeLabel = isInfant ? 'Infant/Bayi' : (p.type === 'Child' || parseInt(p.type) === 1 ? 'Child/Anak' : 'Adult/Dewasa');
-            const ad = (payload.paxDetails && payload.paxDetails[pIdx]?.addOns) ? payload.paxDetails[pIdx].addOns[0] : null;
-            const bag = isInfant ? '-' : (baggageMap[ad?.baggageString] || "15kg");
+            
+            // Ambil info addons dari payload request
+            const originalPax = payload.paxDetails ? payload.paxDetails[pIdx] : null;
+            const ad = originalPax?.addOns?.[0] || null;
+            
+            let bag = '-';
+            if (!isInfant) {
+                const rawBag = ad?.baggageString || "";
+                bag = (rawBag === "" || rawBag === "-") ? "15kg" : (baggageMap[rawBag] || rawBag);
+            }
 
             return `
             <tr>
-                <td>${pIdx + 1}</td>
+                <td style="text-align:center">${pIdx + 1}</td>
                 <td><b>${p.title} ${p.firstName} ${p.lastName}</b></td>
                 <td>Confirmed</td>
                 <td>${typeLabel}</td>
-                <td>${bag}</td>
+                <td style="text-align:center">${bag}</td>
             </tr>`;
         }).join('');
 
         // --- HARGA ---
-        const fee = response.adminFee || { ticketPrice: 0 };
-        const totalAmount = Number(fee.ticketPrice).toLocaleString('id-ID');
+        const ticketPrice = Number(booking.total_price);
 
         const htmlContent = `
         <html>
         <head>
             <style>
-                body { font-family: Arial, sans-serif; color: #333; padding: 0; margin: 0; font-size: 11px; }
+                body { font-family: Arial, sans-serif; color: #333; padding: 0; margin: 0; font-size: 11px; line-height: 1.4; }
                 .container { padding: 30px; }
-                .header-table { width: 100%; margin-bottom: 20px; }
+                .header-table { width: 100%; margin-bottom: 10px; }
                 .purchased-from { font-size: 10px; color: #777; }
-                . Nusantour { font-weight: bold; color: #000; font-size: 12px; }
+                .agency-name { font-weight: bold; color: #000; font-size: 13px; margin-top:2px; }
                 
-                .top-icons { display: flex; justify-content: space-between; margin-bottom: 30px; border-bottom: 1px solid #ddd; padding-bottom: 10px; }
-                .icon-item { display: flex; align-items: center; gap: 10px; width: 30%; }
-                .icon-item img { width: 35px; }
-                .icon-text { font-size: 9px; line-height: 1.2; }
-                .icon-text b { display: block; font-size: 10px; margin-bottom: 2px; }
+                .top-icons { display: flex; justify-content: space-between; margin: 20px 0; border-bottom: 1px solid #ddd; padding-bottom: 15px; }
+                .icon-item { display: flex; align-items: center; gap: 10px; width: 32%; }
+                .icon-item img { width: 35px; height: 35px; object-fit: contain; }
+                .icon-text { font-size: 9px; color: #444; }
+                .icon-text b { display: block; font-size: 10px; color: #000; margin-bottom: 2px; }
 
-                .flight-box { border: 1px solid #0194f3; border-radius: 8px; overflow: hidden; margin-bottom: 20px; }
-                .flight-header { background: #0194f3; color: white; padding: 8px 15px; font-weight: bold; font-size: 12px; }
+                .flight-box { border: 1px solid #0194f3; border-radius: 8px; overflow: hidden; margin-bottom: 15px; }
+                .flight-header { background: #0194f3; color: white; padding: 8px 15px; font-weight: bold; font-size: 11px; }
                 .flight-content { display: flex; padding: 15px; align-items: center; }
-                .airline-info { width: 150px; border-right: 1px solid #eee; }
-                .airline-name { font-weight: bold; font-size: 13px; }
+                .airline-info { width: 140px; border-right: 1px solid #eee; padding-right: 10px; }
+                .airline-name { font-weight: bold; font-size: 13px; color: #000; }
+                .flight-number { font-weight: bold; font-size: 12px; margin: 3px 0; }
                 .class-info { color: #888; font-size: 10px; }
                 
                 .route-display { flex-grow: 1; display: flex; justify-content: space-between; align-items: center; padding-left: 20px; }
-                .time-text { font-size: 18px; font-weight: bold; margin: 2px 0; }
-                .station-text { font-weight: bold; }
-                .date-text { color: #0194f3; font-weight: bold; font-size: 12px; }
+                .time-text { font-size: 18px; font-weight: bold; margin: 2px 0; color: #000; }
+                .station-text { font-weight: bold; font-size: 12px; }
+                .date-text { color: #0194f3; font-weight: bold; font-size: 11px; }
                 
-                .path-line { flex-grow: 1; text-align: center; padding: 0 20px; }
-                .duration { color: #888; font-size: 10px; margin-bottom: 5px; }
-                .line-container { display: flex; align-items: center; }
-                .circle-hollow { width: 8px; height: 8px; border: 1px solid #aaa; border-radius: 50%; }
+                .path-line { flex-grow: 1; text-align: center; padding: 0 15px; }
+                .duration { color: #888; font-size: 9px; margin-bottom: 4px; }
+                .line-container { display: flex; align-items: center; justify-content: center; }
+                .circle-hollow { width: 7px; height: 7px; border: 1.5px solid #aaa; border-radius: 50%; }
                 .circle-solid { width: 8px; height: 8px; background: #0194f3; border-radius: 50%; }
-                .hr-line { flex-grow: 1; height: 1px; background: #aaa; margin: 0 2px; }
+                .hr-line { flex-grow: 1; height: 1.5px; background: #ddd; margin: 0 4px; }
 
-                .section-title { background: #015693; color: white; padding: 8px 15px; font-weight: bold; border-radius: 8px 8px 0 0; }
-                .table-container { border: 1px solid #015693; border-radius: 0 0 8px 8px; padding: 10px; margin-bottom: 20px; }
+                .section-title { background: #015693; color: white; padding: 8px 15px; font-weight: bold; border-radius: 8px 8px 0 0; font-size: 11px; }
+                .table-container { border: 1px solid #015693; border-radius: 0 0 8px 8px; padding: 0px; margin-bottom: 15px; overflow: hidden; }
                 table { width: 100%; border-collapse: collapse; }
-                th { text-align: left; padding: 10px 5px; border-bottom: 2px solid #0194f3; color: #666; }
-                td { padding: 10px 5px; border-bottom: 1px solid #eee; }
+                th { text-align: left; padding: 10px; background: #fff; border-bottom: 2px solid #0194f3; color: #444; font-size: 10px; }
+                td { padding: 10px; border-bottom: 1px solid #eee; font-size: 11px; }
 
-                .fare-section { margin-top: 10px; border-top: 2px solid #0194f3; }
-                .fare-title { color: #015693; font-weight: bold; font-size: 14px; margin: 10px 0; }
-                .fare-row { background: #eee; padding: 10px 15px; display: flex; justify-content: space-between; font-weight: bold; }
-                .total-row { background: #f5f5f5; padding: 15px; display: flex; justify-content: flex-end; align-items: center; gap: 40px; }
+                .fare-section { margin-top: 20px; }
+                .fare-title { color: #015693; font-weight: bold; font-size: 14px; margin-bottom: 10px; border-bottom: 1px solid #ddd; padding-bottom: 5px; }
+                .fare-row { background: #e9ecef; padding: 12px 15px; display: flex; justify-content: space-between; font-weight: bold; border-radius: 4px; }
+                .total-row { padding: 15px; display: flex; justify-content: flex-end; align-items: center; gap: 40px; margin-top: 5px; }
+                .total-label { text-align: right; }
+                .total-label b { font-size: 13px; }
+                .total-amount { font-size: 20px; font-weight: 900; color: #000; }
             </style>
         </head>
         <body>
@@ -506,17 +519,17 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                 <table class="header-table">
                     <tr>
                         <td>
-                            <div class="purchased-from">Purchased From :</div>
-                            <div class="Nusantour">NUSANTARA TOUR</div>
+                            <div class="purchased-from">Purchased From / Pembelian Dari :</div>
+                            <div class="agency-name">NUSANTARA TOUR</div>
                             <div class="purchased-from">Jl. Veteran No.7<br>Telp: 08991000003<br>E-mail: nusantour2021@gmail.com</div>
                         </td>
                         <td align="right">
-                            <img src="${qrDataUrl}" width="80">
+                            <img src="${qrDataUrl}" width="85">
                         </td>
                     </tr>
                 </table>
 
-                <h2 style="color:#0194f3; border-bottom: 2px solid #0194f3; padding-bottom:5px;">E-ticket | <small>E-ticket</small></h2>
+                <h2 style="color:#0194f3; border-bottom: 2px solid #0194f3; padding-bottom:8px; margin-top: 10px;">E-ticket | <small>E-ticket</small></h2>
                 
                 <div class="top-icons">
                     <div class="icon-item">
@@ -534,18 +547,18 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                 </div>
 
                 ${renderFlightSection(response.flightDeparts, 'Departure Flight')}
-                ${renderFlightSection(response.flightReturns || [], 'Return Flight')}
+                ${response.flightReturns ? renderFlightSection(response.flightReturns, 'Return Flight') : ''}
 
-                <div class="section-title">Passenger Detail <br><small>Detail Penumpang</small></div>
+                <div class="section-title">Passenger Detail / <small style="font-weight:normal">Detail Penumpang</small></div>
                 <div class="table-container">
                     <table>
                         <thead>
                             <tr>
-                                <th>No .</th>
-                                <th>Passenger <br><small>Penumpang</small></th>
-                                <th>Ticket Number <br><small>Nomor Ticket</small></th>
-                                <th>Type <br><small>Tipe</small></th>
-                                <th>Baggage <br><small>Bagasi</small></th>
+                                <th style="width:30px; text-align:center">No.</th>
+                                <th>Passenger / <small>Penumpang</small></th>
+                                <th>Ticket Status / <small>Nomor Ticket</small></th>
+                                <th>Type / <small>Tipe</small></th>
+                                <th style="text-align:center">Baggage / <small>Bagasi</small></th>
                             </tr>
                         </thead>
                         <tbody>${paxRows}</tbody>
@@ -555,15 +568,16 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                 <div class="fare-section">
                     <div class="fare-title">Fares Detail | <small>Detail Harga</small></div>
                     <div class="fare-row">
-                        <span>Ticket for ${passengers.length} Passenger <br><small style="font-weight:normal; color:#666;">Tiket untuk ${passengers.length} penumpang</small></span>
-                        <span>IDR ${totalAmount},-</span>
+                        <span>Ticket for ${passengers.length} Passenger <br>
+                        <small style="font-weight:normal; color:#666;">Tiket untuk ${passengers.length} penumpang</small></span>
+                        <span>IDR ${ticketPrice.toLocaleString('id-ID')},-</span>
                     </div>
                     <div class="total-row">
-                        <div style="text-align:right">
+                        <div class="total-label">
                             <b>Total Amount</b><br>
                             <small style="color:#666">Total Pembayaran</small>
                         </div>
-                        <div style="font-size: 18px; font-weight: black;">IDR ${totalAmount},-</div>
+                        <div class="total-amount">IDR ${ticketPrice.toLocaleString('id-ID')},-</div>
                     </div>
                 </div>
             </div>
@@ -572,19 +586,23 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
 
         const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
         const page = await browser.newPage();
+        
+        // Menggunakan networkidle0 agar gambar dari IBB terload sempurna sebelum diubah ke PDF
         await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+        
         const pdfBuffer = await page.pdf({ 
             format: 'A4', 
             printBackground: true,
-            margin: { top: '0.5cm', bottom: '0.5cm', left: '0.5cm', right: '0.5cm' } 
+            margin: { top: '0.4cm', bottom: '0.4cm', left: '0.4cm', right: '0.4cm' } 
         });
+        
         await browser.close();
-
         res.contentType("application/pdf");
         res.send(pdfBuffer);
+
     } catch (e) {
         console.error(e);
-        res.status(500).send(e.message);
+        res.status(500).send("Error generating ticket: " + e.message);
     }
 });
 
