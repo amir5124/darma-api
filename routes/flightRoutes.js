@@ -227,11 +227,11 @@ router.get('/get-all-schedules', async (req, res) => {
                 "accessToken": token
             };
 
-            const response = await axios.post(`${BASE_URL}/Airline/ScheduleAllAirline`, payload, { 
-                httpsAgent: agent, 
-                timeout: 60000 
+            const response = await axios.post(`${BASE_URL}/Airline/ScheduleAllAirline`, payload, {
+                httpsAgent: agent,
+                timeout: 60000
             });
-            
+
             const result = response.data;
 
             if (result.status === "SUCCESS") {
@@ -446,11 +446,11 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
             }).join('');
         };
 
-        // --- LOGIKA RENDER TABEL PENUMPANG (SEAT & MEALS ADDED) ---
+        // --- LOGIKA RENDER TABEL PENUMPANG ---
         const passengers = response.passengers || payload.paxDetails || [];
         const paxRows = passengers.map((p, pIdx) => {
             const isInfant = p.type === 'Infant' || parseInt(p.type) === 2;
-            const typeLabel = isInfant ? 'Bayi' : (p.type === 'Child' || parseInt(p.type) === 1 ? 'Anak' : 'Dewasa');
+            const typeLabel = isInfant ? 'Infant<small>Bayi</small>' : (p.type === 'Child' || parseInt(p.type) === 1 ? 'Child<small>Anak</small>' : 'Adult<small>Dewasa</small>');
             
             const originalPax = payload.paxDetails ? payload.paxDetails[pIdx] : null;
             const ad = originalPax?.addOns?.[0] || null;
@@ -515,8 +515,8 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                 .section-title { background: #015693; color: white; padding: 7px 15px; font-weight: bold; border-radius: 6px 6px 0 0; font-size: 10px; }
                 .table-container { border: 1px solid #015693; border-radius: 0 0 6px 6px; margin-bottom: 15px; }
                 table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-                th { text-align: left; padding: 6px; background: #fff; border-bottom: 1px solid #0194f3; color: #000; font-size: 8.5px; }
-                th small { display: block; color: #666; font-weight: normal; font-size: 7.5px; }
+                th { text-align: left; padding: 8px 6px; background: #fff; border-bottom: 1px solid #0194f3; color: #000; font-size: 8.5px; vertical-align: bottom;}
+                th small, td small { display: block; color: #999; font-weight: normal; font-size: 7.5px; margin-top: 1px; }
                 td { padding: 8px 6px; border-bottom: 1px solid #eee; font-size: 9px; word-wrap: break-word; vertical-align: middle; }
 
                 .fare-section { margin-top: 15px; }
@@ -527,11 +527,11 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
 
                 .important-note { margin-top: 20px; background: #fff; }
                 .note-header { background: #e9ecef; padding: 5px 15px; font-weight: bold; display: flex; align-items: center; gap: 10px; font-size: 11px; }
-                .note-content { padding: 10px 0; list-style: none; }
-                .note-content li { margin-bottom: 10px; position: relative; padding-left: 20px; }
+                .note-content { padding: 10px 0; list-style: none; margin: 0;}
+                .note-content li { margin-bottom: 10px; position: relative; padding-left: 20px; font-size: 10px; }
                 .note-content li::before { content: attr(data-number); position: absolute; left: 0; font-weight: bold; }
                 .note-content small { display: block; color: #777; font-size: 9px; }
-                .footer-border { border-bottom: 5px solid #0194f3; margin-top: 10px; }
+                .footer-border { border-bottom: 5px solid #0194f3; margin-top: 15px; border-radius: 0 0 5px 5px; }
             </style>
         </head>
         <body>
@@ -539,13 +539,9 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                 <table class="header-table">
                     <tr>
                         <td>
-
                             <div class="purchased-from">Purchased From / Pembelian Dari :</div>
-
-                            <div class="agency-name">LinkQU</div>
-
-                            <div class="purchased-from">Jl. Negara RT.16 Tengin Baru<br> Telp: 085247777710<br>E-mail: linkutransport@gmail.com</div>
-
+                            <div class="agency-name">LinkQu</div>
+                            <div class="purchased-from">Jl. Negara RT.16 Tengin Baru, Telp: 085247777710<br>E-mail: linkutransport@gmail.com</div>
                         </td>
                         <td align="right">
                             <img src="${qrDataUrl}" width="75">
@@ -553,7 +549,7 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                     </tr>
                 </table>
 
-                <h2 style="color:#0194f3; border-bottom: 1.5px solid #0194f3; padding-bottom:5px; margin: 10px 0;">E-ticket | <small>E-tiket</small></h2>
+                <h2 style="color:#0194f3; border-bottom: 1.5px solid #0194f3; padding-bottom:5px; margin: 10px 0;">E-ticket | <small style="font-weight:normal; font-size:14px;">E-tiket</small></h2>
                 
                 <div class="top-icons">
                     <div class="icon-item">
@@ -579,11 +575,11 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                         <thead>
                             <tr>
                                 <th style="width:25px; text-align:center">No</th>
-                                <th style="width:130px;">Passenger<small>Penumpang</small></th>
-                                <th style="width:50px;">Type<small>Tipe</small></th>
-                                <th style="width:40px; text-align:center">Seat<small>Kursi</small></th>
-                                <th style="width:40px; text-align:center">Baggage<small>Bagasi</small></th>
-                                <th>Meals<small>Makanan</small></th>
+                                <th style="width:130px;">Passenger <small>Penumpang</small></th>
+                                <th style="width:50px;">Type <small>Tipe</small></th>
+                                <th style="width:40px; text-align:center">Seat <small>Kursi</small></th>
+                                <th style="width:40px; text-align:center">Baggage <small>Bagasi</small></th>
+                                <th>Meals <small>Makanan</small></th>
                             </tr>
                         </thead>
                         <tbody>${paxRows}</tbody>
@@ -605,7 +601,7 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
 
                 <div class="important-note">
                     <div class="note-header">
-                        <img src="https://cdn-icons-png.flaticon.com/512/471/471663.png" width="12"> Important Note | Catatan Penting
+                         Important Note | Catatan Penting
                     </div>
                     <ul class="note-content">
                         <li data-number="1.">
