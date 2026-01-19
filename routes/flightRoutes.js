@@ -384,168 +384,200 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
 
         // --- MAPPING DATA ---
         const baggageMap = { "PBAA": "15kg", "PBAB": "20kg", "PBAC": "25kg", "PBAD": "30kg", "PBAF": "40kg" };
-        const mealMap = { "NPCB": "Nasi Padang", "NLCB": "Pak Nasser", "NKCB": "Nasi Kuning", "GCCB": "Thai Green", "CRCB": "Uncle Chin" };
         const airlineNames = { "QZ": "AirAsia", "ID": "Batik Air", "GA": "Garuda Indonesia", "JT": "Lion Air", "QG": "Citilink" };
 
-        const qrDataUrl = await QRCode.toDataURL(booking.booking_code);
+        const qrDataUrl = await QRCode.toDataURL(response.bookingCodeAirline || booking.booking_code);
 
         // --- LOGIKA RENDER PENERBANGAN ---
-        const renderFlights = (flightSegments, titleLabel) => {
+        const renderFlightSection = (flightSegments, titleLabel) => {
             if (!flightSegments || flightSegments.length === 0) return '';
-
-            let html = ``;
-            flightSegments.forEach((f, idx) => {
+            
+            return flightSegments.map((f, idx) => {
                 const dateObj = new Date(f.fdDepartTime);
-                const dayName = dateObj.toLocaleDateString('id-ID', { weekday: 'short' });
-                const dateStr = dateObj.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
-
+                const dateStr = dateObj.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
                 const jamDep = f.fdDepartTime.includes('T') ? f.fdDepartTime.split('T')[1].substring(0, 5) : f.fdDepartTime.substring(11, 16);
                 const jamArr = f.fdArrivalTime.includes('T') ? f.fdArrivalTime.split('T')[1].substring(0, 5) : f.fdArrivalTime.substring(11, 16);
 
-                html += `
-                <div class="journey-container">
-                    <div class="journey-header">${idx === 0 ? titleLabel : 'Transit'} ${dateStr}</div>
-                    <div class="flight-detail-row">
-                        <div class="airline-col">
-                            <div class="airline-name">${airlineNames[booking.airline_id] || booking.airline_id}</div>
-                            <div class="flight-code">${f.flightNumber}</div>
+                return `
+                <div class="flight-box">
+                    <div class="flight-header">${titleLabel} - ${new Date(f.fdDepartTime).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
+                    <div class="flight-content">
+                        <div class="airline-info">
+                            <div class="airline-name">${airlineNames[f.airlineCode] || f.airlineCode}</div>
+                            <div class="flight-number">${f.airlineCode} ${f.flightNumber}</div>
+                            <div class="class-info">Class ${f.fdFlightClass || 'Y'} (eco)</div>
                         </div>
-                        <div class="route-col">
-                            <div class="dot blue"></div>
-                            <div class="line"></div>
-                            <div class="dot white"></div>
-                        </div>
-                        <div class="info-col">
-                            <div class="station-row">
-                                <span class="city-code">${f.fdOrigin}</span>
-                                <span class="time-bold">${jamDep}</span>
+                        <div class="route-display">
+                            <div class="time-block">
+                                <div class="date-text">${dateStr}</div>
+                                <div class="time-text">${jamDep}</div>
+                                <div class="station-text">${f.fdOriginName || f.fdOrigin}</div>
                             </div>
-                            <div class="date-small">${dayName}, ${dateStr}</div>
-                            <div class="station-row" style="margin-top:15px;">
-                                <span class="city-code">${f.fdDestination}</span>
-                                <span class="time-bold">${jamArr}</span>
+                            <div class="path-line">
+                                <div class="duration">02 Hours 30 Minutes</div>
+                                <div class="line-container">
+                                    <span class="circle-hollow"></span>
+                                    <span class="hr-line"></span>
+                                    <span class="circle-solid"></span>
+                                </div>
                             </div>
-                            <div class="date-small">${dayName}, ${dateStr}</div>
+                            <div class="time-block" style="text-align: right;">
+                                <div class="date-text">${dateStr}</div>
+                                <div class="time-text">${jamArr}</div>
+                                <div class="station-text">${f.fdDestinationName || f.fdDestination}</div>
+                            </div>
                         </div>
                     </div>
                 </div>`;
-            });
-            return html;
+            }).join('');
         };
 
-        const flightContentHtml = `
-            <div style="display: flex; gap: 20px;">
-                <div style="flex: 1;">${renderFlights(response.flightDeparts, 'Pergi')}</div>
-                <div style="flex: 1;">${renderFlights(response.flightReturns || [], 'Pulang')}</div>
-                <div style="width: 120px; text-align: center; border-left: 1px solid #eee; padding-left: 10px;">
-                    <img src="${qrDataUrl}" width="100">
-                    <div style="font-size: 10px; color: #666; margin-top: 5px;">Booking Code</div>
-                    <div style="font-size: 14px; font-weight: bold;">${response.bookingCodeAirline || booking.booking_code}</div>
-                </div>
-            </div>
-        `;
-
-        // --- LOGIKA RENDER TABEL PENUMPANG (DENGAN PROTEKSI BAYI & DEFAULT 15KG) ---
+        // --- LOGIKA PENUMPANG ---
         const passengers = response.passengers || payload.paxDetails || [];
-        const allSegments = [...(response.flightDeparts || []), ...(response.flightReturns || [])];
-
         const paxRows = passengers.map((p, pIdx) => {
             const isInfant = p.type === 'Infant' || parseInt(p.type) === 2;
-            const isChild = p.type === 'Child' || parseInt(p.type) === 1;
-            let typeLabel = isInfant ? 'Bayi' : (isChild ? 'Anak' : 'Dewasa');
+            const typeLabel = isInfant ? 'Infant/Bayi' : (p.type === 'Child' || parseInt(p.type) === 1 ? 'Child/Anak' : 'Adult/Dewasa');
+            const ad = (payload.paxDetails && payload.paxDetails[pIdx]?.addOns) ? payload.paxDetails[pIdx].addOns[0] : null;
+            const bag = isInfant ? '-' : (baggageMap[ad?.baggageString] || "15kg");
 
-            let pName = isInfant ? `(${passengers.find(px => px.type === 'Adult' || px.type === 0)?.firstName || 'Dewasa'})` : '';
-
-            return allSegments.map((seg, sIdx) => {
-                const originalPax = payload.paxDetails ? payload.paxDetails[pIdx] : null;
-                const ad = (originalPax && originalPax.addOns && originalPax.addOns[sIdx])
-                    ? originalPax.addOns[sIdx]
-                    : (originalPax?.addOns?.[0] || null);
-
-                let bag = '-';
-                let meal = '-';
-                let seat = '-';
-
-                // Hanya Adult dan Child yang mendapatkan fasilitas
-                if (!isInfant) {
-                    const rawBag = ad?.baggageString || "";
-                    // Jika kosong, set ke Default 15kg
-                    if (rawBag === "" || rawBag === "-") {
-                        bag = "15kg";
-                    } else {
-                        bag = baggageMap[rawBag] || rawBag;
-                    }
-                    meal = (ad?.meals || []).map(m => mealMap[m] || m).join(', ') || '-';
-                    seat = ad?.seat || '-';
-                }
-
-                return `
-                    <tr class="pax-data-row" style="${isInfant ? 'background-color: #fafafa;' : ''}">
-                        <td style="${sIdx > 0 ? 'border-top: none; color: transparent;' : ''}">
-                            ${sIdx === 0 ? `<b>${p.title} ${p.firstName} ${p.lastName}</b> /${typeLabel} ${pName}` : ''}
-                        </td>
-                        <td style="text-align:center; font-weight: bold;">${seg.flightNumber}</td>
-                        <td style="text-align:center">${seat}</td>
-                        <td style="text-align:center">${bag}</td>
-                        <td>${meal}</td>
-                    </tr>`;
-            }).join('');
+            return `
+            <tr>
+                <td>${pIdx + 1}</td>
+                <td><b>${p.title} ${p.firstName} ${p.lastName}</b></td>
+                <td>Confirmed</td>
+                <td>${typeLabel}</td>
+                <td>${bag}</td>
+            </tr>`;
         }).join('');
+
+        // --- HARGA ---
+        const fee = response.adminFee || { ticketPrice: 0 };
+        const totalAmount = Number(fee.ticketPrice).toLocaleString('id-ID');
 
         const htmlContent = `
         <html>
         <head>
             <style>
-                body { font-family: 'Helvetica', sans-serif; padding: 20px; font-size: 12px; color: #333; }
-                .top-icons { display: flex; justify-content: space-around; border-bottom: 1px solid #ddd; padding-bottom: 15px; margin-bottom: 20px; text-align: center; font-size: 10px; color: #0052cc; }
-                .journey-container { margin-bottom: 15px; border: 1px solid #eee; padding: 10px; border-radius: 5px; }
-                .journey-header { font-size: 14px; font-weight: bold; margin-bottom: 10px; color: #0052cc; border-bottom: 1px solid #eee; padding-bottom: 5px; }
-                .flight-detail-row { display: flex; gap: 15px; align-items: flex-start; }
-                .airline-col { width: 90px; }
-                .airline-name { font-weight: bold; color: #d32f2f; font-size: 13px; }
-                .flight-code { font-weight: bold; margin-top: 5px; color: #333; }
-                .route-col { display: flex; flex-direction: column; align-items: center; width: 20px; }
-                .dot { width: 8px; height: 8px; border-radius: 50%; border: 2px solid #0052cc; }
-                .dot.blue { background: #0052cc; }
-                .line { width: 2px; height: 40px; background: #ddd; }
-                .info-col { flex-grow: 1; }
-                .station-row { display: flex; justify-content: space-between; font-size: 13px; font-weight: bold; width: 160px; }
-                .time-bold { font-size: 15px; }
-                .date-small { font-size: 10px; color: #777; }
-                table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-                th { text-align: left; border-bottom: 2px solid #0052cc; padding: 10px 8px; color: #333; font-size: 11px; text-transform: uppercase; }
-                .pax-data-row td { padding: 10px 8px; border-bottom: 1px solid #eee; font-size: 11px; vertical-align: middle; }
-                .special-request-header { background: #f9f9f9; font-weight: bold; font-size: 10px; }
+                body { font-family: Arial, sans-serif; color: #333; padding: 0; margin: 0; font-size: 11px; }
+                .container { padding: 30px; }
+                .header-table { width: 100%; margin-bottom: 20px; }
+                .purchased-from { font-size: 10px; color: #777; }
+                . Nusantour { font-weight: bold; color: #000; font-size: 12px; }
+                
+                .top-icons { display: flex; justify-content: space-between; margin-bottom: 30px; border-bottom: 1px solid #ddd; padding-bottom: 10px; }
+                .icon-item { display: flex; align-items: center; gap: 10px; width: 30%; }
+                .icon-item img { width: 35px; }
+                .icon-text { font-size: 9px; line-height: 1.2; }
+                .icon-text b { display: block; font-size: 10px; margin-bottom: 2px; }
+
+                .flight-box { border: 1px solid #0194f3; border-radius: 8px; overflow: hidden; margin-bottom: 20px; }
+                .flight-header { background: #0194f3; color: white; padding: 8px 15px; font-weight: bold; font-size: 12px; }
+                .flight-content { display: flex; padding: 15px; align-items: center; }
+                .airline-info { width: 150px; border-right: 1px solid #eee; }
+                .airline-name { font-weight: bold; font-size: 13px; }
+                .class-info { color: #888; font-size: 10px; }
+                
+                .route-display { flex-grow: 1; display: flex; justify-content: space-between; align-items: center; padding-left: 20px; }
+                .time-text { font-size: 18px; font-weight: bold; margin: 2px 0; }
+                .station-text { font-weight: bold; }
+                .date-text { color: #0194f3; font-weight: bold; font-size: 12px; }
+                
+                .path-line { flex-grow: 1; text-align: center; padding: 0 20px; }
+                .duration { color: #888; font-size: 10px; margin-bottom: 5px; }
+                .line-container { display: flex; align-items: center; }
+                .circle-hollow { width: 8px; height: 8px; border: 1px solid #aaa; border-radius: 50%; }
+                .circle-solid { width: 8px; height: 8px; background: #0194f3; border-radius: 50%; }
+                .hr-line { flex-grow: 1; height: 1px; background: #aaa; margin: 0 2px; }
+
+                .section-title { background: #015693; color: white; padding: 8px 15px; font-weight: bold; border-radius: 8px 8px 0 0; }
+                .table-container { border: 1px solid #015693; border-radius: 0 0 8px 8px; padding: 10px; margin-bottom: 20px; }
+                table { width: 100%; border-collapse: collapse; }
+                th { text-align: left; padding: 10px 5px; border-bottom: 2px solid #0194f3; color: #666; }
+                td { padding: 10px 5px; border-bottom: 1px solid #eee; }
+
+                .fare-section { margin-top: 10px; border-top: 2px solid #0194f3; }
+                .fare-title { color: #015693; font-weight: bold; font-size: 14px; margin: 10px 0; }
+                .fare-row { background: #eee; padding: 10px 15px; display: flex; justify-content: space-between; font-weight: bold; }
+                .total-row { background: #f5f5f5; padding: 15px; display: flex; justify-content: flex-end; align-items: center; gap: 40px; }
             </style>
         </head>
         <body>
-            <div class="top-icons">
-                <div><img src="https://cdn-icons-png.flaticon.com/512/712/712032.png" width="15"><br>Tunjukkan E-Tiket dan Identitas</div>
-                <div><img src="https://cdn-icons-png.flaticon.com/512/483/483356.png" width="15"><br>Check-in Minimal 90 Menit Sebelum</div>
-                <div><img src="https://cdn-icons-png.flaticon.com/512/2088/2088617.png" width="15"><br>Waktu Bandara Setempat</div>
-            </div>
-
-            ${flightContentHtml}
-
-            <table>
-                <thead>
-                    <tr class="special-request-header">
-                        <th style="width:35%">Penumpang</th>
-                        <th style="text-align:center">Penerbangan</th>
-                        <th style="text-align:center; width:10%">Seat</th>
-                        <th style="text-align:center; width:15%">Baggage</th>
-                        <th style="width:25%">Meals</th>
+            <div class="container">
+                <table class="header-table">
+                    <tr>
+                        <td>
+                            <div class="purchased-from">Purchased From :</div>
+                            <div class="Nusantour">NUSANTARA TOUR</div>
+                            <div class="purchased-from">Jl. Veteran No.7<br>Telp: 08991000003<br>E-mail: nusantour2021@gmail.com</div>
+                        </td>
+                        <td align="right">
+                            <img src="${qrDataUrl}" width="80">
+                        </td>
                     </tr>
-                </thead>
-                <tbody>${paxRows}</tbody>
-            </table>
+                </table>
+
+                <h2 style="color:#0194f3; border-bottom: 2px solid #0194f3; padding-bottom:5px;">E-ticket | <small>E-ticket</small></h2>
+                
+                <div class="top-icons">
+                    <div class="icon-item">
+                        <img src="https://i.ibb.co.com/SwVNHCKP/ticket.png">
+                        <div class="icon-text"><b>Show Valid E-ticket and Pax ID Card at Check-In</b>Perlihatkan E-ticket serta Identitas Penumpang Valid saat Check-In</div>
+                    </div>
+                    <div class="icon-item">
+                        <img src="https://i.ibb.co.com/C5TX1Hny/schedule.png">
+                        <div class="icon-text"><b>Check-In 90 minutes befores departure time</b>Check-In paling lambat 90 menit sebelum keberangkatan</div>
+                    </div>
+                    <div class="icon-item">
+                        <img src="https://i.ibb.co.com/n8mMB9yV/plane.png">
+                        <div class="icon-text"><b>Time on ticket according to local airport time</b>Waktu yang tertera adalah waktu bandara setempat</div>
+                    </div>
+                </div>
+
+                ${renderFlightSection(response.flightDeparts, 'Departure Flight')}
+                ${renderFlightSection(response.flightReturns || [], 'Return Flight')}
+
+                <div class="section-title">Passenger Detail <br><small>Detail Penumpang</small></div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>No .</th>
+                                <th>Passenger <br><small>Penumpang</small></th>
+                                <th>Ticket Number <br><small>Nomor Ticket</small></th>
+                                <th>Type <br><small>Tipe</small></th>
+                                <th>Baggage <br><small>Bagasi</small></th>
+                            </tr>
+                        </thead>
+                        <tbody>${paxRows}</tbody>
+                    </table>
+                </div>
+
+                <div class="fare-section">
+                    <div class="fare-title">Fares Detail | <small>Detail Harga</small></div>
+                    <div class="fare-row">
+                        <span>Ticket for ${passengers.length} Passenger <br><small style="font-weight:normal; color:#666;">Tiket untuk ${passengers.length} penumpang</small></span>
+                        <span>IDR ${totalAmount},-</span>
+                    </div>
+                    <div class="total-row">
+                        <div style="text-align:right">
+                            <b>Total Amount</b><br>
+                            <small style="color:#666">Total Pembayaran</small>
+                        </div>
+                        <div style="font-size: 18px; font-weight: black;">IDR ${totalAmount},-</div>
+                    </div>
+                </div>
+            </div>
         </body>
         </html>`;
 
         const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
         const page = await browser.newPage();
-        await page.setContent(htmlContent, { waitUntil: 'domcontentloaded' });
-        const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true, margin: { top: '1cm', bottom: '1cm', left: '1cm', right: '1cm' } });
+        await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+        const pdfBuffer = await page.pdf({ 
+            format: 'A4', 
+            printBackground: true,
+            margin: { top: '0.5cm', bottom: '0.5cm', left: '0.5cm', right: '0.5cm' } 
+        });
         await browser.close();
 
         res.contentType("application/pdf");
