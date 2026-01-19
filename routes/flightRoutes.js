@@ -543,7 +543,7 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
         <td>
           <img src="https://i.ibb.co.com/BK7yxwqK/Logo-01.png" height="50" style="margin-bottom: 10px;">
             <div class="purchased-from">
-              Jln. Negara rt.16 Tengin Baru Kec. Sepaku Kab. Penanaman Paser Utara -IKN<br> Telp: 085247777710<br>
+              Jln. Negara rt.16 Tengin Baru Kec. Sepaku<br> Kab. Penanaman Paser Utara -IKN<br> Telp: 085247777710<br>
                 E-mail: linkutransport@gmail.com
             </div>
         </td>
