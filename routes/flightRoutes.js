@@ -514,10 +514,12 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
 
                 .section-title { background: #015693; color: white; padding: 7px 15px; font-weight: bold; border-radius: 6px 6px 0 0; font-size: 10px; }
                 .table-container { border: 1px solid #015693; border-radius: 0 0 6px 6px; margin-bottom: 15px; }
+                
+                /* PERBAIKAN JARAK TABEL */
                 table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-                th { text-align: left; padding: 8px 6px; background: #fff; border-bottom: 1px solid #0194f3; color: #000; font-size: 8.5px; vertical-align: bottom;}
+                th { text-align: left; padding: 10px 8px; background: #fff; border-bottom: 1px solid #0194f3; color: #000; font-size: 9px; vertical-align: bottom; }
                 th small, td small { display: block; color: #999; font-weight: normal; font-size: 7.5px; margin-top: 1px; }
-                td { padding: 8px 6px; border-bottom: 1px solid #eee; font-size: 9px; word-wrap: break-word; vertical-align: middle; }
+                td { padding: 12px 8px; border-bottom: 1px solid #eee; font-size: 9.5px; word-wrap: break-word; vertical-align: middle; }
 
                 .fare-section { margin-top: 15px; }
                 .fare-title { color: #015693; font-weight: bold; font-size: 12px; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 4px; }
@@ -574,12 +576,12 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                     <table>
                         <thead>
                             <tr>
-                                <th style="width:25px; text-align:center">No</th>
-                                <th style="width:130px;">Passenger <small>Penumpang</small></th>
-                                <th style="width:50px;">Type <small>Tipe</small></th>
-                                <th style="width:40px; text-align:center">Seat <small>Kursi</small></th>
-                                <th style="width:40px; text-align:center">Baggage <small>Bagasi</small></th>
-                                <th>Meals <small>Makanan</small></th>
+                                <th style="width:30px; text-align:center">No</th>
+                                <th style="width:160px;">Passenger <small>Penumpang</small></th>
+                                <th style="width:70px;">Type <small>Tipe</small></th>
+                                <th style="width:60px; text-align:center">Seat <small>Kursi</small></th>
+                                <th style="width:60px; text-align:center">Baggage <small>Bagasi</small></th>
+                                <th style="width:100px;">Meals <small>Makanan</small></th>
                             </tr>
                         </thead>
                         <tbody>${paxRows}</tbody>
