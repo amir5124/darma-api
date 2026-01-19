@@ -538,18 +538,27 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
         </head>
         <body>
             <div class="container">
-                <table class="header-table">
-                    <tr>
-                        <td>
-                            <div class="purchased-from">Purchased From / Pembelian Dari :</div>
-                            <div class="agency-name">LinkQu</div>
-                            <div class="purchased-from">Jl. Negara RT.16 Tengin Baru, Telp: 085247777710<br>E-mail: linkutransport@gmail.com</div>
-                        </td>
-                        <td align="right">
-                            <img src="${qrDataUrl}" width="75">
-                        </td>
-                    </tr>
-                </table>
+               <table class="header-table">
+    <tr>
+        <td>
+          <img src="https://i.ibb.co.com/BK7yxwqK/Logo-01.png" height="50" style="margin-bottom: 10px;">
+            <div class="purchased-from">
+              Jln. Negara rt.16 Tengin Baru Kec. Sepaku Kab. Penanaman Paser Utara -IKN<br> Telp: 085247777710<br>
+                E-mail: linkutransport@gmail.com
+            </div>
+        </td>
+        <td align="right" style="vertical-align: top;">
+            <img src="${qrDataUrl}" width="75">
+            
+            <div style="margin-top: 5px; text-align: center; width: 85px;">
+                <div style="font-size: 8px; color: #666; text-transform: uppercase;">Booking Code</div>
+                <div style="font-size: 14px; font-weight: bold; color: #0194f3; letter-spacing: 1px;">
+                    ${response.bookingCodeAirline || booking.booking_code}
+                </div>
+            </div>
+        </td>
+    </tr>
+</table>
 
                 <h2 style="color:#0194f3; border-bottom: 1.5px solid #0194f3; padding-bottom:5px; margin: 10px 0;">E-ticket | <small style="font-weight:normal; font-size:14px;">E-tiket</small></h2>
                 
