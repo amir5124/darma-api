@@ -386,9 +386,9 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
         const calculateDuration = (depart, arrival) => {
             const start = new Date(depart);
             const end = new Date(arrival);
-            const diffMs = end - start; 
-            const diffHrs = Math.floor(diffMs / 3600000); 
-            const diffMins = Math.round(((diffMs % 3600000) / 60000)); 
+            const diffMs = end - start;
+            const diffHrs = Math.floor(diffMs / 3600000);
+            const diffMins = Math.round(((diffMs % 3600000) / 60000));
             return `${diffHrs}j ${diffMins}m`;
         };
 
@@ -402,12 +402,12 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
         // --- LOGIKA RENDER PENERBANGAN ---
         const renderFlightSection = (flightSegments, titleLabel) => {
             if (!flightSegments || flightSegments.length === 0) return '';
-            
+
             return flightSegments.map((f, idx) => {
                 const dateObj = new Date(f.fdDepartTime);
                 const dateStr = dateObj.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
                 const fullDateTitle = dateObj.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-                
+
                 const jamDep = f.fdDepartTime.includes('T') ? f.fdDepartTime.split('T')[1].substring(0, 5) : f.fdDepartTime.substring(11, 16);
                 const jamArr = f.fdArrivalTime.includes('T') ? f.fdArrivalTime.split('T')[1].substring(0, 5) : f.fdArrivalTime.substring(11, 16);
                 const durationText = calculateDuration(f.fdDepartTime, f.fdArrivalTime);
@@ -451,10 +451,10 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
         const paxRows = passengers.map((p, pIdx) => {
             const isInfant = p.type === 'Infant' || parseInt(p.type) === 2;
             const typeLabel = isInfant ? 'Infant<small>Bayi</small>' : (p.type === 'Child' || parseInt(p.type) === 1 ? 'Child<small>Anak</small>' : 'Adult<small>Dewasa</small>');
-            
+
             const originalPax = payload.paxDetails ? payload.paxDetails[pIdx] : null;
             const ad = originalPax?.addOns?.[0] || null;
-            
+
             let bag = '-';
             if (!isInfant) {
                 const rawBag = ad?.baggageString || "";
@@ -543,7 +543,7 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
         <td>
           <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877917/WhatsApp_Image_2026-01-20_at_09.45.43-removebg-preview_lqkgrw.png" height="50" style="margin-bottom: 10px;">
             <div class="purchased-from">
-              Jln. Negara rt.16 Tengin Baru Kec. Sepaku<br> Kab. Penanaman Paser Utara -IKN<br> Telp: 085247777710<br>
+              Jln. Negara rt.16 Tengin Baru Kec. Sepaku<br> Kab. Penajam Paser Utara -IKN<br> Telp: 085247777710<br>
                 E-mail: linkuikn@gmail.com
             </div>
         </td>
@@ -642,13 +642,25 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
         </body>
         </html>`;
 
-        const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+
+        const browser = await puppeteer.launch({
+            headless: "new", // Menggunakan mode Headless baru sesuai saran peringatan
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage', // Disarankan untuk lingkungan Docker/VPS agar tidak kehabisan memori
+                '--font-render-hinting=none' // Membantu rendering font PDF lebih bersih
+            ]
+        });
         const page = await browser.newPage();
-        await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
-        const pdfBuffer = await page.pdf({ 
-            format: 'A4', 
+        await page.setContent(htmlContent, {
+            waitUntil: 'networkidle0',
+            timeout: 60000 // Berikan waktu 60 detik sebelum menyerah
+        });
+        const pdfBuffer = await page.pdf({
+            format: 'A4',
             printBackground: true,
-            margin: { top: '0.4cm', bottom: '0.4cm', left: '0.4cm', right: '0.4cm' } 
+            margin: { top: '0.4cm', bottom: '0.4cm', left: '0.4cm', right: '0.4cm' }
         });
         await browser.close();
 
