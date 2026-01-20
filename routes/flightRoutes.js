@@ -541,10 +541,10 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                <table class="header-table">
     <tr>
         <td>
-          <img src="https://i.ibb.co.com/BK7yxwqK/Logo-01.png" height="50" style="margin-bottom: 10px;">
+          <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877917/WhatsApp_Image_2026-01-20_at_09.45.43-removebg-preview_lqkgrw.png" height="50" style="margin-bottom: 10px;">
             <div class="purchased-from">
               Jln. Negara rt.16 Tengin Baru Kec. Sepaku<br> Kab. Penanaman Paser Utara -IKN<br> Telp: 085247777710<br>
-                E-mail: linkutransport@gmail.com
+                E-mail: linkuikn@gmail.com
             </div>
         </td>
         <td align="right" style="vertical-align: top;">
@@ -564,15 +564,15 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                 
                 <div class="top-icons">
                     <div class="icon-item">
-                        <img src="https://i.ibb.co.com/SwVNHCKP/ticket.png">
+                        <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877882/ticket_wdqwvp.png">
                         <div class="icon-text"><b>Show E-ticket & ID Card</b>Perlihatkan E-tiket & Identitas</div>
                     </div>
                     <div class="icon-item">
-                        <img src="https://i.ibb.co.com/C5TX1Hny/schedule.png">
+                        <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877884/schedule_zenfxq.png">
                         <div class="icon-text"><b>Check-In 90 min before</b>Check-In minimal 90 menit</div>
                     </div>
                     <div class="icon-item">
-                        <img src="https://i.ibb.co.com/n8mMB9yV/plane.png">
+                        <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877886/plane_ojmtak.png">
                         <div class="icon-text"><b>Local Airport Time</b>Waktu Bandara Setempat</div>
                     </div>
                 </div>
