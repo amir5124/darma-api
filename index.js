@@ -10,6 +10,7 @@ const hotelRoutes = require('./routes/hotelRoutes');
 const shipRoutes = require('./routes/shipRoutes'); 
 const shpdluRoutes = require('./routes/shipdluRoutes');
 const trainRoutes = require('./routes/trainRoutes'); // <-- BARU
+const historyRoutes = require('./routes/historyRoutes');
 
 const app = express();
 app.use(express.json());
@@ -22,6 +23,8 @@ app.use('/api/hotels', hotelRoutes);
 app.use('/api/ship', shipRoutes);
 app.use('/api/shipdlu', shpdluRoutes);
 app.use('/api/train', trainRoutes); // <-- BARU (Akses via /api/train/schedule)
+app.use('/api/booking-history', historyRoutes);
+
 
 const PORT = 3000;
 app.listen(PORT, () => {
