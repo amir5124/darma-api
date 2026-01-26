@@ -21,7 +21,17 @@ exports.getMyBookings = async (req, res) => {
 };
 
 exports.getBookingPengguna = async (req, res) => {
+    // 1. Ambil username dan pastikan tidak kosong
     const { username } = req.params;
+
+    if (!username || username === 'undefined' || username === 'null' || username === '{username}') {
+        return res.status(200).json({
+            status: 'SUCCESS',
+            results: 0,
+            data: [],
+            message: 'Username tidak valid'
+        });
+    }
 
     try {
         const query = `
@@ -30,7 +40,7 @@ exports.getBookingPengguna = async (req, res) => {
                 b.booking_code,
                 b.booking_code AS bookingCodeAirline,
                 b.airline_name,
-                UPPER(b.ticket_status) AS ticket_status, -- PAKSA KE UPPERCASE DI SQL
+                UPPER(b.ticket_status) AS ticket_status,
                 b.total_price,
                 b.time_limit,
                 b.depart_date,
@@ -38,8 +48,8 @@ exports.getBookingPengguna = async (req, res) => {
                 i.flight_number,
                 i.origin,
                 i.destination,
-                i.depart_time,
-                i.arrival_time,
+                i.depart_time, -- Waktu Berangkat
+                i.arrival_time, -- Waktu Tiba
                 i.flight_class,
                 p.first_name AS main_pax_first,
                 p.last_name AS main_pax_last,
@@ -49,7 +59,7 @@ exports.getBookingPengguna = async (req, res) => {
             LEFT JOIN passengers p ON b.id = p.booking_id AND p.id = (
                 SELECT MIN(id) FROM passengers WHERE booking_id = b.id
             )
-            WHERE b.pengguna = ?
+            WHERE b.pengguna = ? 
             ORDER BY b.created_at DESC
         `;
 
@@ -59,22 +69,26 @@ exports.getBookingPengguna = async (req, res) => {
             const now = new Date();
             const limit = item.time_limit ? new Date(item.time_limit) : null;
             
-            // 1. Standarisasi Status
+            // Format Waktu Berangkat & Tiba
+            const formatTime = (dateStr) => {
+                if (!dateStr) return 'N/A';
+                const d = new Date(dateStr);
+                return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+            };
+
             const status = item.ticket_status ? item.ticket_status.toUpperCase() : "BOOKED";
-            
-            // 2. Logika Expired (Hanya jika belum ticketed)
             const isTicketed = status === 'TICKETED';
             const isExpired = !isTicketed && limit ? now > limit : false;
-
-            // 3. LOGIKA TOMBOL (Pusat Kendali)
-            // Bisa bayar HANYA JIKA status bukan TICKETED dan belum EXPIRED
             const canPay = !isTicketed && !isExpired;
 
             return {
                 ...item,
-                ticket_status: status, // Pastikan yang dikirim ke FE sudah UPPERCASE
+                ticket_status: status,
                 isExpired: isExpired,
-                canPay: canPay, // Frontend tinggal baca properti ini
+                canPay: canPay,
+                // Tambahan field untuk jam di Frontend
+                jam_berangkat: formatTime(item.depart_time),
+                jam_tiba: formatTime(item.arrival_time),
                 formattedLimit: limit ? limit.toLocaleString('id-ID', {
                     day: 'numeric', month: 'numeric', year: 'numeric',
                     hour: '2-digit', minute: '2-digit'
@@ -97,7 +111,6 @@ exports.getBookingPengguna = async (req, res) => {
         });
     }
 };
-
 /**
  * Menyimpan data Create Booking ke MySQL
  */
