@@ -24,7 +24,7 @@ exports.getBookingPengguna = async (req, res) => {
     const { username } = req.params;
 
     try {
-        // Query ini menggabungkan itinerary dan menghitung total pax dalam satu tarikan
+        // Query yang sudah diperbaiki dengan menarik kolom access_token
         const query = `
             SELECT 
                 b.id AS booking_id,
@@ -34,6 +34,7 @@ exports.getBookingPengguna = async (req, res) => {
                 b.total_price,
                 b.time_limit,
                 b.depart_date,
+                b.access_token AS accessToken, -- TAMBAHKAN BARIS INI (Alias agar camelCase di frontend)
                 i.flight_number,
                 i.origin,
                 i.destination,
@@ -57,14 +58,24 @@ exports.getBookingPengguna = async (req, res) => {
         // Mapping data untuk menambahkan logika expire dan formatting
         const historyData = rows.map(item => {
             const now = new Date();
-            const limit = new Date(item.time_limit);
+            const limit = item.time_limit ? new Date(item.time_limit) : null;
             
+            // Logika expired yang lebih aman
+            const isExpired = limit ? now > limit : false;
+
             return {
                 ...item,
-                // Status Expired: Jika waktu sekarang sudah melewati time_limit
-                isExpired: now > limit,
-                // Format tanggal agar ramah di mata (opsional, bisa dilakukan di frontend)
-                formattedLimit: item.time_limit ? new Date(item.time_limit).toLocaleString('id-ID') : 'N/A'
+                // Status Expired
+                isExpired: isExpired,
+                // Format tanggal limit agar ramah di UI
+                formattedLimit: limit ? limit.toLocaleString('id-ID', {
+                    day: 'numeric',
+                    month: 'numeric',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                }) : 'N/A'
             };
         });
 
@@ -75,7 +86,7 @@ exports.getBookingPengguna = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("Error GetBookingPengguna:", error);
+        console.error("❌ Error GetBookingPengguna:", error);
         res.status(500).json({
             status: 'ERROR',
             message: 'Gagal memuat riwayat pemesanan',
