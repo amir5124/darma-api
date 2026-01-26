@@ -5,7 +5,7 @@ const db = require('../config/db');
 const puppeteer = require('puppeteer');
 const QRCode = require('qrcode');
 const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('../helpers/darmaHelper');
-
+const flightController = require('../controllers/flightController');
 /**
  * HELPER: ARCHIVE DATA KE DATABASE
  * Membersihkan format ISO (T/Z) agar kompatibel dengan MySQL DATE & DATETIME
@@ -318,25 +318,48 @@ router.post('/get-seats', async (req, res) => {
 // 7. CREATE BOOKING + ARCHIVE TO DB
 router.post('/create-booking', async (req, res) => {
     try {
-        const token = await getConsistentToken();
+        // 1. Dapatkan token yang konsisten
+        const token = await getConsistentToken(); 
         const { usernameFromFrontend, ...cleanBody } = req.body;
 
+        // 2. Susun payload untuk Vendor (Darmawisata)
         const payload = {
             ...cleanBody,
             airlineAccessCode: cleanBody.airlineAccessCode || cleanBody.airlineID,
             userID: USER_CONFIG.userID,
-            accessToken: token
+            accessToken: token // Token dimasukkan ke sini
         };
 
-        const response = await axios.post(`${BASE_URL}/Airline/Booking`, payload, { httpsAgent: agent, timeout: 60000 });
+        // 3. Kirim ke Vendor
+        const response = await axios.post(`${BASE_URL}/Airline/Booking`, payload, { 
+            httpsAgent: agent, 
+            timeout: 60000 
+        });
 
+        // 4. Jika sukses, simpan ke Database (Latar Belakang)
         if (response.data.status === "SUCCESS") {
-            // Jalankan penyimpanan di background
-            archiveBookingToDB(payload, response.data, usernameFromFrontend);
+            // Kita bungkus data agar sesuai dengan parameter saveBooking
+            const dbRequest = {
+                body: {
+                    payload: payload,
+                    response: response.data,
+                    username: usernameFromFrontend
+                }
+            };
+            
+            // Panggil controller untuk menyimpan ke database
+            // Tidak perlu res karena ini proses internal (archive)
+            flightController.saveBooking(dbRequest, { 
+                status: () => ({ json: () => {} }), 
+                json: () => {} 
+            });
+
+            console.log(`✅ Booking ${response.data.bookingCode} disimpan dengan token: ${token}`);
         }
 
         res.json(response.data);
     } catch (error) {
+        console.error("❌ Route Error:", error.message);
         res.json({ status: "FAILED", respMessage: error.message });
     }
 });
