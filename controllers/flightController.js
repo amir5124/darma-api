@@ -28,7 +28,6 @@ exports.getBookingPengguna = async (req, res) => {
             SELECT 
                 b.id AS booking_id,
                 b.booking_code,
-                b.booking_code_airline,
                 b.airline_name,
                 UPPER(b.ticket_status) AS ticket_status, -- PAKSA KE UPPERCASE DI SQL
                 b.total_price,
