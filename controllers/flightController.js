@@ -24,17 +24,16 @@ exports.getBookingPengguna = async (req, res) => {
     const { username } = req.params;
 
     try {
-        // Query yang sudah diperbaiki dengan menarik kolom access_token
         const query = `
             SELECT 
                 b.id AS booking_id,
                 b.booking_code,
                 b.airline_name,
-                b.ticket_status,
+                UPPER(b.ticket_status) AS ticket_status, -- PAKSA KE UPPERCASE DI SQL
                 b.total_price,
                 b.time_limit,
                 b.depart_date,
-                b.access_token AS accessToken, -- TAMBAHKAN BARIS INI (Alias agar camelCase di frontend)
+                b.access_token AS accessToken,
                 i.flight_number,
                 i.origin,
                 i.destination,
@@ -55,26 +54,29 @@ exports.getBookingPengguna = async (req, res) => {
 
         const [rows] = await db.execute(query, [username]);
 
-        // Mapping data untuk menambahkan logika expire dan formatting
         const historyData = rows.map(item => {
             const now = new Date();
             const limit = item.time_limit ? new Date(item.time_limit) : null;
             
-            // Logika expired yang lebih aman
-            const isExpired = limit ? now > limit : false;
+            // 1. Standarisasi Status
+            const status = item.ticket_status ? item.ticket_status.toUpperCase() : "BOOKED";
+            
+            // 2. Logika Expired (Hanya jika belum ticketed)
+            const isTicketed = status === 'TICKETED';
+            const isExpired = !isTicketed && limit ? now > limit : false;
+
+            // 3. LOGIKA TOMBOL (Pusat Kendali)
+            // Bisa bayar HANYA JIKA status bukan TICKETED dan belum EXPIRED
+            const canPay = !isTicketed && !isExpired;
 
             return {
                 ...item,
-                // Status Expired
+                ticket_status: status, // Pastikan yang dikirim ke FE sudah UPPERCASE
                 isExpired: isExpired,
-                // Format tanggal limit agar ramah di UI
+                canPay: canPay, // Frontend tinggal baca properti ini
                 formattedLimit: limit ? limit.toLocaleString('id-ID', {
-                    day: 'numeric',
-                    month: 'numeric',
-                    year: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit'
+                    day: 'numeric', month: 'numeric', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit'
                 }) : 'N/A'
             };
         });
