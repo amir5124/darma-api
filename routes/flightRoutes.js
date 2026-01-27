@@ -315,30 +315,24 @@ router.post('/get-seats', async (req, res) => {
     }
 });
 
-// 7. CREATE BOOKING + ARCHIVE TO DB
 router.post('/create-booking', async (req, res) => {
     try {
-        // 1. Dapatkan token yang konsisten
         const token = await getConsistentToken(); 
         const { usernameFromFrontend, ...cleanBody } = req.body;
 
-        // 2. Susun payload untuk Vendor (Darmawisata)
         const payload = {
             ...cleanBody,
             airlineAccessCode: cleanBody.airlineAccessCode || cleanBody.airlineID,
             userID: USER_CONFIG.userID,
-            accessToken: token // Token dimasukkan ke sini
+            accessToken: token 
         };
 
-        // 3. Kirim ke Vendor
         const response = await axios.post(`${BASE_URL}/Airline/Booking`, payload, { 
             httpsAgent: agent, 
             timeout: 60000 
         });
 
-        // 4. Jika sukses, simpan ke Database (Latar Belakang)
         if (response.data.status === "SUCCESS") {
-            // Kita bungkus data agar sesuai dengan parameter saveBooking
             const dbRequest = {
                 body: {
                     payload: payload,
@@ -347,14 +341,13 @@ router.post('/create-booking', async (req, res) => {
                 }
             };
             
-            // Panggil controller untuk menyimpan ke database
-            // Tidak perlu res karena ini proses internal (archive)
+            // Simpan ke database di latar belakang
             flightController.saveBooking(dbRequest, { 
                 status: () => ({ json: () => {} }), 
                 json: () => {} 
             });
 
-            console.log(`✅ Booking ${response.data.bookingCode} disimpan dengan token: ${token}`);
+            console.log(`✅ Booking ${response.data.bookingCode} disimpan.`);
         }
 
         res.json(response.data);
@@ -364,13 +357,32 @@ router.post('/create-booking', async (req, res) => {
     }
 });
 
-// 8. BOOKING DETAIL
+// 8. BOOKING DETAIL + AUTO UPDATE SALES PRICE
 router.post('/booking-detail', async (req, res) => {
     try {
         const token = await getConsistentToken();
-        const response = await axios.post(`${BASE_URL}/Airline/BookingDetail`, { ...req.body, userID: USER_CONFIG.userID, accessToken: token }, { httpsAgent: agent });
-        res.json(response.data);
+        const response = await axios.post(`${BASE_URL}/Airline/BookingDetail`, 
+            { ...req.body, userID: USER_CONFIG.userID, accessToken: token }, 
+            { httpsAgent: agent }
+        );
+
+        const data = response.data;
+
+        // SYNC: Update sales_price ke DB jika ada data adminFee dari vendor
+        if (data.status === "SUCCESS" && data.adminFee && data.adminFee.salesPrice) {
+            const sPrice = data.adminFee.salesPrice;
+            const bCode = data.bookingCode;
+            
+            await db.execute(
+                `UPDATE bookings SET sales_price = ? WHERE booking_code = ?`,
+                [sPrice, bCode]
+            );
+            console.log(`🔄 DB Updated: ${bCode} sales_price set to ${sPrice}`);
+        }
+
+        res.json(data);
     } catch (error) {
+        console.error("❌ Detail Error:", error.message);
         res.json({ status: "FAILED", respMessage: error.message });
     }
 });

@@ -21,7 +21,6 @@ exports.getMyBookings = async (req, res) => {
 };
 
 exports.getBookingPengguna = async (req, res) => {
-    // 1. Ambil username dan pastikan tidak kosong
     const { username } = req.params;
 
     if (!username || username === 'undefined' || username === 'null' || username === '{username}') {
@@ -72,23 +71,21 @@ exports.getBookingPengguna = async (req, res) => {
             const now = new Date();
             const limit = item.time_limit ? new Date(item.time_limit) : null;
             
-            // Format Jam Berangkat & Tiba
             const formatTime = (dateStr) => {
                 if (!dateStr) return 'N/A';
                 const d = new Date(dateStr);
-                return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+                return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false }).replace('.', ':');
             };
 
             const status = item.ticket_status ? item.ticket_status.toUpperCase() : "BOOKED";
             const isTicketed = status === 'TICKETED';
             const isExpired = !isTicketed && limit ? now > limit : false;
-            const canPay = !isTicketed && !isExpired;
 
             return {
                 ...item,
                 ticket_status: status,
                 isExpired: isExpired,
-                canPay: canPay,
+                canPay: !isTicketed && !isExpired,
                 jam_berangkat: formatTime(item.depart_time),
                 jam_tiba: formatTime(item.arrival_time),
                 formattedLimit: limit ? limit.toLocaleString('id-ID', {
@@ -98,36 +95,25 @@ exports.getBookingPengguna = async (req, res) => {
             };
         });
 
-        res.status(200).json({
-            status: 'SUCCESS',
-            results: historyData.length,
-            data: historyData
-        });
+        res.status(200).json({ status: 'SUCCESS', results: historyData.length, data: historyData });
 
     } catch (error) {
         console.error("❌ Error GetBookingPengguna:", error);
-        res.status(500).json({
-            status: 'ERROR',
-            message: 'Gagal memuat riwayat pemesanan',
-            error: error.message
-        });
+        res.status(500).json({ status: 'ERROR', message: 'Gagal memuat data', error: error.message });
     }
 };
 
 exports.saveBooking = async (req, res) => {
     const { payload, response, username } = req.body;
 
-    // Proteksi data vendor
-    if (!response || response.status !== "SUCCESS") {
-        return res && res.status ? res.status(400).json({ status: 'ERROR', message: 'Invalid response data' }) : null;
-    }
+    if (!response || response.status !== "SUCCESS") return null;
 
     const connection = await db.getConnection();
     
     try {
         await connection.beginTransaction();
 
-        // 1. SIMPAN KE TABEL BOOKINGS (17 Kolom)
+        // SIMPAN KE TABEL BOOKINGS
         const [resBooking] = await connection.execute(
             `INSERT INTO bookings (
                 booking_code, reference_no, airline_id, airline_name, 
@@ -136,59 +122,50 @@ exports.saveBooking = async (req, res) => {
                 user_id, pengguna, access_token, payload_request, raw_response
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
-                response.bookingCode,                   // 1
-                response.referenceNo,                   // 2
-                payload.airlineID,                      // 3
-                payload.airlineName || payload.airlineID, // 4
-                payload.tripType || "OneWay",            // 5
-                payload.origin,                         // 6
-                payload.destination,                    // 7
-                payload.departDate ? payload.departDate.replace('T', ' ').replace('Z', '').split('.')[0] : null, // 8
-                "HOLD",                                 // 9
-                response.totalPrice || 0,               // 10
-                response.salesPrice || 0,               // 11
-                response.timeLimit,                     // 12
-                response.userID,                        // 13
-                username,                               // 14
-                payload.accessToken,                    // 15
-                JSON.stringify(payload),                // 16 (PENTING: Stringify agar payload_request tidak kosong)
-                JSON.stringify(response)                // 17
+                response.bookingCode,
+                response.referenceNo,
+                payload.airlineID,
+                payload.airlineName || payload.airlineID,
+                payload.tripType || "OneWay",
+                payload.origin,
+                payload.destination,
+                payload.departDate ? payload.departDate.replace('T', ' ').replace('Z', '').split('.')[0] : null,
+                "HOLD",
+                response.totalPrice || 0,
+                response.salesPrice || 0, // Harga agen awal (biasanya 0 dari vendor saat booking awal)
+                response.timeLimit,
+                response.userID,
+                username,
+                payload.accessToken,
+                JSON.stringify(payload), // FIX: Simpan sebagai JSON String
+                JSON.stringify(response)
             ]
         );
 
         const bookingId = resBooking.insertId;
 
-        // 2. SIMPAN DATA PENUMPANG
-        if (payload.paxDetails && payload.paxDetails.length > 0) {
+        // SIMPAN DATA PENUMPANG
+        if (payload.paxDetails) {
             for (const p of payload.paxDetails) {
                 const [resPax] = await connection.execute(
-                    `INSERT INTO passengers (
-                        booking_id, title, first_name, last_name, 
-                        pax_type, phone, id_number, birth_date, pengguna
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    `INSERT INTO passengers (booking_id, title, first_name, last_name, pax_type, phone, id_number, birth_date, pengguna) 
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     [
-                        bookingId,
-                        p.title.toUpperCase(),
-                        p.firstName.toUpperCase(),
-                        (p.lastName || p.firstName).toUpperCase(),
+                        bookingId, p.title.toUpperCase(), p.firstName.toUpperCase(), (p.lastName || p.firstName).toUpperCase(),
                         p.type === 0 ? 'Adult' : (p.type === 1 ? 'Child' : 'Infant'),
                         (payload.contactCountryCodePhone || "") + (payload.contactRemainingPhoneNo || ""),
-                        p.IDNumber || "",
-                        p.birthDate ? p.birthDate.split('T')[0] : '1900-01-01',
-                        username
+                        p.IDNumber || "", p.birthDate ? p.birthDate.split('T')[0] : '1900-01-01', username
                     ]
                 );
 
                 const paxId = resPax.insertId;
 
-                // 3. SIMPAN ADD-ONS
-                if (p.addOns && p.addOns.length > 0) {
+                // SIMPAN ADD-ONS
+                if (p.addOns) {
                     for (const ad of p.addOns) {
                         await connection.execute(
-                            `INSERT INTO passenger_addons (
-                                passenger_id, segment_idx, baggage_code, 
-                                seat_number, meals_json, pengguna
-                            ) VALUES (?, ?, ?, ?, ?, ?)`,
+                            `INSERT INTO passenger_addons (passenger_id, segment_idx, baggage_code, seat_number, meals_json, pengguna) 
+                             VALUES (?, ?, ?, ?, ?, ?)`,
                             [paxId, 0, ad.baggageString || "", ad.seat || "", JSON.stringify(ad.meals || []), username]
                         );
                     }
@@ -196,14 +173,12 @@ exports.saveBooking = async (req, res) => {
             }
         }
 
-        // 4. SIMPAN ITINERARY
-        if (response.flightDeparts && response.flightDeparts.length > 0) {
+        // SIMPAN ITINERARY
+        if (response.flightDeparts) {
             for (const f of response.flightDeparts) {
                 await connection.execute(
-                    `INSERT INTO flight_itinerary (
-                        booking_id, category, flight_number, origin, 
-                        destination, depart_time, arrival_time, flight_class, pengguna
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    `INSERT INTO flight_itinerary (booking_id, category, flight_number, origin, destination, depart_time, arrival_time, flight_class, pengguna) 
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     [
                         bookingId, 'Departure', f.flightNumber, f.fdOrigin, f.fdDestination,
                         f.fdDepartTime ? f.fdDepartTime.replace('T', ' ').split('.')[0] : null,
@@ -215,11 +190,9 @@ exports.saveBooking = async (req, res) => {
         }
 
         await connection.commit();
-        console.log(`✅ Sukses menyimpan booking ${response.bookingCode} untuk user: ${username}`);
-
     } catch (error) {
         await connection.rollback();
-        console.error("❌ Database Save Error:", error.message);
+        console.error("❌ DB Save Error:", error.message);
     } finally {
         connection.release();
     }
