@@ -315,6 +315,7 @@ router.post('/get-seats', async (req, res) => {
     }
 });
 
+// 7. CREATE BOOKING
 router.post('/create-booking', async (req, res) => {
     try {
         const token = await getConsistentToken(); 
@@ -347,7 +348,7 @@ router.post('/create-booking', async (req, res) => {
                 json: () => {} 
             });
 
-            console.log(`✅ Booking ${response.data.bookingCode} disimpan.`);
+            console.log(`✅ Booking ${response.data.bookingCode} diproses simpan.`);
         }
 
         res.json(response.data);
@@ -357,7 +358,7 @@ router.post('/create-booking', async (req, res) => {
     }
 });
 
-// 8. BOOKING DETAIL + AUTO UPDATE SALES PRICE
+// 8. BOOKING DETAIL + AUTO SYNC PRICE
 router.post('/booking-detail', async (req, res) => {
     try {
         const token = await getConsistentToken();
@@ -368,18 +369,17 @@ router.post('/booking-detail', async (req, res) => {
 
         const data = response.data;
 
-        // JIKA BERHASIL, UPDATE HARGA DI DATABASE
+        // JIKA BERHASIL, SYNC HARGA TERBARU (Agar ticket_price & sales_price tidak kosong)
         if (data.status === "SUCCESS" && data.adminFee) {
-            const tPrice = data.adminFee.ticketPrice; // Harga Jual ke User
+            const tPrice = data.adminFee.ticketPrice; // Harga Jual
             const sPrice = data.adminFee.salesPrice;  // Harga Modal Agen
             const bCode = data.bookingCode;
             
-            // Update dua kolom sekaligus agar tidak ada yang kosong
             await db.execute(
                 `UPDATE bookings SET total_price = ?, sales_price = ? WHERE booking_code = ?`,
                 [tPrice, sPrice, bCode]
             );
-            console.log(`🔄 Sync Harga: ${bCode} | Total: ${tPrice} | Sales: ${sPrice}`);
+            console.log(`🔄 Sync Harga DB: ${bCode} | Ticket: ${tPrice} | Sales: ${sPrice}`);
         }
 
         res.json(data);
