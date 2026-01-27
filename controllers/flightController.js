@@ -153,21 +153,35 @@ exports.saveBooking = async (req, res) => {
             }
         }
 
-        // SIMPAN ITINERARY (Mendukung Transit)
-        if (response.flightDeparts) {
-            for (const f of response.flightDeparts) {
-                await connection.execute(
-                    `INSERT INTO flight_itinerary (booking_id, category, flight_number, origin, destination, depart_time, arrival_time, flight_class, pengguna) 
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                    [
-                        bookingId, 'Departure', f.flightNumber, f.fdOrigin || f.origin, f.fdDestination || f.destination,
-                        f.fdDepartTime ? f.fdDepartTime.replace('T', ' ').split('.')[0] : null,
-                        f.fdArrivalTime ? f.fdArrivalTime.replace('T', ' ').split('.')[0] : null,
-                        f.fdFlightClass || f.flightClass, username
-                    ]
-                );
-            }
-        }
+      // 4. SIMPAN ITINERARY PENERBANGAN (flight_itinerary)
+if (response.flightDeparts && response.flightDeparts.length > 0) {
+    for (const f of response.flightDeparts) {
+        // Fungsi pembersih format tanggal ISO (membuang T dan Z)
+        const cleanDate = (dateStr) => {
+            if (!dateStr) return null;
+            // Menghapus 'T', menghapus 'Z', dan mengambil bagian waktu utama saja
+            return dateStr.replace('T', ' ').replace('Z', '').split('.')[0];
+        };
+
+        await connection.execute(
+            `INSERT INTO flight_itinerary (
+                booking_id, category, flight_number, origin, 
+                destination, depart_time, arrival_time, flight_class, pengguna
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                bookingId,
+                'Departure',
+                f.flightNumber,
+                f.fdOrigin,
+                f.fdDestination,
+                cleanDate(f.fdDepartTime), // Perbaikan: Format dibersihkan
+                cleanDate(f.fdArrivalTime), // Perbaikan: Format dibersihkan
+                f.fdFlightClass,
+                username || null
+            ]
+        );
+    }
+}
 
         await connection.commit();
         console.log(`✅ Sukses simpan DB: ${response.bookingCode}`);
