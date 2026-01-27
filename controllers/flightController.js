@@ -20,11 +20,106 @@ exports.getMyBookings = async (req, res) => {
     }
 };
 
+exports.getBookingPengguna = async (req, res) => {
+    // 1. Ambil username dan pastikan tidak kosong
+    const { username } = req.params;
+
+    if (!username || username === 'undefined' || username === 'null' || username === '{username}') {
+        return res.status(200).json({
+            status: 'SUCCESS',
+            results: 0,
+            data: [],
+            message: 'Username tidak valid'
+        });
+    }
+
+    try {
+        const query = `
+            SELECT 
+                b.id AS booking_id,
+                b.booking_code,
+                b.booking_code AS bookingCodeAirline,
+                b.reference_no,
+                b.airline_name,
+                UPPER(b.ticket_status) AS ticket_status,
+                b.total_price,
+                b.sales_price,
+                b.time_limit,
+                b.depart_date,
+                b.access_token AS accessToken,
+                b.payload_request,
+                i.flight_number,
+                i.origin,
+                i.destination,
+                i.depart_time,
+                i.arrival_time,
+                i.flight_class,
+                p.first_name AS main_pax_first,
+                p.last_name AS main_pax_last,
+                (SELECT COUNT(*) FROM passengers WHERE booking_id = b.id) AS total_pax
+            FROM bookings b
+            LEFT JOIN flight_itinerary i ON b.id = i.booking_id
+            LEFT JOIN passengers p ON b.id = p.booking_id AND p.id = (
+                SELECT MIN(id) FROM passengers WHERE booking_id = b.id
+            )
+            WHERE b.pengguna = ? 
+            ORDER BY b.created_at DESC
+        `;
+
+        const [rows] = await db.execute(query, [username]);
+
+        const historyData = rows.map(item => {
+            const now = new Date();
+            const limit = item.time_limit ? new Date(item.time_limit) : null;
+            
+            // Format Jam Berangkat & Tiba
+            const formatTime = (dateStr) => {
+                if (!dateStr) return 'N/A';
+                const d = new Date(dateStr);
+                return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+            };
+
+            const status = item.ticket_status ? item.ticket_status.toUpperCase() : "BOOKED";
+            const isTicketed = status === 'TICKETED';
+            const isExpired = !isTicketed && limit ? now > limit : false;
+            const canPay = !isTicketed && !isExpired;
+
+            return {
+                ...item,
+                ticket_status: status,
+                isExpired: isExpired,
+                canPay: canPay,
+                jam_berangkat: formatTime(item.depart_time),
+                jam_tiba: formatTime(item.arrival_time),
+                formattedLimit: limit ? limit.toLocaleString('id-ID', {
+                    day: 'numeric', month: 'numeric', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit'
+                }) : 'N/A'
+            };
+        });
+
+        res.status(200).json({
+            status: 'SUCCESS',
+            results: historyData.length,
+            data: historyData
+        });
+
+    } catch (error) {
+        console.error("❌ Error GetBookingPengguna:", error);
+        res.status(500).json({
+            status: 'ERROR',
+            message: 'Gagal memuat riwayat pemesanan',
+            error: error.message
+        });
+    }
+};
+
 exports.saveBooking = async (req, res) => {
     const { payload, response, username } = req.body;
 
+    // Proteksi data vendor
     if (!response || response.status !== "SUCCESS") {
-        return res && res.status ? res.status(400).json({ status: 'ERROR', message: 'Invalid vendor response' }) : null;
+        return res && res.status ? res.status(400).json({ status: 'ERROR', message: 'Invalid response data' }) : null;
     }
 
     const connection = await db.getConnection();
@@ -32,7 +127,7 @@ exports.saveBooking = async (req, res) => {
     try {
         await connection.beginTransaction();
 
-        // 1. SIMPAN KE TABEL BOOKINGS (Total 17 Kolom sesuai struktur Anda)
+        // 1. SIMPAN KE TABEL BOOKINGS (17 Kolom)
         const [resBooking] = await connection.execute(
             `INSERT INTO bookings (
                 booking_code, reference_no, airline_id, airline_name, 
@@ -41,23 +136,23 @@ exports.saveBooking = async (req, res) => {
                 user_id, pengguna, access_token, payload_request, raw_response
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
-                response.bookingCode,                   // booking_code
-                response.referenceNo,                   // reference_no
-                payload.airlineID,                      // airline_id
-                payload.airlineName || payload.airlineID, // airline_name
-                payload.tripType || "OneWay",            // trip_type
-                payload.origin,                         // origin
-                payload.destination,                    // destination
-                payload.departDate ? payload.departDate.replace('T', ' ').replace('Z', '').split('.')[0] : null, // depart_date
-                "HOLD",                                 // ticket_status
-                response.totalPrice || 0,               // total_price (Harga modal/NTA)
-                response.salesPrice || 0,               // sales_price (Harga jual)
-                response.timeLimit,                     // time_limit
-                response.userID,                        // user_id
-                username || null,                       // pengguna (PENTING untuk GetBookingPengguna)
-                payload.accessToken,                    // access_token
-                JSON.stringify(payload),                // payload_request (JSON format)
-                JSON.stringify(response)                // raw_response (JSON format)
+                response.bookingCode,                   // 1
+                response.referenceNo,                   // 2
+                payload.airlineID,                      // 3
+                payload.airlineName || payload.airlineID, // 4
+                payload.tripType || "OneWay",            // 5
+                payload.origin,                         // 6
+                payload.destination,                    // 7
+                payload.departDate ? payload.departDate.replace('T', ' ').replace('Z', '').split('.')[0] : null, // 8
+                "HOLD",                                 // 9
+                response.totalPrice || 0,               // 10
+                response.salesPrice || 0,               // 11
+                response.timeLimit,                     // 12
+                response.userID,                        // 13
+                username,                               // 14
+                payload.accessToken,                    // 15
+                JSON.stringify(payload),                // 16 (PENTING: Stringify agar payload_request tidak kosong)
+                JSON.stringify(response)                // 17
             ]
         );
 
@@ -73,14 +168,14 @@ exports.saveBooking = async (req, res) => {
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     [
                         bookingId,
-                        (p.title || "").toUpperCase(),
-                        (p.firstName || "").toUpperCase(),
-                        (p.lastName || p.firstName || "").toUpperCase(),
+                        p.title.toUpperCase(),
+                        p.firstName.toUpperCase(),
+                        (p.lastName || p.firstName).toUpperCase(),
                         p.type === 0 ? 'Adult' : (p.type === 1 ? 'Child' : 'Infant'),
                         (payload.contactCountryCodePhone || "") + (payload.contactRemainingPhoneNo || ""),
                         p.IDNumber || "",
                         p.birthDate ? p.birthDate.split('T')[0] : '1900-01-01',
-                        username || null
+                        username
                     ]
                 );
 
@@ -94,7 +189,7 @@ exports.saveBooking = async (req, res) => {
                                 passenger_id, segment_idx, baggage_code, 
                                 seat_number, meals_json, pengguna
                             ) VALUES (?, ?, ?, ?, ?, ?)`,
-                            [paxId, 0, ad.baggageString || "", ad.seat || "", JSON.stringify(ad.meals || []), username || null]
+                            [paxId, 0, ad.baggageString || "", ad.seat || "", JSON.stringify(ad.meals || []), username]
                         );
                     }
                 }
@@ -113,73 +208,19 @@ exports.saveBooking = async (req, res) => {
                         bookingId, 'Departure', f.flightNumber, f.fdOrigin, f.fdDestination,
                         f.fdDepartTime ? f.fdDepartTime.replace('T', ' ').split('.')[0] : null,
                         f.fdArrivalTime ? f.fdArrivalTime.replace('T', ' ').split('.')[0] : null,
-                        f.fdFlightClass, username || null
+                        f.fdFlightClass, username
                     ]
                 );
             }
         }
 
         await connection.commit();
-        console.log(`✅ Booking Archived: ${response.bookingCode} for ${username}`);
-        
-        if (res && typeof res.status === 'function') {
-            res.status(201).json({ status: 'SUCCESS', db_id: bookingId });
-        }
+        console.log(`✅ Sukses menyimpan booking ${response.bookingCode} untuk user: ${username}`);
 
     } catch (error) {
         await connection.rollback();
-        console.error("❌ Database Error Detail:", error.message);
-        if (res && typeof res.status === 'function') {
-            res.status(500).json({ status: 'ERROR', message: error.message });
-        }
+        console.error("❌ Database Save Error:", error.message);
     } finally {
         connection.release();
-    }
-};
-
-exports.getBookingPengguna = async (req, res) => {
-    const { username } = req.params;
-
-    if (!username || username === 'undefined' || username === 'null') {
-        return res.status(200).json({ status: 'SUCCESS', results: 0, data: [] });
-    }
-
-    try {
-        const query = `
-            SELECT 
-                b.id AS booking_id, b.booking_code, b.airline_name,
-                UPPER(b.ticket_status) AS ticket_status,
-                b.total_price, b.sales_price, b.time_limit, b.depart_date,
-                b.access_token AS accessToken,
-                i.flight_number, i.origin, i.destination,
-                i.depart_time, i.arrival_time, i.flight_class,
-                p.first_name AS main_pax_first, p.last_name AS main_pax_last,
-                (SELECT COUNT(*) FROM passengers WHERE booking_id = b.id) AS total_pax
-            FROM bookings b
-            LEFT JOIN flight_itinerary i ON b.id = i.booking_id
-            LEFT JOIN passengers p ON b.id = p.booking_id AND p.id = (
-                SELECT MIN(id) FROM passengers WHERE booking_id = b.id
-            )
-            WHERE b.pengguna = ? 
-            ORDER BY b.created_at DESC
-        `;
-
-        const [rows] = await db.execute(query, [username]);
-
-        const historyData = rows.map(item => {
-            const limit = item.time_limit ? new Date(item.time_limit) : null;
-            const now = new Date();
-            
-            return {
-                ...item,
-                isExpired: (!item.ticket_status.includes('TICKETED') && limit) ? now > limit : false,
-                jam_berangkat: item.depart_time ? new Date(item.depart_time).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'}) : 'N/A',
-                jam_tiba: item.arrival_time ? new Date(item.arrival_time).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'}) : 'N/A'
-            };
-        });
-
-        res.status(200).json({ status: 'SUCCESS', results: historyData.length, data: historyData });
-    } catch (error) {
-        res.status(500).json({ status: 'ERROR', message: error.message });
     }
 };
