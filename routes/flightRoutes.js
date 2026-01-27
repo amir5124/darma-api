@@ -368,21 +368,22 @@ router.post('/booking-detail', async (req, res) => {
 
         const data = response.data;
 
-        // SYNC: Update sales_price ke DB jika ada data adminFee dari vendor
-        if (data.status === "SUCCESS" && data.adminFee && data.adminFee.salesPrice) {
-            const sPrice = data.adminFee.salesPrice;
+        // JIKA BERHASIL, UPDATE HARGA DI DATABASE
+        if (data.status === "SUCCESS" && data.adminFee) {
+            const tPrice = data.adminFee.ticketPrice; // Harga Jual ke User
+            const sPrice = data.adminFee.salesPrice;  // Harga Modal Agen
             const bCode = data.bookingCode;
             
+            // Update dua kolom sekaligus agar tidak ada yang kosong
             await db.execute(
-                `UPDATE bookings SET sales_price = ? WHERE booking_code = ?`,
-                [sPrice, bCode]
+                `UPDATE bookings SET total_price = ?, sales_price = ? WHERE booking_code = ?`,
+                [tPrice, sPrice, bCode]
             );
-            console.log(`🔄 DB Updated: ${bCode} sales_price set to ${sPrice}`);
+            console.log(`🔄 Sync Harga: ${bCode} | Total: ${tPrice} | Sales: ${sPrice}`);
         }
 
         res.json(data);
     } catch (error) {
-        console.error("❌ Detail Error:", error.message);
         res.json({ status: "FAILED", respMessage: error.message });
     }
 });

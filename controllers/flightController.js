@@ -70,7 +70,7 @@ exports.getBookingPengguna = async (req, res) => {
         const historyData = rows.map(item => {
             const now = new Date();
             const limit = item.time_limit ? new Date(item.time_limit) : null;
-            
+
             const formatTime = (dateStr) => {
                 if (!dateStr) return 'N/A';
                 const d = new Date(dateStr);
@@ -109,11 +109,14 @@ exports.saveBooking = async (req, res) => {
     if (!response || response.status !== "SUCCESS") return null;
 
     const connection = await db.getConnection();
-    
+
     try {
         await connection.beginTransaction();
 
         // SIMPAN KE TABEL BOOKINGS
+        const finalTotalPrice = response.totalPrice || payload.totalPrice || 0;
+        const finalSalesPrice = response.salesPrice || 0;
+
         const [resBooking] = await connection.execute(
             `INSERT INTO bookings (
                 booking_code, reference_no, airline_id, airline_name, 
@@ -131,13 +134,13 @@ exports.saveBooking = async (req, res) => {
                 payload.destination,
                 payload.departDate ? payload.departDate.replace('T', ' ').replace('Z', '').split('.')[0] : null,
                 "HOLD",
-                response.totalPrice || 0,
-                response.salesPrice || 0, // Harga agen awal (biasanya 0 dari vendor saat booking awal)
+                finalTotalPrice, // Di sini nilai ticket_price/total_price disimpan
+                finalSalesPrice,
                 response.timeLimit,
                 response.userID,
                 username,
                 payload.accessToken,
-                JSON.stringify(payload), // FIX: Simpan sebagai JSON String
+                JSON.stringify(payload),
                 JSON.stringify(response)
             ]
         );
