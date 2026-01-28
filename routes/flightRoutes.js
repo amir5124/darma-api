@@ -362,24 +362,34 @@ router.post('/create-booking', async (req, res) => {
 router.post('/booking-detail', async (req, res) => {
     try {
         const token = await getConsistentToken();
-        const response = await axios.post(`${BASE_URL}/Airline/BookingDetail`,
-            { ...req.body, userID: USER_CONFIG.userID, accessToken: token },
-            { httpsAgent: agent }
+        const response = await axios.post(`${BASE_URL}/Airline/BookingDetail`, 
+            { ...req.body, userID: USER_CONFIG.userID, accessToken: token }
         );
 
         const data = response.data;
 
-        // JIKA BERHASIL, SYNC HARGA TERBARU (Agar ticket_price & sales_price tidak kosong)
-        if (data.status === "SUCCESS" && data.adminFee) {
-            const tPrice = data.adminFee.ticketPrice; // Harga Jual
-            const sPrice = data.adminFee.salesPrice;  // Harga Modal Agen
-            const bCode = data.bookingCode;
-
+        if (data.status === "SUCCESS") {
+            const tPrice = data.adminFee ? data.adminFee.ticketPrice : 0;
+            const sPrice = data.adminFee ? data.adminFee.salesPrice : 0;
+            
+            // Sync data ke tabel bookings
             await db.execute(
-                `UPDATE bookings SET total_price = ?, sales_price = ? WHERE booking_code = ?`,
-                [tPrice, sPrice, bCode]
+                `UPDATE bookings SET 
+                    total_price = ?, 
+                    sales_price = ?, 
+                    origin_port = ?,
+                    destination_port = ?, 
+                    ticket_status = ?
+                 WHERE booking_code = ?`,
+                [
+                    tPrice, 
+                    sPrice, 
+                    data.origin,      // Dari API Detail biasanya nama lengkap
+                    data.destination, // Dari API Detail biasanya nama lengkap
+                    data.ticketStatus, 
+                    data.bookingCode
+                ]
             );
-            console.log(`🔄 Sync Harga DB: ${bCode} | Ticket: ${tPrice} | Sales: ${sPrice}`);
         }
 
         res.json(data);
@@ -596,7 +606,7 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                         <td>
                           <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877917/WhatsApp_Image_2026-01-20_at_09.45.43-removebg-preview_lqkgrw.png" height="50" style="margin-bottom: 10px;">
                             <div class="purchased-from">
-                              Jln. Negara rt.16 Tengin Baru Kec. Sepaku<br> Kab. Penajam Paser Utara -IKN<br> Telp: 085247777710<br>
+                              Jln. Negara rt.16 Tengin Baru Kec. Sepaku<br> Kab. Penajam Paser Utara -IKN<br> Telp: 081347423737<br>
                                 E-mail: linkuikn@gmail.com
                             </div>
                         </td>

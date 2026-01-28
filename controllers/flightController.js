@@ -35,6 +35,8 @@ exports.getBookingPengguna = async (req, res) => {
                 b.id AS booking_id, b.booking_code, b.booking_code AS bookingCodeAirline,
                 b.reference_no, b.airline_name, UPPER(b.ticket_status) AS ticket_status,
                 b.total_price, b.sales_price, b.time_limit, b.depart_date,
+                b.origin AS origin_code, b.destination AS destination_code,
+                b.origin_port, b.destination_port, -- Kolom nama lengkap baru
                 b.access_token AS accessToken, b.payload_request,
                 i.flight_number, i.origin, i.destination, i.depart_time, i.arrival_time, i.flight_class,
                 p.first_name AS main_pax_first, p.last_name AS main_pax_last,
@@ -66,6 +68,9 @@ exports.getBookingPengguna = async (req, res) => {
 
             return {
                 ...item,
+                // Logika tampilan: Utamakan nama lengkap (port), fallback ke kode (SUB/CGK)
+                origin: item.origin_port || item.origin || item.origin_code,
+                destination: item.destination_port || item.destination || item.destination_code,
                 ticket_status: status,
                 isExpired: isExpired,
                 canPay: !isTicketed && !isExpired,
@@ -92,25 +97,26 @@ exports.saveBooking = async (req, res) => {
     try {
         await connection.beginTransaction();
 
-        // LOGIKA HARGA ROBUST: Cek semua kemungkinan nama field dari vendor
         const finalTotalPrice = response.ticketPrice || response.totalPrice || payload.totalPrice || 0;
         const finalSalesPrice = response.salesPrice || 0;
 
         const [resBooking] = await connection.execute(
             `INSERT INTO bookings (
                 booking_code, reference_no, airline_id, airline_name, 
-                trip_type, origin, destination, depart_date, 
-                ticket_status, total_price, sales_price, time_limit, 
+                trip_type, origin, destination, origin_port, destination_port,
+                depart_date, ticket_status, total_price, sales_price, time_limit, 
                 user_id, pengguna, access_token, payload_request, raw_response
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 response.bookingCode,
                 response.referenceNo,
                 payload.airlineID,
                 payload.airlineName || payload.airlineID,
                 payload.tripType || "OneWay",
-                payload.origin,
-                payload.destination,
+                payload.origin,      // Kode bandara (SUB)
+                payload.destination, // Kode bandara (CGK)
+                response.origin || null,      // Nama Lengkap (Surabaya)
+                response.destination || null, // Nama Lengkap (Jakarta)
                 payload.departDate ? payload.departDate.replace('T', ' ').replace('Z', '').split('.')[0] : null,
                 response.ticketStatus || "HOLD",
                 finalTotalPrice,
@@ -119,14 +125,14 @@ exports.saveBooking = async (req, res) => {
                 response.userID,
                 username,
                 payload.accessToken,
-                JSON.stringify(payload), // Simpan Payload Request sebagai JSON
+                JSON.stringify(payload),
                 JSON.stringify(response)
             ]
         );
 
         const bookingId = resBooking.insertId;
 
-        // SIMPAN DATA PENUMPANG
+        // --- SIMPAN DATA PENUMPANG ---
         if (payload.paxDetails) {
             for (const p of payload.paxDetails) {
                 const [resPax] = await connection.execute(
@@ -153,31 +159,23 @@ exports.saveBooking = async (req, res) => {
             }
         }
 
-        // 4. SIMPAN ITINERARY PENERBANGAN (flight_itinerary)
+        // --- SIMPAN ITINERARY PENERBANGAN ---
         if (response.flightDeparts && response.flightDeparts.length > 0) {
             for (const f of response.flightDeparts) {
-                // Fungsi pembersih format tanggal ISO (membuang T dan Z)
                 const cleanDate = (dateStr) => {
                     if (!dateStr) return null;
-                    // Menghapus 'T', menghapus 'Z', dan mengambil bagian waktu utama saja
                     return dateStr.replace('T', ' ').replace('Z', '').split('.')[0];
                 };
 
                 await connection.execute(
                     `INSERT INTO flight_itinerary (
-                booking_id, category, flight_number, origin, 
-                destination, depart_time, arrival_time, flight_class, pengguna
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        booking_id, category, flight_number, origin, 
+                        destination, depart_time, arrival_time, flight_class, pengguna
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     [
-                        bookingId,
-                        'Departure',
-                        f.flightNumber,
-                        f.fdOrigin,
-                        f.fdDestination,
-                        cleanDate(f.fdDepartTime), // Perbaikan: Format dibersihkan
-                        cleanDate(f.fdArrivalTime), // Perbaikan: Format dibersihkan
-                        f.fdFlightClass,
-                        username || null
+                        bookingId, 'Departure', f.flightNumber, f.fdOrigin, f.fdDestination,
+                        cleanDate(f.fdDepartTime), cleanDate(f.fdArrivalTime),
+                        f.fdFlightClass, username || null
                     ]
                 );
             }
