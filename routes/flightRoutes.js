@@ -362,7 +362,7 @@ router.post('/create-booking', async (req, res) => {
 router.post('/booking-detail', async (req, res) => {
     try {
         const token = await getConsistentToken();
-        const response = await axios.post(`${BASE_URL}/Airline/BookingDetail`, 
+        const response = await axios.post(`${BASE_URL}/Airline/BookingDetail`,
             { ...req.body, userID: USER_CONFIG.userID, accessToken: token }
         );
 
@@ -371,7 +371,7 @@ router.post('/booking-detail', async (req, res) => {
         if (data.status === "SUCCESS") {
             const tPrice = data.adminFee ? data.adminFee.ticketPrice : 0;
             const sPrice = data.adminFee ? data.adminFee.salesPrice : 0;
-            
+
             // Sync data ke tabel bookings
             await db.execute(
                 `UPDATE bookings SET 
@@ -382,11 +382,11 @@ router.post('/booking-detail', async (req, res) => {
                     ticket_status = ?
                  WHERE booking_code = ?`,
                 [
-                    tPrice, 
-                    sPrice, 
+                    tPrice,
+                    sPrice,
                     data.origin,      // Dari API Detail biasanya nama lengkap
                     data.destination, // Dari API Detail biasanya nama lengkap
-                    data.ticketStatus, 
+                    data.ticketStatus,
                     data.bookingCode
                 ]
             );
@@ -462,35 +462,37 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
 
                 return `
                 <div class="flight-box">
-                    <div class="flight-header">${titleLabel} - ${fullDateTitle}</div>
-                    <div class="flight-content">
-                        <div class="airline-info">
-                            <div class="airline-name">${airlineNames[booking.airline_id] || booking.airline_id}</div>
-                            <div class="flight-number">${booking.airline_id} ${f.flightNumber}</div>
-                            <div class="class-info">Class ${f.fdFlightClass || 'Y'} (eco)</div>
-                        </div>
-                        <div class="route-display">
-                            <div class="time-block">
-                                <div class="date-text">${dateStr}</div>
-                                <div class="time-text">${jamDep}</div>
-                                <div class="station-text">${f.fdOrigin}</div>
-                            </div>
-                            <div class="path-line">
-                                <div class="duration">${durationText}</div>
-                                <div class="line-container">
-                                    <span class="circle-hollow"></span>
-                                    <span class="hr-line"></span>
-                                    <span class="circle-solid"></span>
-                                </div>
-                            </div>
-                            <div class="time-block" style="text-align: right;">
-                                <div class="date-text">${dateStr}</div>
-                                <div class="time-text">${jamArr}</div>
-                                <div class="station-text">${f.fdDestination}</div>
-                            </div>
+            <div class="flight-header">${titleLabel} - ${fullDateTitle}</div>
+            <div class="flight-content">
+                <div class="airline-info">
+                    <div class="airline-name">${airlineNames[booking.airline_id] || booking.airline_id}</div>
+                    <div class="flight-number">${booking.airline_id} ${f.flightNumber}</div>
+                    <div class="class-info">Class ${f.fdFlightClass || 'Y'} (eco)</div>
+                </div>
+                <div class="route-display">
+                    <div class="time-block">
+                        <div class="date-text">${dateStr}</div>
+                        <div class="time-text">${jamDep}</div>
+                        <div class="station-text">${f.fdOrigin}</div>
+                        <div class="port-text">${booking.origin_port || ''}</div>
+                    </div>
+                    <div class="path-line">
+                        <div class="duration">${durationText}</div>
+                        <div class="line-container">
+                            <span class="circle-hollow"></span>
+                            <span class="hr-line"></span>
+                            <span class="circle-solid"></span>
                         </div>
                     </div>
-                </div>`;
+                    <div class="time-block" style="text-align: right;">
+                        <div class="date-text">${dateStr}</div>
+                        <div class="time-text">${jamArr}</div>
+                        <div class="station-text">${f.fdDestination}</div>
+                        <div class="port-text">${booking.destination_port || ''}</div>
+                    </div>
+                </div>
+            </div>
+        </div>`;
             }).join('');
         };
 
@@ -538,6 +540,21 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                 .container { padding: 25px; }
                 .header-table { width: 100%; margin-bottom: 10px; }
                 .purchased-from { font-size: 9px; color: #777; }
+
+                .port-text {
+    font-size: 7.5px; /* Ukuran teks kecil */
+    color: #666;      /* Warna abu-abu */
+    font-weight: normal;
+    text-transform: uppercase;
+    margin-top: 1px;
+    max-width: 120px; /* Agar tidak terlalu lebar jika nama bandara panjang */
+}
+
+/* Sesuaikan time-block agar kontennya tidak bertumpuk */
+.time-block {
+    display: flex;
+    flex-direction: column;
+}
                 
                 /* PERBAIKAN ICON TOP: ALIGN LEFT, CENTER, RIGHT */
                 .top-icons { 
