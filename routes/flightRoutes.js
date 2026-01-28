@@ -302,8 +302,13 @@ router.get('/get-all-schedules', async (req, res) => {
 // 5. PRICE ALL AIRLINE (Sesuai Permintaan)
 router.post('/get-all-price', async (req, res) => {
     try {
+        console.log("💰 [Backend] Memulai proses All Airline Price Check...");
         const token = await getConsistentToken();
         const b = req.body;
+
+        // Log payload untuk memastikan data dari frontend sudah benar
+        console.log(`✈️ Cek Harga untuk Airline: ${b.airlineID}, Tipe: ${b.tripType}`);
+
         const payload = {
             "airlineID": b.airlineID,
             "origin": b.origin,
@@ -311,19 +316,38 @@ router.post('/get-all-price', async (req, res) => {
             "tripType": b.tripType || "OneWay",
             "departDate": b.departDate,
             "returnDate": b.returnDate || "0001-01-01T00:00:00",
-            "paxAdult": parseInt(b.paxAdult),
-            "paxChild": parseInt(b.paxChild),
-            "paxInfant": parseInt(b.paxInfant),
+            "paxAdult": parseInt(b.paxAdult) || 1,
+            "paxChild": parseInt(b.paxChild) || 0,
+            "paxInfant": parseInt(b.paxInfant) || 0,
             "airlineAccessCode": b.airlineAccessCode || null,
             "journeyDepartReference": b.journeyDepartReference,
             "journeyReturnReference": b.journeyReturnReference || null,
             "userID": USER_CONFIG.userID,
             "accessToken": token
         };
-        const response = await axios.post(`${BASE_URL}/Airline/PriceAllAirline`, payload, { httpsAgent: agent, timeout: 30000 });
+
+        const response = await axios.post(`${BASE_URL}/Airline/PriceAllAirline`, payload, { 
+            httpsAgent: agent, 
+            timeout: 45000 
+        });
+
+        console.log(`✅ Harga Berhasil didapat: ${response.data.status}`);
         res.json(response.data);
+
     } catch (error) {
-        res.status(500).json({ status: "ERROR", error: error.message });
+        // Gunakan Logika Klasik (Bukan ?.) agar kompatibel dengan komputer DELL Anda
+        console.error("🔥 Error Price All Airline:", error.message);
+        
+        let serverMsg = "Internal Server Error";
+        if (error.response && error.response.data && error.response.data.respMessage) {
+            serverMsg = error.response.data.respMessage;
+        }
+
+        res.status(500).json({ 
+            status: "ERROR", 
+            respMessage: serverMsg,
+            error: error.message 
+        });
     }
 });
 
