@@ -318,19 +318,19 @@ router.post('/get-seats', async (req, res) => {
 // 7. CREATE BOOKING
 router.post('/create-booking', async (req, res) => {
     try {
-        const token = await getConsistentToken(); 
+        const token = await getConsistentToken();
         const { usernameFromFrontend, ...cleanBody } = req.body;
 
         const payload = {
             ...cleanBody,
             airlineAccessCode: cleanBody.airlineAccessCode || cleanBody.airlineID,
             userID: USER_CONFIG.userID,
-            accessToken: token 
+            accessToken: token
         };
 
-        const response = await axios.post(`${BASE_URL}/Airline/Booking`, payload, { 
-            httpsAgent: agent, 
-            timeout: 60000 
+        const response = await axios.post(`${BASE_URL}/Airline/Booking`, payload, {
+            httpsAgent: agent,
+            timeout: 60000
         });
 
         if (response.data.status === "SUCCESS") {
@@ -341,11 +341,11 @@ router.post('/create-booking', async (req, res) => {
                     username: usernameFromFrontend
                 }
             };
-            
+
             // Simpan ke database di latar belakang
-            flightController.saveBooking(dbRequest, { 
-                status: () => ({ json: () => {} }), 
-                json: () => {} 
+            flightController.saveBooking(dbRequest, {
+                status: () => ({ json: () => { } }),
+                json: () => { }
             });
 
             console.log(`✅ Booking ${response.data.bookingCode} diproses simpan.`);
@@ -362,8 +362,8 @@ router.post('/create-booking', async (req, res) => {
 router.post('/booking-detail', async (req, res) => {
     try {
         const token = await getConsistentToken();
-        const response = await axios.post(`${BASE_URL}/Airline/BookingDetail`, 
-            { ...req.body, userID: USER_CONFIG.userID, accessToken: token }, 
+        const response = await axios.post(`${BASE_URL}/Airline/BookingDetail`,
+            { ...req.body, userID: USER_CONFIG.userID, accessToken: token },
             { httpsAgent: agent }
         );
 
@@ -374,7 +374,7 @@ router.post('/booking-detail', async (req, res) => {
             const tPrice = data.adminFee.ticketPrice; // Harga Jual
             const sPrice = data.adminFee.salesPrice;  // Harga Modal Agen
             const bCode = data.bookingCode;
-            
+
             await db.execute(
                 `UPDATE bookings SET total_price = ?, sales_price = ? WHERE booking_code = ?`,
                 [tPrice, sPrice, bCode]
@@ -432,6 +432,8 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
         const baggageMap = { "PBAA": "15kg", "PBAB": "20kg", "PBAC": "25kg", "PBAD": "30kg", "PBAF": "40kg" };
         const mealMap = { "NPCB": "Nasi Padang", "NLCB": "Pak Nasser", "NKCB": "Nasi Kuning", "GCCB": "Thai Green", "CRCB": "Uncle Chin" };
         const airlineNames = { "QZ": "AirAsia", "ID": "Batik Air", "GA": "Garuda Indonesia", "JT": "Lion Air", "QG": "Citilink" };
+        // Default bagasi per maskapai jika API kosong
+        const defaultBaggage = { "QG": "20kg", "JT": "0kg", "ID": "20kg", "GA": "20kg", "QZ": "0kg" };
 
         const qrDataUrl = await QRCode.toDataURL(response.bookingCodeAirline || booking.booking_code);
 
@@ -494,7 +496,12 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
             let bag = '-';
             if (!isInfant) {
                 const rawBag = ad?.baggageString || "";
-                bag = (rawBag === "" || rawBag === "-") ? "15kg" : (baggageMap[rawBag] || rawBag);
+                // Logika Dinamis: Jika API bagasi kosong, gunakan default per maskapai
+                if (rawBag === "" || rawBag === "-" || rawBag === null) {
+                    bag = defaultBaggage[booking.airline_id] || "0kg";
+                } else {
+                    bag = baggageMap[rawBag] || rawBag;
+                }
             }
 
             let seat = ad?.seat || '-';
@@ -520,17 +527,28 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                 body { font-family: Arial, sans-serif; color: #333; padding: 0; margin: 0; font-size: 10px; line-height: 1.4; }
                 .container { padding: 25px; }
                 .header-table { width: 100%; margin-bottom: 10px; }
-                .agency-name { font-weight: bold; color: #000; font-size: 13px; }
                 .purchased-from { font-size: 9px; color: #777; }
                 
-                .top-icons { display: flex; justify-content: space-between; margin: 15px 0; border-bottom: 1px solid #ddd; padding-bottom: 10px; }
-                .icon-item { display: flex; align-items: center; gap: 8px; width: 32%; }
-                .icon-item img { width: 30px; height: 30px; }
-                .icon-text { font-size: 8px; color: #444; }
+                /* PERBAIKAN ICON TOP: ALIGN LEFT, CENTER, RIGHT */
+                .top-icons { 
+                    display: table; 
+                    width: 100%; 
+                    margin: 15px 0; 
+                    border-bottom: 1px solid #ddd; 
+                    padding-bottom: 10px; 
+                }
+                .icon-item { display: table-cell; vertical-align: middle; }
+                .icon-left { text-align: left; width: 33%; }
+                .icon-center { text-align: center; width: 34%; }
+                .icon-right { text-align: right; width: 33%; }
+                
+                .icon-wrapper { display: inline-flex; align-items: center; gap: 8px; text-align: left; }
+                .icon-wrapper img { width: 28px; height: 28px; }
+                .icon-text { font-size: 8px; color: #444; line-height: 1.2; }
                 .icon-text b { display: block; font-size: 8.5px; color: #000; margin-bottom: 1px; }
 
-                .flight-box { border: 1px solid #0194f3; border-radius: 6px; overflow: hidden; margin-bottom: 15px; }
-                .flight-header { background: #0194f3; color: white; padding: 6px 15px; font-weight: bold; font-size: 10.5px; }
+                .flight-box { border: 1px solid #24b3ae; border-radius: 6px; overflow: hidden; margin-bottom: 15px; }
+                .flight-header { background: #24b3ae; color: white; padding: 6px 15px; font-weight: bold; font-size: 10.5px; }
                 .flight-content { display: flex; padding: 12px; align-items: center; }
                 .airline-info { width: 130px; border-right: 1px solid #eee; }
                 .airline-name { font-weight: bold; font-size: 12px; color: #000; }
@@ -539,21 +557,20 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                 .route-display { flex-grow: 1; display: flex; justify-content: space-between; align-items: center; padding-left: 15px; }
                 .time-text { font-size: 16px; font-weight: bold; color: #000; }
                 .station-text { font-weight: bold; font-size: 11px; }
-                .date-text { color: #0194f3; font-weight: bold; font-size: 10px; }
+                .date-text { color: #24b3ae; font-weight: bold; font-size: 10px; }
                 
                 .path-line { flex-grow: 1; text-align: center; padding: 0 15px; }
-                .duration { color: #0194f3; font-size: 9px; font-weight: bold; margin-bottom: 3px; }
+                .duration { color: #24b3ae; font-size: 9px; font-weight: bold; margin-bottom: 3px; }
                 .line-container { display: flex; align-items: center; justify-content: center; }
                 .circle-hollow { width: 6px; height: 6px; border: 1px solid #aaa; border-radius: 50%; }
-                .circle-solid { width: 7px; height: 7px; background: #0194f3; border-radius: 50%; }
+                .circle-solid { width: 7px; height: 7px; background: #24b3ae; border-radius: 50%; }
                 .hr-line { flex-grow: 1; height: 1px; background: #ddd; margin: 0 3px; }
 
-                .section-title { background: #015693; color: white; padding: 7px 15px; font-weight: bold; border-radius: 6px 6px 0 0; font-size: 10px; }
-                .table-container { border: 1px solid #015693; border-radius: 0 0 6px 6px; margin-bottom: 15px; }
+                .section-title { background: #019387ff; color: white; padding: 7px 15px; font-weight: bold; border-radius: 6px 6px 0 0; font-size: 10px; }
+                .table-container { border: 1px solid #019387ff; border-radius: 0 0 6px 6px; margin-bottom: 15px; }
                 
-                /* PERBAIKAN JARAK TABEL */
                 table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-                th { text-align: left; padding: 10px 8px; background: #fff; border-bottom: 1px solid #0194f3; color: #000; font-size: 9px; vertical-align: bottom; }
+                th { text-align: left; padding: 10px 8px; background: #fff; border-bottom: 1px solid #24b3ae; color: #000; font-size: 9px; vertical-align: bottom; }
                 th small, td small { display: block; color: #999; font-weight: normal; font-size: 7.5px; margin-top: 1px; }
                 td { padding: 12px 8px; border-bottom: 1px solid #eee; font-size: 9.5px; word-wrap: break-word; vertical-align: middle; }
 
@@ -569,47 +586,52 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                 .note-content li { margin-bottom: 10px; position: relative; padding-left: 20px; font-size: 10px; }
                 .note-content li::before { content: attr(data-number); position: absolute; left: 0; font-weight: bold; }
                 .note-content small { display: block; color: #777; font-size: 9px; }
-                .footer-border { border-bottom: 5px solid #0194f3; margin-top: 15px; border-radius: 0 0 5px 5px; }
+                .footer-border { border-bottom: 5px solid #24b3ae; margin-top: 15px; border-radius: 0 0 5px 5px; }
             </style>
         </head>
         <body>
             <div class="container">
-               <table class="header-table">
-    <tr>
-        <td>
-          <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877917/WhatsApp_Image_2026-01-20_at_09.45.43-removebg-preview_lqkgrw.png" height="50" style="margin-bottom: 10px;">
-            <div class="purchased-from">
-              Jln. Negara rt.16 Tengin Baru Kec. Sepaku<br> Kab. Penajam Paser Utara -IKN<br> Telp: 085247777710<br>
-                E-mail: linkuikn@gmail.com
-            </div>
-        </td>
-        <td align="right" style="vertical-align: top;">
-            <img src="${qrDataUrl}" width="75">
-            
-            <div style="margin-top: 5px; text-align: center; width: 85px;">
-                <div style="font-size: 8px; color: #666; text-transform: uppercase;">Booking Code</div>
-                <div style="font-size: 14px; font-weight: bold; color: #0194f3; letter-spacing: 1px;">
-                    ${response.bookingCodeAirline || booking.booking_code}
-                </div>
-            </div>
-        </td>
-    </tr>
-</table>
+                <table class="header-table">
+                    <tr>
+                        <td>
+                          <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877917/WhatsApp_Image_2026-01-20_at_09.45.43-removebg-preview_lqkgrw.png" height="50" style="margin-bottom: 10px;">
+                            <div class="purchased-from">
+                              Jln. Negara rt.16 Tengin Baru Kec. Sepaku<br> Kab. Penajam Paser Utara -IKN<br> Telp: 085247777710<br>
+                                E-mail: linkuikn@gmail.com
+                            </div>
+                        </td>
+                        <td align="right" style="vertical-align: top;">
+                            <img src="${qrDataUrl}" width="75">
+                            <div style="margin-top: 5px; text-align: center; width: 85px;">
+                                <div style="font-size: 8px; color: #666; text-transform: uppercase;">Booking Code</div>
+                                <div style="font-size: 14px; font-weight: bold; color: #24b3ae; letter-spacing: 1px;">
+                                    ${response.bookingCodeAirline || booking.booking_code}
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                </table>
 
-                <h2 style="color:#0194f3; border-bottom: 1.5px solid #0194f3; padding-bottom:5px; margin: 10px 0;">E-ticket | <small style="font-weight:normal; font-size:14px;">E-tiket</small></h2>
+                <h2 style="color:#24b3ae; border-bottom: 1.5px solid #24b3ae; padding-bottom:5px; margin: 10px 0;">E-ticket | <small style="font-weight:normal; font-size:14px;">E-tiket</small></h2>
                 
                 <div class="top-icons">
-                    <div class="icon-item">
-                        <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877882/ticket_wdqwvp.png">
-                        <div class="icon-text"><b>Show E-ticket & ID Card</b>Perlihatkan E-tiket & Identitas</div>
+                    <div class="icon-item icon-left">
+                        <div class="icon-wrapper">
+                            <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877882/ticket_wdqwvp.png">
+                            <div class="icon-text"><b>Show E-ticket & ID Card</b>Perlihatkan E-tiket & Identitas</div>
+                        </div>
                     </div>
-                    <div class="icon-item">
-                        <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877884/schedule_zenfxq.png">
-                        <div class="icon-text"><b>Check-In 90 min before</b>Check-In minimal 90 menit</div>
+                    <div class="icon-item icon-center">
+                        <div class="icon-wrapper">
+                            <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877884/schedule_zenfxq.png">
+                            <div class="icon-text"><b>Check-In 90 min before</b>Check-In minimal 90 menit</div>
+                        </div>
                     </div>
-                    <div class="icon-item">
-                        <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877886/plane_ojmtak.png">
-                        <div class="icon-text"><b>Local Airport Time</b>Waktu Bandara Setempat</div>
+                    <div class="icon-item icon-right">
+                        <div class="icon-wrapper">
+                            <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877886/plane_ojmtak.png">
+                            <div class="icon-text"><b>Local Airport Time</b>Waktu Bandara Setempat</div>
+                        </div>
                     </div>
                 </div>
 
@@ -647,30 +669,13 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                 </div>
 
                 <div class="important-note">
-                    <div class="note-header">
-                         Important Note | Catatan Penting
-                    </div>
+                    <div class="note-header">Important Note | Catatan Penting</div>
                     <ul class="note-content">
-                        <li data-number="1.">
-                            The name of the <b>identity card (Indonesians KTP)</b> or passport must match the name passenger shown above
-                            <small>Nama dalam KTP/Paspor harus sesuai dengan nama penumpang yang ditunjukkan di atas</small>
-                        </li>
-                        <li data-number="2.">
-                            Please arrive at the airport <b>90 minutes</b> before the flight for domestic travel and <b>2 hours</b> for international travel
-                            <small>Harap tiba di bandara 90 menit sebelum penerbangan untuk perjalanan domestik dan 2 jam sebelum penerbangan untuk perjalanan internasional</small>
-                        </li>
-                        <li data-number="3.">
-                            Check-in closes 45 minutes before departure time.
-                            <small>Check-in tutup 45 menit sebelum waktu keberangkatan</small>
-                        </li>
-                        <li data-number="4.">
-                            Passengers are allowed to bring up to 7kg of hand luggage onboard Air Flights. Please refer to airlines terms and condition for more information.
-                            <small>Penumpang diperbolehkan membawa barang hingga 7 kg ke dalam pesawat</small>
-                        </li>
-                        <li data-number="5.">
-                            Passengers agree with Terms and Conditions of Carriage outlined by Carrier.
-                            <small>Harap menyesuaikan dengan kebijakan maskapai. Penumpang setuju dengan kebijakan dan aturan yang ditetapkan Operator</small>
-                        </li>
+                        <li data-number="1.">The name of the <b>identity card (Indonesians KTP)</b> or passport must match the name passenger shown above<small>Nama dalam KTP/Paspor harus sesuai dengan nama penumpang yang ditunjukkan di atas</small></li>
+                        <li data-number="2.">Please arrive at the airport <b>90 minutes</b> before the flight for domestic travel and <b>2 hours</b> for international travel<small>Harap tiba di bandara 90 menit sebelum penerbangan untuk perjalanan domestik dan 2 jam sebelum penerbangan untuk perjalanan internasional</small></li>
+                        <li data-number="3.">Check-in closes 45 minutes before departure time.<small>Check-in tutup 45 menit sebelum waktu keberangkatan</small></li>
+                        <li data-number="4.">Passengers are allowed to bring up to 7kg of hand luggage onboard Air Flights.<small>Penumpang diperbolehkan membawa barang hingga 7 kg ke dalam pesawat</small></li>
+                        <li data-number="5.">Passengers agree with Terms and Conditions of Carriage outlined by Carrier.<small>Penumpang setuju dengan kebijakan dan aturan yang ditetapkan Operator</small></li>
                     </ul>
                 </div>
                 <div class="footer-border"></div>
@@ -678,21 +683,12 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
         </body>
         </html>`;
 
-
         const browser = await puppeteer.launch({
-            headless: "new", // Menggunakan mode Headless baru sesuai saran peringatan
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage', // Disarankan untuk lingkungan Docker/VPS agar tidak kehabisan memori
-                '--font-render-hinting=none' // Membantu rendering font PDF lebih bersih
-            ]
+            headless: "new",
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--font-render-hinting=none']
         });
         const page = await browser.newPage();
-        await page.setContent(htmlContent, {
-            waitUntil: 'networkidle0',
-            timeout: 60000 // Berikan waktu 60 detik sebelum menyerah
-        });
+        await page.setContent(htmlContent, { waitUntil: 'networkidle0', timeout: 60000 });
         const pdfBuffer = await page.pdf({
             format: 'A4',
             printBackground: true,
@@ -708,5 +704,4 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
         res.status(500).send("Error generating ticket: " + e.message);
     }
 });
-
 module.exports = router;
