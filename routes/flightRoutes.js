@@ -201,6 +201,8 @@ router.get('/get-all-schedules', async (req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
+    console.log("🚀 [SSE] Pencarian jadwal semua maskapai dimulai...");
+
     try {
         const token = await getConsistentToken(true);
         const q = req.query;
@@ -212,6 +214,7 @@ router.get('/get-all-schedules', async (req, res) => {
         // Loop untuk mengambil jadwal dari setiap maskapai satu per satu (Streaming)
         while ((airlineIndex < totalAirline || airlineIndex === -1) && safetyCounter < 30) {
             safetyCounter++;
+            
             const payload = {
                 "tripType": q.tripType || "OneWay",
                 "origin": q.origin,
@@ -228,6 +231,8 @@ router.get('/get-all-schedules', async (req, res) => {
                 "accessToken": token
             };
 
+            console.log(`📡 [Step ${safetyCounter}] Memanggil API Darmawisata untuk Maskapai Index: ${airlineIndex + 1}`);
+
             const response = await axios.post(`${BASE_URL}/Airline/ScheduleAllAirline`, payload, {
                 httpsAgent: agent,
                 timeout: 60000
@@ -240,20 +245,26 @@ router.get('/get-all-schedules', async (req, res) => {
                 airlineIndex = result.airlineIndex;
                 currentAccessCode = result.airlineAccessCode;
 
-                // --- INJEKSI AIRLINE ID ---
-                // Kita bungkus data rute dengan airlineID agar frontend bisa memfilter 
-                // rute pulang berdasarkan maskapai rute pergi dengan akurat.
+                // Ambil Nama Maskapai dari root response untuk menghindari 'Invalid Airline Name'
+                const currentAirlineName = result.airlineName || result.airlineID || "Airline";
+                
+                console.log(`✅ [PARTIAL] Berhasil mendapatkan: ${currentAirlineName} (${airlineIndex}/${totalAirline})`);
+
+                // --- INJEKSI DATA KE LEVEL ITEM ---
+                // Memastikan data krusial melekat pada setiap jadwal agar frontend mudah memfilter
                 const departWithID = (result.journeyDepart || []).map(j => ({
                     ...j, 
-                    airlineID: result.airlineID // Mengambil ID dari level root response Darmawisata
+                    airlineID: result.airlineID,
+                    airline_name: currentAirlineName 
                 }));
 
                 const returnWithID = (result.journeyReturn || []).map(j => ({
                     ...j, 
-                    airlineID: result.airlineID 
+                    airlineID: result.airlineID,
+                    airline_name: currentAirlineName
                 }));
 
-                // KIRIM DATA PARTIAL KE FRONTEND
+                // KIRIM DATA KE FRONTEND
                 res.write(`data: ${JSON.stringify({
                     status: "PARTIAL",
                     totalAirline,
@@ -262,22 +273,27 @@ router.get('/get-all-schedules', async (req, res) => {
                     journeyReturn: returnWithID
                 })}\n\n`);
 
-                if (airlineIndex >= totalAirline && totalAirline > 0) break;
+                // Jika index sudah mencapai total, berhenti
+                if (airlineIndex >= totalAirline && totalAirline > 0) {
+                    console.log("🏁 Semua maskapai telah selesai diproses.");
+                    break;
+                }
             } else {
-                // Jika satu maskapai gagal, kita hentikan atau bisa lanjut tergantung kebijakan error handling
+                console.error(`❌ API Gagal di Index ${airlineIndex}:`, result.respMessage || "Unknown Error");
                 break;
             }
             
-            // Jeda 500ms untuk menghindari rate limit dan menjaga stabilitas server
+            // Jeda 500ms agar server tidak dianggap spamming/overload
             await new Promise(resolve => setTimeout(resolve, 500));
         }
 
         // Kirim tanda selesai agar frontend menutup event source
+        console.log("📤 Mengirim status COMPLETED ke Frontend.");
         res.write(`data: ${JSON.stringify({ status: "COMPLETED" })}\n\n`);
         res.end();
 
     } catch (error) {
-        console.error("SSE Error:", error.message);
+        console.error("🔥 SSE Fatal Error:", error.message);
         res.write(`data: ${JSON.stringify({ status: "ERROR", message: error.message })}\n\n`);
         res.end();
     }
