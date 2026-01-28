@@ -196,7 +196,7 @@ router.post('/get-price', async (req, res) => {
 
 // 4. POOLING SCHEDULE ALL AIRLINE
 router.get('/get-all-schedules', async (req, res) => {
-    // Setup Header SSE
+    // Setup Header SSE agar koneksi tetap terbuka dan real-time
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
@@ -209,6 +209,7 @@ router.get('/get-all-schedules', async (req, res) => {
         let currentAccessCode = null;
         let safetyCounter = 0;
 
+        // Loop untuk mengambil jadwal dari setiap maskapai satu per satu (Streaming)
         while ((airlineIndex < totalAirline || airlineIndex === -1) && safetyCounter < 30) {
             safetyCounter++;
             const payload = {
@@ -239,28 +240,44 @@ router.get('/get-all-schedules', async (req, res) => {
                 airlineIndex = result.airlineIndex;
                 currentAccessCode = result.airlineAccessCode;
 
-                // KIRIM DATA KE FRONTEND SAAT INI JUGA (PUSH)
+                // --- INJEKSI AIRLINE ID ---
+                // Kita bungkus data rute dengan airlineID agar frontend bisa memfilter 
+                // rute pulang berdasarkan maskapai rute pergi dengan akurat.
+                const departWithID = (result.journeyDepart || []).map(j => ({
+                    ...j, 
+                    airlineID: result.airlineID // Mengambil ID dari level root response Darmawisata
+                }));
+
+                const returnWithID = (result.journeyReturn || []).map(j => ({
+                    ...j, 
+                    airlineID: result.airlineID 
+                }));
+
+                // KIRIM DATA PARTIAL KE FRONTEND
                 res.write(`data: ${JSON.stringify({
                     status: "PARTIAL",
                     totalAirline,
                     airlineIndex,
-                    journeyDepart: result.journeyDepart || [],
-                    journeyReturn: result.journeyReturn || []
+                    journeyDepart: departWithID,
+                    journeyReturn: returnWithID
                 })}\n\n`);
 
                 if (airlineIndex >= totalAirline && totalAirline > 0) break;
             } else {
+                // Jika satu maskapai gagal, kita hentikan atau bisa lanjut tergantung kebijakan error handling
                 break;
             }
-            // Memberi jeda sedikit agar server tidak overload
+            
+            // Jeda 500ms untuk menghindari rate limit dan menjaga stabilitas server
             await new Promise(resolve => setTimeout(resolve, 500));
         }
 
-        // Kirim tanda bahwa proses sudah selesai semua
+        // Kirim tanda selesai agar frontend menutup event source
         res.write(`data: ${JSON.stringify({ status: "COMPLETED" })}\n\n`);
         res.end();
 
     } catch (error) {
+        console.error("SSE Error:", error.message);
         res.write(`data: ${JSON.stringify({ status: "ERROR", message: error.message })}\n\n`);
         res.end();
     }
