@@ -10,102 +10,15 @@ const flightController = require('../controllers/flightController');
  * HELPER: ARCHIVE DATA KE DATABASE
  * Membersihkan format ISO (T/Z) agar kompatibel dengan MySQL DATE & DATETIME
  */
-async function archiveBookingToDB(payload, response, username) {
-    let conn;
-    try {
-        conn = await db.getConnection();
-        await conn.beginTransaction();
-
-        // 1. Insert ke tabel bookings
-        // Membersihkan format ISO ke MySQL Datetime (YYYY-MM-DD HH:mm:ss)
-        const cleanDepartDate = payload.departDate ? payload.departDate.replace('T', ' ').substring(0, 19) : null;
-        const cleanTimeLimit = response.timeLimit ? response.timeLimit.replace('T', ' ').substring(0, 19) : null;
-
-        const [resBooking] = await conn.execute(
-            `INSERT INTO bookings (
-                booking_code, reference_no, airline_id, airline_name, 
-                trip_type, origin, destination, depart_date, 
-                ticket_status, total_price, time_limit, user_id, pengguna,
-                payload_request, raw_response
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                response.bookingCode,
-                response.referenceNo,
-                payload.airlineID,
-                payload.airlineID,
-                payload.tripType,
-                payload.origin,
-                payload.destination,
-                cleanDepartDate,
-                "HOLD",
-                response.salesPrice,
-                cleanTimeLimit,
-                USER_CONFIG.userID,
-                username || "SISTEM",
-                JSON.stringify(payload),
-                JSON.stringify(response)
-            ]
-        );
-
-        const bookingId = resBooking.insertId;
-
-        // 2. Insert Penumpang (Passengers)
-        if (payload.paxDetails && payload.paxDetails.length > 0) {
-            for (const p of payload.paxDetails) {
-                // MySQL DATE hanya menerima YYYY-MM-DD, potong string ISO
-                const cleanBirthDate = (p.birthDate && p.birthDate.length >= 10)
-                    ? p.birthDate.substring(0, 10)
-                    : null;
-
-                const [resPax] = await conn.execute(
-                    `INSERT INTO passengers (booking_id, title, first_name, last_name, pax_type, phone, id_number, birth_date, pengguna) 
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                    [
-                        bookingId, p.title, p.firstName, p.lastName || p.firstName,
-                        p.type === 0 ? 'Adult' : 'Child', payload.contactRemainingPhoneNo,
-                        p.IDNumber || "", cleanBirthDate, username || "SISTEM"
-                    ]
-                );
-
-                const paxId = resPax.insertId;
-
-                // 3. Insert Add-ons
-                if (p.addOns && p.addOns.length > 0) {
-                    for (const ad of p.addOns) {
-                        await conn.execute(
-                            `INSERT INTO passenger_addons (passenger_id, segment_idx, baggage_code, seat_number, meals_json, pengguna) 
-                             VALUES (?, ?, ?, ?, ?, ?)`,
-                            [paxId, 0, ad.baggageString || null, ad.seat || null, JSON.stringify(ad.meals || []), username || "SISTEM"]
-                        );
-                    }
-                }
-            }
-        }
-
-        // 4. Insert Itinerary (Flight Segments)
-        const flights = response.flightDeparts || [];
-        for (const f of flights) {
-            await conn.execute(
-                `INSERT INTO flight_itinerary (booking_id, category, flight_number, origin, destination, depart_time, arrival_time, flight_class, pengguna) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [
-                    bookingId, 'Departure', f.flightNumber, f.fdOrigin, f.fdDestination,
-                    f.fdDepartTime.replace('T', ' ').substring(0, 19),
-                    f.fdArrivalTime.replace('T', ' ').substring(0, 19),
-                    f.fdFlightClass, username || "SISTEM"
-                ]
-            );
-        }
-
-        await conn.commit();
-        console.log(`[DB] Berhasil mengarsipkan Booking: ${response.bookingCode}`);
-    } catch (err) {
-        if (conn) await conn.rollback();
-        console.error("[DB ERROR] Gagal simpan booking:", err.message);
-    } finally {
-        if (conn) conn.release();
-    }
-}
+const getParentID = (code) => {
+    if (!code) return "";
+    const c = code.trim().toUpperCase();
+    if (['QZ', 'AK', 'FD', 'XT', 'Z2'].includes(c)) return 'QZ'; // Group AirAsia
+    if (['JT', 'IW', 'IU'].includes(c)) return 'JT';             // Group Lion
+    if (['SJ', 'IN'].includes(c)) return 'SJ';                   // Group Sriwijaya
+    if (['TN', 'IL'].includes(c)) return 'TN';                   // Group Trigana
+    return c;
+};
 
 // --- ENDPOINTS ---
 
@@ -196,12 +109,11 @@ router.post('/get-price', async (req, res) => {
 
 // 4. POOLING SCHEDULE ALL AIRLINE
 router.get('/get-all-schedules', async (req, res) => {
-    // Setup Header SSE agar koneksi tetap terbuka dan real-time
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
-    console.log("🚀 [SSE] Pencarian jadwal semua maskapai dimulai...");
+    console.log("🚀 [SSE] Memulai pencarian jadwal...");
 
     try {
         const token = await getConsistentToken(true);
@@ -211,8 +123,7 @@ router.get('/get-all-schedules', async (req, res) => {
         let currentAccessCode = null;
         let safetyCounter = 0;
 
-        // Loop untuk mengambil jadwal dari setiap maskapai satu per satu (Streaming)
-        while ((airlineIndex < totalAirline || airlineIndex === -1) && safetyCounter < 30) {
+        while ((airlineIndex < totalAirline || airlineIndex === -1) && safetyCounter < 40) {
             safetyCounter++;
             
             const payload = {
@@ -231,8 +142,6 @@ router.get('/get-all-schedules', async (req, res) => {
                 "accessToken": token
             };
 
-            console.log(`📡 [Step ${safetyCounter}] Memanggil API Darmawisata untuk Maskapai Index: ${airlineIndex + 1}`);
-
             const response = await axios.post(`${BASE_URL}/Airline/ScheduleAllAirline`, payload, {
                 httpsAgent: agent,
                 timeout: 60000
@@ -245,72 +154,58 @@ router.get('/get-all-schedules', async (req, res) => {
                 airlineIndex = result.airlineIndex;
                 currentAccessCode = result.airlineAccessCode;
 
-                // Ambil Nama Maskapai dari root response untuk menghindari 'Invalid Airline Name'
-                const currentAirlineName = result.airlineName || result.airlineID || "Airline";
-                
-                console.log(`✅ [PARTIAL] Berhasil mendapatkan: ${currentAirlineName} (${airlineIndex}/${totalAirline})`);
+                const rootAirlineID = result.airlineID;
+                const rootAirlineName = result.airlineName || rootAirlineID;
 
-                // --- INJEKSI DATA KE LEVEL ITEM ---
-                // Memastikan data krusial melekat pada setiap jadwal agar frontend mudah memfilter
-                const departWithID = (result.journeyDepart || []).map(j => ({
-                    ...j, 
-                    airlineID: result.airlineID,
-                    airline_name: currentAirlineName 
-                }));
+                // Fungsi Injeksi Data: Pastikan setiap tiket punya identitas
+                const injectData = (list) => (list || []).map(item => {
+                    // Ambil kode maskapai spesifik dari segmen (misal: XT) jika ada
+                    const specificCode = (item.segment && item.segment[0].flightDetail[0].airlineCode) || rootAirlineID;
+                    return {
+                        ...item,
+                        airlineID: specificCode, 
+                        airline_parent: getParentID(specificCode),
+                        airline_name: rootAirlineName
+                    };
+                });
 
-                const returnWithID = (result.journeyReturn || []).map(j => ({
-                    ...j, 
-                    airlineID: result.airlineID,
-                    airline_name: currentAirlineName
-                }));
-
-                // KIRIM DATA KE FRONTEND
                 res.write(`data: ${JSON.stringify({
                     status: "PARTIAL",
                     totalAirline,
                     airlineIndex,
-                    journeyDepart: departWithID,
-                    journeyReturn: returnWithID
+                    journeyDepart: injectData(result.journeyDepart),
+                    journeyReturn: injectData(result.journeyReturn)
                 })}\n\n`);
 
-                // Jika index sudah mencapai total, berhenti
-                if (airlineIndex >= totalAirline && totalAirline > 0) {
-                    console.log("🏁 Semua maskapai telah selesai diproses.");
-                    break;
-                }
+                if (airlineIndex >= totalAirline && totalAirline > 0) break;
             } else {
-                console.error(`❌ API Gagal di Index ${airlineIndex}:`, result.respMessage || "Unknown Error");
-                break;
+                console.log(`⚠️ Maskapai index ${airlineIndex} gagal: ${result.respMessage}`);
+                if (result.respMessage === "Session Expired") break; 
             }
-            
-            // Jeda 500ms agar server tidak dianggap spamming/overload
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await new Promise(r => setTimeout(r, 500));
         }
 
-        // Kirim tanda selesai agar frontend menutup event source
-        console.log("📤 Mengirim status COMPLETED ke Frontend.");
         res.write(`data: ${JSON.stringify({ status: "COMPLETED" })}\n\n`);
         res.end();
-
     } catch (error) {
-        console.error("🔥 SSE Fatal Error:", error.message);
+        console.error("🔥 SSE Error:", error.message);
         res.write(`data: ${JSON.stringify({ status: "ERROR", message: error.message })}\n\n`);
         res.end();
     }
 });
 
-// 5. PRICE ALL AIRLINE (Sesuai Permintaan)
 router.post('/get-all-price', async (req, res) => {
     try {
-        console.log("💰 [Backend] Memulai proses All Airline Price Check...");
         const token = await getConsistentToken();
         const b = req.body;
 
-        // Log payload untuk memastikan data dari frontend sudah benar
-        console.log(`✈️ Cek Harga untuk Airline: ${b.airlineID}, Tipe: ${b.tripType}`);
+        // NORMALISASI: Kirim ID Induk ke Vendor agar validasi administrasi lolos
+        const finalAirlineID = getParentID(b.airlineID);
+
+        console.log(`💰 [PriceCheck] ${b.airlineID} -> Normalisasi ke: ${finalAirlineID}`);
 
         const payload = {
-            "airlineID": b.airlineID,
+            "airlineID": finalAirlineID, 
             "origin": b.origin,
             "destination": b.destination,
             "tripType": b.tripType || "OneWay",
@@ -331,26 +226,23 @@ router.post('/get-all-price', async (req, res) => {
             timeout: 45000 
         });
 
-        console.log(`✅ Harga Berhasil didapat: ${response.data.status}`);
         res.json(response.data);
 
     } catch (error) {
-        // Gunakan Logika Klasik (Bukan ?.) agar kompatibel dengan komputer DELL Anda
-        console.error("🔥 Error Price All Airline:", error.message);
+        console.error("🔥 Price Error:", error.message);
         
-        let serverMsg = "Internal Server Error";
+        // Logika aman untuk Node.js versi lama (Tanpa ?.)
+        let msg = error.message;
         if (error.response && error.response.data && error.response.data.respMessage) {
-            serverMsg = error.response.data.respMessage;
+            msg = error.response.data.respMessage;
         }
 
         res.status(500).json({ 
             status: "ERROR", 
-            respMessage: serverMsg,
-            error: error.message 
+            respMessage: msg 
         });
     }
 });
-
 // 6. ADDONS & SEATS
 router.post('/get-addons', async (req, res) => {
     try {
