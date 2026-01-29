@@ -51,12 +51,10 @@ router.post('/airline-list', async (req, res) => {
 });
 
 // 2. AIRLINE ROUTE
+// 1. AIRLINE ROUTE
 router.post('/airline-route', async (req, res) => {
     try {
-        // Mengambil token konsisten seperti endpoint list
         const token = await getConsistentToken();
-
-        // Mengambil airlineID dari body request yang dikirim frontend
         const { airlineID } = req.body;
 
         if (!airlineID) {
@@ -66,12 +64,19 @@ router.post('/airline-route', async (req, res) => {
             });
         }
 
-        // Request ke BASE_URL/Airline/Route
-        const response = await axios.post(`${BASE_URL}/Airline/Route`, {
+        const payload = {
             airlineID: airlineID,
             userID: USER_CONFIG.userID,
             accessToken: token
-        }, { httpsAgent: agent });
+        };
+
+        // LOG REQUEST
+        console.log("✈️ [Request] Airline Route:", JSON.stringify(payload));
+
+        const response = await axios.post(`${BASE_URL}/Airline/Route`, payload, { httpsAgent: agent });
+
+        // LOG RESPONSE
+        console.log("✅ [Response] Airline Route Status:", response.data.status);
 
         res.json(response.data);
     } catch (error) {
@@ -103,12 +108,21 @@ router.get('/schedules', async (req, res) => {
             userID: USER_CONFIG.userID,
             accessToken: token
         };
+
+        // LOG REQUEST
+        console.log("📅 [Request] Search Schedule:", JSON.stringify(payload));
+
         const response = await axios.post(`${BASE_URL}/Airline/Schedule`, payload, { httpsAgent: agent });
+
+        // LOG RESPONSE
+        console.log("✅ [Response] Search Schedule Status:", response.data.status);
+
         res.json({
             data: response.data.journeyDepart || [],
             dataReturn: response.data.journeyReturn || []
         });
     } catch (error) {
+        console.error("🔥 Error Schedule:", error.message);
         res.status(500).json({ status: "ERROR", error: error.message });
     }
 });
@@ -117,9 +131,23 @@ router.get('/schedules', async (req, res) => {
 router.post('/get-price', async (req, res) => {
     try {
         const token = await getConsistentToken();
-        const response = await axios.post(`${BASE_URL}/Airline/Price`, { ...req.body, userID: USER_CONFIG.userID, accessToken: token }, { httpsAgent: agent });
+        const payload = { 
+            ...req.body, 
+            userID: USER_CONFIG.userID, 
+            accessToken: token 
+        };
+
+        // LOG REQUEST
+        console.log("💰 [Request] Get Price:", JSON.stringify(payload));
+
+        const response = await axios.post(`${BASE_URL}/Airline/Price`, payload, { httpsAgent: agent });
+
+        // LOG RESPONSE
+        console.log("✅ [Response] Get Price Status:", response.data.status);
+
         res.json(response.data);
     } catch (error) {
+        console.error("🔥 Error Price:", error.message);
         res.status(500).json({ status: "ERROR", error: error.message });
     }
 });
@@ -159,12 +187,18 @@ router.get('/get-all-schedules', async (req, res) => {
                 "accessToken": token
             };
 
+            // LOG REQUEST DALAM LOOP SSE
+            console.log(`📡 [SSE-Request] Step ${safetyCounter}:`, JSON.stringify(payload));
+
             const response = await axios.post(`${BASE_URL}/Airline/ScheduleAllAirline`, payload, {
                 httpsAgent: agent,
                 timeout: 60000
             });
 
             const result = response.data;
+
+            // LOG RESPONSE DALAM LOOP SSE
+            console.log(`✅ [SSE-Response] Step ${safetyCounter} Status:`, result.status);
 
             if (result.status === "SUCCESS") {
                 totalAirline = result.totalAirline;
@@ -174,9 +208,7 @@ router.get('/get-all-schedules', async (req, res) => {
                 const rootAirlineID = result.airlineID;
                 const rootAirlineName = result.airlineName || rootAirlineID;
 
-                // Fungsi Injeksi Data: Pastikan setiap tiket punya identitas
                 const injectData = (list) => (list || []).map(item => {
-                    // Ambil kode maskapai spesifik dari segmen (misal: XT) jika ada
                     const specificCode = (item.segment && item.segment[0].flightDetail[0].airlineCode) || rootAirlineID;
                     return {
                         ...item,
@@ -211,15 +243,13 @@ router.get('/get-all-schedules', async (req, res) => {
     }
 });
 
+// 5. PRICE ALL AIRLINE
 router.post('/get-all-price', async (req, res) => {
     try {
         const token = await getConsistentToken();
         const b = req.body;
 
-        // NORMALISASI: Kirim ID Induk ke Vendor agar validasi administrasi lolos
         const finalAirlineID = getParentID(b.airlineID);
-
-        console.log(`💰 [PriceCheck] ${b.airlineID} -> Normalisasi ke: ${finalAirlineID}`);
 
         const payload = {
             "airlineID": finalAirlineID, 
@@ -238,17 +268,22 @@ router.post('/get-all-price', async (req, res) => {
             "accessToken": token
         };
 
+        // LOG REQUEST
+        console.log(`💰 [Request] Price Check (${b.airlineID}):`, JSON.stringify(payload));
+
         const response = await axios.post(`${BASE_URL}/Airline/PriceAllAirline`, payload, { 
             httpsAgent: agent, 
             timeout: 45000 
         });
+
+        // LOG RESPONSE
+        console.log("✅ [Response] Price Check Status:", response.data.status);
 
         res.json(response.data);
 
     } catch (error) {
         console.error("🔥 Price Error:", error.message);
         
-        // Logika aman untuk Node.js versi lama (Tanpa ?.)
         let msg = error.message;
         if (error.response && error.response.data && error.response.data.respMessage) {
             msg = error.response.data.respMessage;
@@ -260,13 +295,28 @@ router.post('/get-all-price', async (req, res) => {
         });
     }
 });
+
 // 6. ADDONS & SEATS
 router.post('/get-addons', async (req, res) => {
     try {
         const token = await getConsistentToken();
-        const response = await axios.post(`${BASE_URL}/Airline/BaggageAndMeal`, { ...req.body, userID: USER_CONFIG.userID, accessToken: token }, { httpsAgent: agent });
+        const payload = { 
+            ...req.body, 
+            userID: USER_CONFIG.userID, 
+            accessToken: token 
+        };
+
+        // LOG REQUEST
+        console.log("🎒 [Request] Get Addons:", JSON.stringify(payload));
+
+        const response = await axios.post(`${BASE_URL}/Airline/BaggageAndMeal`, payload, { httpsAgent: agent });
+        
+        // LOG RESPONSE
+        console.log("✅ [Response] Get Addons Status:", response.data.status);
+
         res.json(response.data);
     } catch (error) {
+        console.error("🔥 Error Addons:", error.message);
         res.json({ status: "FAILED", respMessage: error.message });
     }
 });
@@ -274,9 +324,23 @@ router.post('/get-addons', async (req, res) => {
 router.post('/get-seats', async (req, res) => {
     try {
         const token = await getConsistentToken();
-        const response = await axios.post(`${BASE_URL}/Airline/Seat`, { ...req.body, userID: USER_CONFIG.userID, accessToken: token }, { httpsAgent: agent });
+        const payload = { 
+            ...req.body, 
+            userID: USER_CONFIG.userID, 
+            accessToken: token 
+        };
+
+        // LOG REQUEST
+        console.log("💺 [Request] Get Seats:", JSON.stringify(payload));
+
+        const response = await axios.post(`${BASE_URL}/Airline/Seat`, payload, { httpsAgent: agent });
+        
+        // LOG RESPONSE
+        console.log("✅ [Response] Get Seats Status:", response.data.status);
+
         res.json(response.data);
     } catch (error) {
+        console.error("🔥 Error Seats:", error.message);
         res.status(500).json({ status: "FAILED", respMessage: error.message });
     }
 });
