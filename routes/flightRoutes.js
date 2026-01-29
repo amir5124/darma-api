@@ -10,14 +10,20 @@ const flightController = require('../controllers/flightController');
  * HELPER: ARCHIVE DATA KE DATABASE
  * Membersihkan format ISO (T/Z) agar kompatibel dengan MySQL DATE & DATETIME
  */
+const AIRLINE_GROUPS = {
+    // Kode Anak : Kode Induk
+    'AK': 'QZ', 'FD': 'QZ', 'XT': 'QZ', 'Z2': 'QZ', 'QZ': 'QZ', // Group AirAsia
+    'IW': 'JT', 'IU': 'JT', 'ID': 'JT', 'JT': 'JT',             // Group Lion
+    'IN': 'SJ', 'SJ': 'SJ',                                     // Group Sriwijaya
+    'IL': 'TN', 'TN': 'TN'                                      // Group Trigana
+};
+
 const getParentID = (code) => {
     if (!code) return "";
-    const c = code.trim().toUpperCase();
-    if (['QZ', 'AK', 'FD', 'XT', 'Z2'].includes(c)) return 'QZ'; // Group AirAsia
-    if (['JT', 'IW', 'IU'].includes(c)) return 'JT';             // Group Lion
-    if (['SJ', 'IN'].includes(c)) return 'SJ';                   // Group Sriwijaya
-    if (['TN', 'IL'].includes(c)) return 'TN';                   // Group Trigana
-    return c;
+    const cleanCode = code.trim().toUpperCase();
+    
+    // Cari di mapping, jika tidak ada (seperti GA atau QG), gunakan kode aslinya
+    return AIRLINE_GROUPS[cleanCode] || cleanCode;
 };
 
 // --- ENDPOINTS ---
