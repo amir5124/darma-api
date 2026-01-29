@@ -3,8 +3,8 @@ const moment = require('moment-timezone');
 const crypto = require('crypto');
 const https = require('https');
 
-const BASE_URL = 'https://uat.darmawisataindonesiah2h.co.id:7080/h2h';
-const USER_CONFIG = { userID: "CF0X64HBR8", password: "Darmaj4y4" };
+const BASE_URL = ' https://darmawisataindonesiah2h.co.id';
+const USER_CONFIG = { userID: "S8MFEIKENB", password: "8MN2WM5VZT" };
 
 let globalAccessToken = null;
 const agent = new https.Agent({ rejectUnauthorized: false, keepAlive: true });
