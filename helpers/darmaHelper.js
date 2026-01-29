@@ -3,7 +3,7 @@ const moment = require('moment-timezone');
 const crypto = require('crypto');
 const https = require('https');
 
-const BASE_URL = ' https://darmawisataindonesiah2h.co.id';
+const BASE_URL = 'https://darmawisataindonesiah2h.co.id';
 const USER_CONFIG = { userID: "S8MFEIKENB", password: "8MN2WM5VZT" };
 
 let globalAccessToken = null;
