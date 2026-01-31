@@ -15,7 +15,7 @@ const AIRLINE_GROUPS = {
     'AK': 'QZ', 'FD': 'QZ', 'XT': 'QZ', 'Z2': 'QZ', 'QZ': 'QZ',
     
     // Lion Air Group (Induk: JT atau JTA tergantung respon API)
-    'IW': 'JT', 'IU': 'JT', 'ID': 'JT', 'JT': 'JT', 'JTA': 'JT',
+    'IW': 'JTA', 'IU': 'JTA', 'ID': 'JTA', 'JTA': 'JTA', 'JTA': 'JT',
     
     // Sriwijaya Group (Induk: SJ)
     'IN': 'SJ', 'SJ': 'SJ',
