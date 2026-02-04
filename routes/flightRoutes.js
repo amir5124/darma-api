@@ -11,23 +11,21 @@ const flightController = require('../controllers/flightController');
  * Membersihkan format ISO (T/Z) agar kompatibel dengan MySQL DATE & DATETIME
  */
 const AIRLINE_GROUPS = {
-    // AirAsia Group (Induk: QZ)
+    // AirAsia Group
     'AK': 'QZ', 'FD': 'QZ', 'XT': 'QZ', 'Z2': 'QZ', 'QZ': 'QZ',
     
-    // Lion Air Group (Induk: JT atau JTA tergantung respon API)
-    'IW': 'JTA', 'IU': 'JTA', 'ID': 'JTA', 'JTA': 'JTA', 'JTA': 'JT',
+    // Lion Air Group - SEMUA harus lari ke JTA
+    'JT': 'JTA',  // Tambahkan ini!
+    'IW': 'JTA', 
+    'IU': 'JTA', 
+    'ID': 'JTA', 
+    'JTA': 'JTA',
     
-    // Sriwijaya Group (Induk: SJ)
+    // Sriwijaya Group
     'IN': 'SJ', 'SJ': 'SJ',
     
-    // Trigana Air (Induk: TN)
+    // Sisanya...
     'IL': 'TN', 'TN': 'TN',
-    
-    // Maskapai Mandiri (Tetap ke dirinya sendiri)
-    'GA': 'GA', // Garuda Indonesia
-    'QG': 'QG', // Citilink
-    'IP': 'IP', // Pelita Air
-    'TNU': 'TNU' // TransNusa
 };
 
 // Fungsi pencarian dinamis
