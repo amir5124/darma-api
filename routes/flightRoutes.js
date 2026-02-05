@@ -14,12 +14,12 @@ const AIRLINE_GROUPS = {
     // AirAsia Group
     'AK': 'QZ', 'FD': 'QZ', 'XT': 'QZ', 'Z2': 'QZ', 'QZ': 'QZ',
     
-    // Lion Air Group - SEMUA harus lari ke JTA
-    'JT': 'JTA',  // Tambahkan ini!
-    'IW': 'JTA', 
-    'IU': 'JTA', 
-    'ID': 'JTA', 
-    'JTA': 'JTA',
+    // Lion Air Group - Standalone / Individual Mapping
+    'JT': 'JTA',  // Lion Air tetap ke JTA
+    'IW': 'IW',   // Wings Air (Berdiri sendiri)
+    'IU': 'IU',   // Super Air Jet (Berdiri sendiri)
+    'ID': 'ID',   // Batik Air (Berdiri sendiri)
+    'JTA': 'JTA', 
     
     // Sriwijaya Group
     'IN': 'SJ', 'SJ': 'SJ',
