@@ -698,16 +698,21 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                     </div>
                 </div>
 
-                <div class="important-note">
-                    <div class="note-header">Important Note | Catatan Penting</div>
-                    <ul class="note-content">
-                        <li data-number="1.">The name of the <b>identity card (Indonesians KTP)</b> or passport must match the name passenger shown above</li>
-                        <li data-number="2.">Please arrive at the airport <b>90 minutes</b> before the flight for domestic travel and <b>2 hours</b> for international travel</li>
-                        <li data-number="3.">Check-in closes 45 minutes before departure time.</li>
-                        <li data-number="4.">Passengers are allowed to bring up to 7kg of hand luggage onboard.</li>
-                    </ul>
-                </div>
-                <div class="footer-border"></div>
+               <div class="important-note">
+    <div class="note-header">Important Note | Catatan Penting</div>
+    <ul class="note-content">
+        <li data-number="1.">The name of the <b>identity card (Indonesians KTP)</b> or passport must match the name passenger shown above</li>
+        <li data-number="2.">Please arrive at the airport <b>90 minutes</b> before the flight for domestic travel and <b>2 hours</b> for international travel</li>
+        <li data-number="3.">Check-in closes 45 minutes before departure time.</li>
+        <li data-number="4.">Passengers are allowed to bring up to 7kg of hand luggage onboard.</li>
+    </ul>
+</div>
+
+<div style="text-align: center; color: #000000; margin: 20px 0; font-weight: bold;">
+    Support PT Darmawisata Indonesia
+</div>
+
+<div class="footer-border"></div>
             </div>
         </body>
         </html>`;
