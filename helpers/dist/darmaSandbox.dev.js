@@ -8,7 +8,7 @@ var crypto = require('crypto');
 
 var https = require('https');
 
-var BASE_URL = 'https://uat.darmawisataindonesiah2h.co.id:7080/h2h';
+var BASE_URL = 'https://uat.darmawisataindonesiah2h.co.id:7080/h2h/';
 var USER_CONFIG = {
   userID: "CF0X64HBR8",
   password: "Darmaj4y4"
