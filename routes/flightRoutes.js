@@ -2,8 +2,8 @@ const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const db = require('../config/db');
-const puppeteer = require('puppeteer');
-const QRCode = require('qrcode');
+// const puppeteer = require('puppeteer');
+// const QRCode = require('qrcode');
 const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('../helpers/darmaHelper');
 const flightController = require('../controllers/flightController');
 /**
