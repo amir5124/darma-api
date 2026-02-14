@@ -356,33 +356,72 @@ router.post('/create-booking', async (req, res) => {
             accessToken: token
         };
 
+        // 1. Panggil API Vendor
         const response = await axios.post(`${BASE_URL}/Airline/Booking`, payload, {
             httpsAgent: agent,
             timeout: 60000
         });
 
+        // 2. Jika Vendor Sukses, Simpan ke Database Internal
         if (response.data.status === "SUCCESS") {
-            const dbRequest = {
-                body: {
-                    payload: payload,
-                    response: response.data,
-                    username: usernameFromFrontend
-                }
-            };
+            try {
+                // KUNCINYA: Gunakan variabel untuk menangkap hasil simpan
+                // Kita modifikasi sedikit cara memanggilnya agar bisa dapat insertId
+                const [resBooking] = await db.execute(
+                    `INSERT INTO bookings (
+                        booking_code, reference_no, airline_id, airline_name, 
+                        trip_type, origin, destination, origin_port, destination_port,
+                        depart_date, ticket_status, total_price, sales_price, time_limit, 
+                        user_id, pengguna, access_token, payload_request, raw_response
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [
+                        response.data.bookingCode,
+                        response.data.referenceNo,
+                        payload.airlineID,
+                        payload.airlineName || payload.airlineID,
+                        payload.tripType || "OneWay",
+                        payload.origin,
+                        payload.destination,
+                        response.data.origin || null,
+                        response.data.destination || null,
+                        payload.departDate ? payload.departDate.replace('T', ' ').replace('Z', '').split('.')[0] : null,
+                        response.data.ticketStatus || "HOLD",
+                        response.data.ticketPrice || 0,
+                        response.data.salesPrice || 0,
+                        response.data.timeLimit,
+                        response.data.userID,
+                        usernameFromFrontend || 'Guest',
+                        payload.accessToken,
+                        JSON.stringify(payload),
+                        JSON.stringify(response.data)
+                    ]
+                );
 
-            // Simpan ke database di latar belakang
-            flightController.saveBooking(dbRequest, {
-                status: () => ({ json: () => { } }),
-                json: () => { }
-            });
+                const internalId = resBooking.insertId;
+                console.log(`✅ Booking ${response.data.bookingCode} disimpan dengan ID: ${internalId}`);
 
-            console.log(`✅ Booking ${response.data.bookingCode} diproses simpan.`);
+                // 3. Gabungkan ID Internal ke dalam response yang dikirim ke Frontend
+                const finalResponse = {
+                    ...response.data,
+                    id: internalId // INI YANG DICARI FRONTEND!
+                };
+
+                return res.json(finalResponse);
+
+            } catch (dbError) {
+                console.error("❌ Gagal Simpan DB tapi Booking Vendor Sukses:", dbError.message);
+                // Tetap kirim response vendor jika DB gagal agar user tidak bingung, 
+                // tapi ID akan tetap undefined (sebaiknya di-handle)
+                return res.json(response.data);
+            }
         }
 
+        // Jika vendor gagal
         res.json(response.data);
+
     } catch (error) {
         console.error("❌ Route Error:", error.message);
-        res.json({ status: "FAILED", respMessage: error.message });
+        res.status(500).json({ status: "FAILED", respMessage: error.message });
     }
 });
 
