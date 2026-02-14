@@ -4,7 +4,7 @@ var express = require('express');
 
 var router = express.Router();
 
-var PaymentController = require('./PaymentController'); // Endpoint: /api/payment/...
+var PaymentController = require('../controllers/paymentController'); // Endpoint: /api/payment/...
 
 
 router.post('/create', PaymentController.createPayment);
