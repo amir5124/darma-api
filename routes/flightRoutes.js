@@ -356,17 +356,26 @@ router.post('/create-booking', async (req, res) => {
             accessToken: token
         };
 
+        console.log("--------------------------------------------------");
+        console.log("📤 [STEP 1] Sending Booking to Vendor...");
+        console.log("Payload:", JSON.stringify(payload, null, 2));
+
         // 1. Panggil API Vendor
         const response = await axios.post(`${BASE_URL}/Airline/Booking`, payload, {
             httpsAgent: agent,
             timeout: 60000
         });
 
+        // LOG RESPONSE DARI VENDOR
+        console.log("📡 [STEP 2] Response from Vendor Received!");
+        console.log("Status Code:", response.status);
+        console.log("Data Response:", JSON.stringify(response.data, null, 2));
+
         // 2. Jika Vendor Sukses, Simpan ke Database Internal
         if (response.data.status === "SUCCESS") {
             try {
-                // KUNCINYA: Gunakan variabel untuk menangkap hasil simpan
-                // Kita modifikasi sedikit cara memanggilnya agar bisa dapat insertId
+                console.log("💾 [STEP 3] Vendor SUCCESS. Saving to Database...");
+
                 const [resBooking] = await db.execute(
                     `INSERT INTO bookings (
                         booking_code, reference_no, airline_id, airline_name, 
@@ -398,29 +407,37 @@ router.post('/create-booking', async (req, res) => {
                 );
 
                 const internalId = resBooking.insertId;
-                console.log(`✅ Booking ${response.data.bookingCode} disimpan dengan ID: ${internalId}`);
+                console.log(`✅ [STEP 4] Success! Booking ${response.data.bookingCode} saved with DB ID: ${internalId}`);
 
                 // 3. Gabungkan ID Internal ke dalam response yang dikirim ke Frontend
                 const finalResponse = {
                     ...response.data,
-                    id: internalId // INI YANG DICARI FRONTEND!
+                    id: internalId 
                 };
 
+                console.log("📤 [STEP 5] Sending Final Response to Frontend with ID:", internalId);
+                console.log("--------------------------------------------------");
                 return res.json(finalResponse);
 
             } catch (dbError) {
-                console.error("❌ Gagal Simpan DB tapi Booking Vendor Sukses:", dbError.message);
-                // Tetap kirim response vendor jika DB gagal agar user tidak bingung, 
-                // tapi ID akan tetap undefined (sebaiknya di-handle)
+                console.error("❌ DB ERROR:", dbError.message);
+                // Tetap kirim response vendor agar user tidak stuck
                 return res.json(response.data);
             }
+        } else {
+            // Jika status vendor bukan SUCCESS (misal: FAILED/ERROR)
+            console.warn("⚠️ Vendor returned NON-SUCCESS status:", response.data.status);
+            console.log("Message:", response.data.respMessage);
+            console.log("--------------------------------------------------");
+            return res.json(response.data);
         }
 
-        // Jika vendor gagal
-        res.json(response.data);
-
     } catch (error) {
-        console.error("❌ Route Error:", error.message);
+        console.error("❌ FATAL ERROR in /create-booking:", error.message);
+        if (error.response) {
+            console.error("Vendor Error Response:", error.response.data);
+        }
+        console.log("--------------------------------------------------");
         res.status(500).json({ status: "FAILED", respMessage: error.message });
     }
 });
