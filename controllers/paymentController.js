@@ -105,24 +105,39 @@ const PaymentController = {
 
     // 2. CHECK PAYMENT STATUS
     checkStatus: async (req, res) => {
-        try {
-            const { reff } = req.params;
-            const resp = await axios.get(`${config.baseUrl}/transaction/check-status`, {
-                params: { 
-                    partner_reff: reff, 
-                    username: config.username, 
-                    pin: config.pin 
-                },
-                headers: { 
-                    'client-id': config.clientId, 
-                    'client-secret': config.clientSecret 
-                }
-            });
-            return res.json(resp.data);
-        } catch (err) {
-            return res.status(500).json({ error: err.message });
-        }
-    },
+    try {
+        const { reff } = req.params;
+        const resp = await axios.get(`${config.baseUrl}/transaction/check-status`, {
+            params: { 
+                partner_reff: reff, 
+                username: config.username, 
+                pin: config.pin 
+            },
+            headers: { 
+                'client-id': config.clientId, 
+                'client-secret': config.clientSecret 
+            },
+            // TAMBAHKAN INI: Agar Axios tidak throw error jika status 4xx atau 5xx
+            validateStatus: function (status) {
+                return status < 500; // Hanya throw error jika benar-benar error server (500+)
+            }
+        });
+
+        // Kirim data apa adanya ke frontend
+        return res.json(resp.data);
+
+    } catch (err) {
+        // Jika terjadi error (misal timeout atau server LinkQu down)
+        console.error("❌ LinkQu Polling Error:", err.message);
+        
+        // JANGAN kirim 500 jika hanya data tidak ketemu
+        // Kirim status PENDING agar frontend tetap jalan
+        return res.status(200).json({ 
+            status: 'PENDING', 
+            respMessage: 'Sedang menunggu pembayaran atau data belum tersedia' 
+        });
+    }
+},
 
     // 3. DOWNLOAD QRIS IMAGE
     downloadQR: async (req, res) => {
