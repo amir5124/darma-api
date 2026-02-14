@@ -24,7 +24,7 @@ var trainRoutes = require('./routes/trainRoutes'); // <-- BARU
 
 var historyRoutes = require('./routes/historyRoutes');
 
-var paymentRoutes = require('./paymentRoutes');
+var paymentRoutes = require('./rotes/paymentRoutes');
 
 var app = express();
 app.use(express.json());
