@@ -392,27 +392,30 @@ exports.saveBooking = function _callee3(req, res) {
 
         case 105:
           console.log("\u2705 Sukses simpan DB: ".concat(response.bookingCode));
-          _context3.next = 113;
-          break;
+          return _context3.abrupt("return", res.status(200).json({
+            status: "SUCCESS",
+            id: bookingId,
+            message: "Booking saved"
+          }));
 
-        case 108:
-          _context3.prev = 108;
+        case 109:
+          _context3.prev = 109;
           _context3.t3 = _context3["catch"](6);
-          _context3.next = 112;
+          _context3.next = 113;
           return regeneratorRuntime.awrap(connection.rollback());
 
-        case 112:
+        case 113:
           console.error("❌ DB Save Error:", _context3.t3.message);
 
-        case 113:
-          _context3.prev = 113;
+        case 114:
+          _context3.prev = 114;
           connection.release();
-          return _context3.finish(113);
+          return _context3.finish(114);
 
-        case 116:
+        case 117:
         case "end":
           return _context3.stop();
       }
     }
-  }, null, null, [[6, 108, 113, 116], [21, 63, 67, 75], [35, 46, 50, 58], [51,, 53, 57], [68,, 70, 74], [79, 91, 95, 103], [96,, 98, 102]]);
+  }, null, null, [[6, 109, 114, 117], [21, 63, 67, 75], [35, 46, 50, 58], [51,, 53, 57], [68,, 70, 74], [79, 91, 95, 103], [96,, 98, 102]]);
 };

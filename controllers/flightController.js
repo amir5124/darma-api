@@ -183,6 +183,11 @@ exports.saveBooking = async (req, res) => {
 
         await connection.commit();
         console.log(`✅ Sukses simpan DB: ${response.bookingCode}`);
+           return res.status(200).json({ 
+            status: "SUCCESS", 
+            id: bookingId, 
+            message: "Booking saved" 
+        });
     } catch (error) {
         await connection.rollback();
         console.error("❌ DB Save Error:", error.message);
