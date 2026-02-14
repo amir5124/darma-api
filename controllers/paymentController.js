@@ -1,25 +1,14 @@
 const axios = require('axios');
 const crypto = require('crypto');
 const moment = require('moment-timezone');
-const mysql = require('mysql2/promise');
-
-// Database Pool
-const pool = mysql.createPool({
-    host: process.env.DB_HOST,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0
-});
+const db = require('../config/db'); 
 
 const config = {
-    clientId: process.env.LINKQU_CLIENT_ID,
-    clientSecret: process.env.LINKQU_CLIENT_SECRET,
-    username: process.env.LINKQU_USERNAME,
-    pin: process.env.LINKQU_PIN,
-    serverKey: process.env.LINKQU_SERVER_KEY,
+    clientId: "5f5aa496-7e16-4ca1-9967-33c768dac6c7",
+    clientSecret: "TM1rVhfaFm5YJxKruHo0nWMWC",
+    username: "LI9019VKS",
+    pin: "5m6uYAScSxQtCmU",
+    serverKey: "QtwGEr997XDcmMb1Pq8S5X1N",
     baseUrl: 'https://api.linkqu.id/linkqu-partner'
 };
 
@@ -47,7 +36,9 @@ const PaymentController = {
             const url_callback = "https://darma.siappgo.id/api/callback";
 
             // A. Koneksi Database & Update Booking awal
-            connection = await pool.getConnection();
+            // Menggunakan db.getConnection() jika db adalah pool
+            connection = await db.getConnection();
+            
             const [check] = await connection.query("SELECT id FROM bookings WHERE id = ?", [booking_id]);
             
             if (check.length === 0) {
@@ -107,6 +98,7 @@ const PaymentController = {
             console.error("Create Error:", err.response?.data || err.message);
             return res.status(500).json({ error: err.response?.data || err.message });
         } finally {
+            // Melepaskan koneksi kembali ke pool
             if (connection) connection.release();
         }
     },
@@ -149,11 +141,11 @@ const PaymentController = {
     // 4. CALLBACK HANDLER (SINKRONISASI STATUS LUNAS)
     handleCallback: async (req, res) => {
         try {
-            const { partner_reff, status, amount } = req.body;
+            const { partner_reff, status } = req.body;
 
             if (status === "SUCCESS") {
-                // Cari booking berdasarkan payment_reff (link penghubung)
-                const [rows] = await pool.query(
+                // Cari booking berdasarkan payment_reff
+                const [rows] = await db.query(
                     "SELECT id, booking_code, pengguna FROM bookings WHERE payment_reff = ?", 
                     [partner_reff]
                 );
@@ -162,7 +154,7 @@ const PaymentController = {
                     const booking = rows[0];
                     
                     // Update status di database agar UI Frontend berubah
-                    await pool.query(
+                    await db.query(
                         "UPDATE bookings SET ticket_status = 'TICKETED' WHERE id = ?",
                         [booking.id]
                     );
