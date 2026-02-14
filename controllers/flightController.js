@@ -183,6 +183,16 @@ exports.saveBooking = async (req, res) => {
 
         await connection.commit();
         console.log(`✅ Sukses simpan DB: ${response.bookingCode}`);
+       
+
+        // --- TAMBAHKAN BARIS INI ---
+        // Kirim response sukses ke frontend agar frontend mendapatkan ID database
+        return res.status(200).json({ 
+            status: "SUCCESS", 
+            id: bookingId, // ID ini yang akan masuk ke this.bookingData.id di Alpine.js
+            bookingCode: response.bookingCode,
+            message: "Booking berhasil disimpan ke database"
+        });
     } catch (error) {
         await connection.rollback();
         console.error("❌ DB Save Error:", error.message);
