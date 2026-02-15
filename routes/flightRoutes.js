@@ -6,7 +6,7 @@ const db = require('../config/db');
 // const QRCode = require('qrcode');
 const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('../helpers/darmaHelper');
 const flightController = require('../controllers/flightController');
-const { sendBookingEmail } = require('../utils/mailer'); 
+const { sendBookingEmail } = require('../utils/mailer');
 const moment = require('moment-timezone');
 /**
  * HELPER: ARCHIVE DATA KE DATABASE
@@ -15,17 +15,17 @@ const moment = require('moment-timezone');
 const AIRLINE_GROUPS = {
     // AirAsia Group
     'AK': 'QZ', 'FD': 'QZ', 'XT': 'QZ', 'Z2': 'QZ', 'QZ': 'QZ',
-    
+
     // Lion Air Group - Standalone / Individual Mapping
     'JT': 'JTA',  // Lion Air tetap ke JTA
     'IW': 'IW',   // Wings Air (Berdiri sendiri)
     'IU': 'IU',   // Super Air Jet (Berdiri sendiri)
     'ID': 'ID',   // Batik Air (Berdiri sendiri)
-    'JTA': 'JTA', 
-    
+    'JTA': 'JTA',
+
     // Sriwijaya Group
     'IN': 'SJ', 'SJ': 'SJ',
-    
+
     // Sisanya...
     'IL': 'TN', 'TN': 'TN',
 };
@@ -131,10 +131,10 @@ router.get('/schedules', async (req, res) => {
 router.post('/get-price', async (req, res) => {
     try {
         const token = await getConsistentToken();
-        const payload = { 
-            ...req.body, 
-            userID: USER_CONFIG.userID, 
-            accessToken: token 
+        const payload = {
+            ...req.body,
+            userID: USER_CONFIG.userID,
+            accessToken: token
         };
 
         // LOG REQUEST
@@ -170,7 +170,7 @@ router.get('/get-all-schedules', async (req, res) => {
 
         while ((airlineIndex < totalAirline || airlineIndex === -1) && safetyCounter < 40) {
             safetyCounter++;
-            
+
             const payload = {
                 "tripType": q.tripType || "OneWay",
                 "origin": q.origin,
@@ -212,7 +212,7 @@ router.get('/get-all-schedules', async (req, res) => {
                     const specificCode = (item.segment && item.segment[0].flightDetail[0].airlineCode) || rootAirlineID;
                     return {
                         ...item,
-                        airlineID: specificCode, 
+                        airlineID: specificCode,
                         airline_parent: getParentID(specificCode),
                         airline_name: rootAirlineName
                     };
@@ -229,7 +229,7 @@ router.get('/get-all-schedules', async (req, res) => {
                 if (airlineIndex >= totalAirline && totalAirline > 0) break;
             } else {
                 console.log(`⚠️ Maskapai index ${airlineIndex} gagal: ${result.respMessage}`);
-                if (result.respMessage === "Session Expired") break; 
+                if (result.respMessage === "Session Expired") break;
             }
             await new Promise(r => setTimeout(r, 500));
         }
@@ -252,7 +252,7 @@ router.post('/get-all-price', async (req, res) => {
         const finalAirlineID = getParentID(b.airlineID);
 
         const payload = {
-            "airlineID": finalAirlineID, 
+            "airlineID": finalAirlineID,
             "origin": b.origin,
             "destination": b.destination,
             "tripType": b.tripType || "OneWay",
@@ -271,9 +271,9 @@ router.post('/get-all-price', async (req, res) => {
         // LOG REQUEST
         console.log(`💰 [Request] Price Check (${b.airlineID}):`, JSON.stringify(payload));
 
-        const response = await axios.post(`${BASE_URL}/Airline/PriceAllAirline`, payload, { 
-            httpsAgent: agent, 
-            timeout: 45000 
+        const response = await axios.post(`${BASE_URL}/Airline/PriceAllAirline`, payload, {
+            httpsAgent: agent,
+            timeout: 45000
         });
 
         // LOG RESPONSE
@@ -283,15 +283,15 @@ router.post('/get-all-price', async (req, res) => {
 
     } catch (error) {
         console.error("🔥 Price Error:", error.message);
-        
+
         let msg = error.message;
         if (error.response && error.response.data && error.response.data.respMessage) {
             msg = error.response.data.respMessage;
         }
 
-        res.status(500).json({ 
-            status: "ERROR", 
-            respMessage: msg 
+        res.status(500).json({
+            status: "ERROR",
+            respMessage: msg
         });
     }
 });
@@ -300,17 +300,17 @@ router.post('/get-all-price', async (req, res) => {
 router.post('/get-addons', async (req, res) => {
     try {
         const token = await getConsistentToken();
-        const payload = { 
-            ...req.body, 
-            userID: USER_CONFIG.userID, 
-            accessToken: token 
+        const payload = {
+            ...req.body,
+            userID: USER_CONFIG.userID,
+            accessToken: token
         };
 
         // LOG REQUEST
         console.log("🎒 [Request] Get Addons:", JSON.stringify(payload));
 
         const response = await axios.post(`${BASE_URL}/Airline/BaggageAndMeal`, payload, { httpsAgent: agent });
-        
+
         // LOG RESPONSE
         console.log("✅ [Response] Get Addons Status:", response.data.status);
 
@@ -324,17 +324,17 @@ router.post('/get-addons', async (req, res) => {
 router.post('/get-seats', async (req, res) => {
     try {
         const token = await getConsistentToken();
-        const payload = { 
-            ...req.body, 
-            userID: USER_CONFIG.userID, 
-            accessToken: token 
+        const payload = {
+            ...req.body,
+            userID: USER_CONFIG.userID,
+            accessToken: token
         };
 
         // LOG REQUEST
         console.log("💺 [Request] Get Seats:", JSON.stringify(payload));
 
         const response = await axios.post(`${BASE_URL}/Airline/Seat`, payload, { httpsAgent: agent });
-        
+
         // LOG RESPONSE
         console.log("✅ [Response] Get Seats Status:", response.data.status);
 
@@ -411,10 +411,10 @@ router.post('/create-booking', async (req, res) => {
                 // ======================================================
                 // --- LOGIKA PENGIRIMAN EMAIL (FORMAT SESUAI GAMBAR) ---
                 // ======================================================
-                const customerEmail = payload.contactEmail; 
+                const customerEmail = payload.contactEmail;
                 if (customerEmail) {
                     const subject = `[LinkU] Konfirmasi Pemesanan Tiket - ${response.data.bookingCode}`;
-                    
+
                     // Format Tanggal untuk Tampilan Email
                     const nowLabel = moment().tz('Asia/Jakarta').format('dddd, DD MMMM YYYY HH:mm') + ' WIB';
                     const timeLimitLabel = moment(response.data.timeLimit).format('dddd, DD MMMM YYYY HH:mm') + ' WIB';
@@ -426,19 +426,32 @@ router.post('/create-booking', async (req, res) => {
                             <p>Anda mempunyai pemesanan tiket pesawat, segera lakukan konfirmasi pesanan berikut.</p>
                             <p style="font-size: 13px; color: #666;">Detail data informasi pemesanan yang telah dilakukan,</p>
                             
-                            <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 20px;">
-                                <tr><td style="width: 30%; padding: 5px 0;">Tanggal Booking</td><td>: ${nowLabel}</td></tr>
-                                <tr> ${(payload.paxDetails || []).map((pax, index) => `
-                                        <tr>
-                                            <td style="padding: 10px; border-bottom: 1px dotted #eee;">${index + 1}</td>
-                                            <td style="padding: 10px; border-bottom: 1px dotted #eee;">${pax.title} ${pax.firstName} ${pax.lastName}</td>
-                                            <td style="padding: 10px; border-bottom: 1px dotted #eee; text-align: right;">${pax.birthDate || '-'}</td>
-                                        </tr>
-                                    `).join('')}
-                                <tr><td style="padding: 5px 0;">Telepon</td><td>: ${payload.contactPhone || '-'}</td></tr>
-                                <tr><td style="padding: 5px 0;">Time Limit</td><td style="color: #e03f7d; font-weight: bold;">: ${timeLimitLabel}</td></tr>
-                                <tr><td style="padding: 5px 0;">Status Pesanan</td><td>: <span style="background: #e03f7d; color: white; padding: 2px 8px; font-size: 12px; border-radius: 3px;">Menunggu Pembayaran</span></td></tr>
-                            </table>
+                           <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 20px;">
+    <tr>
+        <td style="width: 30%; padding: 5px 0;">Tanggal Booking</td>
+        <td>: ${nowLabel}</td>
+    </tr>
+    
+    ${(payload.paxDetails || []).map((pax) => `
+    <tr>
+        <td style="width: 30%; padding: 5px 0;">Nama</td>
+        <td style="padding: 5px 0;">: ${pax.firstName} ${pax.lastName}</td>
+    </tr>
+    `).join('')}
+
+   <tr>
+        <td style="padding: 5px 0;">Telepon</td>
+        <td>: ${payload.customer_phone || payload.contactPhone || '-'}</td>
+    </tr>
+    <tr>
+        <td style="padding: 5px 0;">Time Limit</td>
+        <td style="color: #e03f7d; font-weight: bold;">: ${timeLimitLabel}</td>
+    </tr>
+    <tr>
+        <td style="padding: 5px 0;">Status Pesanan</td>
+        <td>: <span style="background: #e03f7d; color: white; padding: 2px 8px; font-size: 12px; border-radius: 3px;">Menunggu Pembayaran</span></td>
+    </tr>
+</table>
 
                             <div style="background: #24b3ae; color: white; padding: 8px 15px; font-weight: bold;">Data Perjalanan</div>
                             <div style="background: #c8d992; padding: 8px 15px; font-size: 13px; display: flex; justify-content: space-between;">
@@ -509,7 +522,7 @@ router.post('/create-booking', async (req, res) => {
 
                 const finalResponse = {
                     ...response.data,
-                    id: internalId 
+                    id: internalId
                 };
 
                 return res.json(finalResponse);
@@ -681,7 +694,7 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
             const typeLabel = isInfant ? 'Infant<small>Bayi</small>' : (p.type === 'Child' || parseInt(p.type) === 1 ? 'Child<small>Anak</small>' : 'Adult<small>Dewasa</small>');
 
             const originalPax = payload.paxDetails ? payload.paxDetails[pIdx] : null;
-            
+
             // Handle add-ons for both legs
             const adPergi = originalPax?.addOns?.[0] || null;
             const adPulang = isRoundTrip ? (originalPax?.addOns?.[1] || null) : null;
@@ -692,7 +705,7 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
                 return (raw === "" || raw === "-") ? (defaultBaggage[booking.airline_id] || "0kg") : (baggageMap[raw] || raw);
             };
 
-            const bagInfo = isRoundTrip 
+            const bagInfo = isRoundTrip
                 ? `<div style="border-bottom:1px solid #eee; padding-bottom:2px;">🛫 ${getBagLabel(adPergi)}</div><div style="padding-top:2px;">🛬 ${getBagLabel(adPulang)}</div>`
                 : getBagLabel(adPergi);
 

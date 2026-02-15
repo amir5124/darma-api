@@ -26,9 +26,7 @@ function generateSignature(path, method, data) {
 
 const PaymentController = {
     
-    // 1. CREATE PAYMENT (QRIS / VA) & SYNC TO DB
-    // 1. CREATE PAYMENT (QRIS / VA) & SYNC TO DB + SEND INSTRUCTION EMAIL
-createPayment: async (req, res) => {
+  createPayment: async (req, res) => {
     let connection;
     try {
         const { booking_id, amount, customer_name, customer_phone, customer_email, method, bank_code } = req.body;
@@ -110,7 +108,12 @@ createPayment: async (req, res) => {
         
         // Parsing data penumpang dari raw_response
         let passengers = [];
-        try { passengers = JSON.parse(b.raw_response).paxDetails || []; } catch(e) {}
+        try { 
+            const parsedResponse = JSON.parse(b.raw_response);
+            passengers = parsedResponse.paxDetails || []; 
+        } catch(e) {
+            console.error("Gagal parse raw_response:", e.message);
+        }
 
         const emailHtml = `
         <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; max-width: 700px; margin: auto; border: 1px solid #eee;">
@@ -120,7 +123,17 @@ createPayment: async (req, res) => {
                 
                 <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 20px;">
                     <tr><td style="width: 30%; padding: 5px 0;">Kode Booking</td><td style="font-weight:bold;">: ${b.booking_code}</td></tr>
-                    <tr><td style="padding: 5px 0;">Nama Kontak</td><td>: ${b.pengguna}</td></tr>
+                    
+                    <tr><td style="padding: 5px 0;">Nama Kontak</td><td>: ${customer_name}</td></tr>
+                    
+                    ${passengers.map((pax) => `
+                    <tr>
+                        <td style="padding: 5px 0;">Nama</td>
+                        <td>: ${pax.firstName} ${pax.lastName}</td>
+                    </tr>
+                    `).join('')}
+
+                    <tr><td style="padding: 5px 0;">Telepon</td><td>: ${customer_phone || '-'}</td></tr>
                     <tr><td style="padding: 5px 0;">Time Limit</td><td style="color: #e03f7d; font-weight: bold;">: ${moment(b.time_limit).format('dddd, DD MMM YYYY HH:mm')} WIB</td></tr>
                 </table>
 
@@ -136,7 +149,7 @@ createPayment: async (req, res) => {
                     </td></tr>
                     `}
                     <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Harga Tiket</td><td style="text-align:right; border-bottom: 1px solid #eee;">Rp ${formatIDR(b.total_price)}</td></tr>
-                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Biaya Layanan</td><td style="text-align:right; border-bottom: 1px solid #eee;">Rp ${formatIDR(amount - b.total_price)}</td></tr>
+                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Diskon</td><td style="text-align:right; border-bottom: 1px solid #eee;">Rp ${formatIDR(amount - b.total_price)}</td></tr>
                     <tr style="color: #e03f7d; font-weight: bold; font-size: 16px;">
                         <td style="padding: 15px 0;">Nominal Pembayaran</td>
                         <td style="text-align:right; padding: 15px 0;">Rp ${formatIDR(amount)}</td>
