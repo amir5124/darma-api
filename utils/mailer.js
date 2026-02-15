@@ -23,7 +23,7 @@ const transporter = nodemailer.createTransport({
 const sendBookingEmail = async (to, subject, htmlContent) => {
     try {
         const mailOptions = {
-            from: '"SiapPgo Travel" <no-reply@siappgo.id>',
+            from: '"LinkU Travel" <no-reply@linkutransport.id>',
             to: to,
             subject: subject,
             html: htmlContent

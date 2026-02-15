@@ -35,7 +35,7 @@ var sendBookingEmail = function sendBookingEmail(to, subject, htmlContent) {
         case 0:
           _context.prev = 0;
           mailOptions = {
-            from: '"SiapPgo Travel" <no-reply@siappgo.id>',
+            from: '"LinkU Travel" <no-reply@linkutransport.id>',
             to: to,
             subject: subject,
             html: htmlContent
