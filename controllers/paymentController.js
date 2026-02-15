@@ -2,6 +2,7 @@ const axios = require('axios');
 const crypto = require('crypto');
 const moment = require('moment-timezone');
 const db = require('../config/db'); 
+const { sendBookingEmail } = require('../utils/mailer'); 
 
 const config = {
     clientId: "5f5aa496-7e16-4ca1-9967-33c768dac6c7",
@@ -104,7 +105,7 @@ createPayment: async (req, res) => {
         );
 
         // E. LOGIKA PENGIRIMAN EMAIL (INSTRUKSI PEMBAYARAN)
-        const subject = `[SiapPgo] Instruksi Pembayaran - ${b.booking_code}`;
+        const subject = `[LinkU] Instruksi Pembayaran - ${b.booking_code}`;
         const formatIDR = (num) => new Intl.NumberFormat('id-ID').format(num);
         
         // Parsing data penumpang dari raw_response

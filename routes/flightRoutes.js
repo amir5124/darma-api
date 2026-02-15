@@ -413,7 +413,7 @@ router.post('/create-booking', async (req, res) => {
                 // ======================================================
                 const customerEmail = payload.contactEmail; 
                 if (customerEmail) {
-                    const subject = `[SiapPgo] Konfirmasi Pemesanan Tiket - ${response.data.bookingCode}`;
+                    const subject = `[LinkU] Konfirmasi Pemesanan Tiket - ${response.data.bookingCode}`;
                     
                     // Format Tanggal untuk Tampilan Email
                     const nowLabel = moment().tz('Asia/Jakarta').format('dddd, DD MMMM YYYY HH:mm') + ' WIB';
@@ -428,7 +428,13 @@ router.post('/create-booking', async (req, res) => {
                             
                             <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 20px;">
                                 <tr><td style="width: 30%; padding: 5px 0;">Tanggal Booking</td><td>: ${nowLabel}</td></tr>
-                                <tr><td style="padding: 5px 0;">Nama Kontak</td><td>: ${usernameFromFrontend || 'Guest'}</td></tr>
+                                <tr> ${(payload.paxDetails || []).map((pax, index) => `
+                                        <tr>
+                                            <td style="padding: 10px; border-bottom: 1px dotted #eee;">${index + 1}</td>
+                                            <td style="padding: 10px; border-bottom: 1px dotted #eee;">${pax.title} ${pax.firstName} ${pax.lastName}</td>
+                                            <td style="padding: 10px; border-bottom: 1px dotted #eee; text-align: right;">${pax.birthDate || '-'}</td>
+                                        </tr>
+                                    `).join('')}
                                 <tr><td style="padding: 5px 0;">Telepon</td><td>: ${payload.contactPhone || '-'}</td></tr>
                                 <tr><td style="padding: 5px 0;">Time Limit</td><td style="color: #e03f7d; font-weight: bold;">: ${timeLimitLabel}</td></tr>
                                 <tr><td style="padding: 5px 0;">Status Pesanan</td><td>: <span style="background: #e03f7d; color: white; padding: 2px 8px; font-size: 12px; border-radius: 3px;">Menunggu Pembayaran</span></td></tr>
@@ -489,10 +495,7 @@ router.post('/create-booking', async (req, res) => {
 
                             <div style="margin-top: 30px; text-align: center;">
                                 <p style="font-size: 14px;">Segera lakukan pembayaran sebelum batas waktu berakhir untuk menerbitkan tiket.</p>
-                                <a href="https://darma.siappgo.id/payment/${response.data.bookingCode}" 
-                                   style="background: #24b3ae; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">
-                                   PILIH METODE PEMBAYARAN
-                                </a>
+                               
                             </div>
                         </div>
                     </div>`;
