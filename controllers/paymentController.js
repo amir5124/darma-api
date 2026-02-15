@@ -26,17 +26,22 @@ function generateSignature(path, method, data) {
 
 const PaymentController = {
     
-  createPayment: async (req, res) => {
+createPayment: async (req, res) => {
     let connection;
     try {
         const { booking_id, amount, customer_name, customer_phone, customer_email, method, bank_code } = req.body;
         
-        // 1. Logika Perbaikan Nomor Telepon (Tambah +62 jika mulai dari 8 atau 08)
+        // 1. Logika Perbaikan Nomor Telepon (Konsisten +62)
         let formattedPhone = customer_phone ? customer_phone.toString().trim() : '';
+        // Menghapus karakter non-digit kecuali tanda +
+        formattedPhone = formattedPhone.replace(/[^0-9+]/g, '');
+
         if (formattedPhone.startsWith('0')) {
             formattedPhone = '+62' + formattedPhone.substring(1);
         } else if (formattedPhone.startsWith('8')) {
             formattedPhone = '+62' + formattedPhone;
+        } else if (formattedPhone.startsWith('62') && !formattedPhone.startsWith('+')) {
+            formattedPhone = '+' + formattedPhone;
         } else if (!formattedPhone.startsWith('+')) {
             formattedPhone = '+62' + formattedPhone;
         }
@@ -77,7 +82,7 @@ const PaymentController = {
             expired,
             partner_reff,
             customer_id: formattedPhone, 
-            customer_name: customer_name || 'Customer', // Menghindari nama kosong
+            customer_name: customer_name || 'Customer', 
             customer_email
         };
 
@@ -88,7 +93,7 @@ const PaymentController = {
             endpoint = '/transaction/create/va';
             payloadLinkQu.bank_code = bank_code; 
             payloadLinkQu.signature = generateSignature(endpoint, 'POST', {
-                amount, expired, bank_code, partner_reff, customer_id: payloadLinkQu.customer_id, customer_name, customer_email
+                amount, expired, bank_code, partner_reff, customer_id: formattedPhone, customer_name, customer_email
             });
         } else {
             endpoint = '/transaction/create/qris';
@@ -105,6 +110,7 @@ const PaymentController = {
         const qrisImage = linkquData.imageqris || linkquData.qr_url || null;
 
         // D. UPDATE DATABASE (Update Nama Pengguna agar tidak "Guest" lagi)
+        // Kita juga mengupdate kolom 'pengguna' di sini agar sinkron dengan input form payment
         await connection.query(
             `UPDATE bookings SET 
                 pengguna = ?, 
@@ -114,7 +120,7 @@ const PaymentController = {
                 qris_url = ? 
              WHERE id = ?`,
             [
-                customer_name, // Mengupdate kolom pengguna dengan nama asli dari form payment
+                customer_name, 
                 partner_reff, 
                 method === 'VA' ? `VA-${bankName}` : 'QRIS', 
                 vaNumber, 
@@ -146,8 +152,8 @@ const PaymentController = {
                     
                     ${passengers.map((pax) => `
                     <tr>
-                        <td style="padding: 5px 0;">Nama</td>
-                        <td style="padding: 5px 0;">: ${pax.firstName} ${pax.lastName}</td>
+                        <td style="padding: 5px 0;">Nama Penumpang</td>
+                        <td style="padding: 5px 0;">: ${pax.title || ''} ${pax.firstName} ${pax.lastName}</td>
                     </tr>
                     `).join('')}
 
@@ -167,7 +173,7 @@ const PaymentController = {
                     </td></tr>
                     `}
                     <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Harga Tiket</td><td style="text-align:right; border-bottom: 1px solid #eee;">Rp ${formatIDR(b.total_price)}</td></tr>
-                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Biaya Layanan</td><td style="text-align:right; border-bottom: 1px solid #eee;">Rp ${formatIDR(amount - b.total_price)}</td></tr>
+                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Diskon</td><td style="text-align:right; border-bottom: 1px solid #eee;">Rp ${formatIDR(amount - b.total_price)}</td></tr>
                     <tr style="color: #e03f7d; font-weight: bold; font-size: 16px;">
                         <td style="padding: 15px 0;">Nominal Pembayaran</td>
                         <td style="text-align:right; padding: 15px 0;">Rp ${formatIDR(amount)}</td>
