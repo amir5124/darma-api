@@ -7,6 +7,7 @@ const db = require('../config/db');
 const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('../helpers/darmaHelper');
 const flightController = require('../controllers/flightController');
 const { sendBookingEmail } = require('../utils/mailer'); 
+const moment = require('moment-timezone');
 /**
  * HELPER: ARCHIVE DATA KE DATABASE
  * Membersihkan format ISO (T/Z) agar kompatibel dengan MySQL DATE & DATETIME
@@ -344,6 +345,8 @@ router.post('/get-seats', async (req, res) => {
     }
 });
 
+
+
 router.post('/create-booking', async (req, res) => {
     try {
         const token = await getConsistentToken();
@@ -359,6 +362,7 @@ router.post('/create-booking', async (req, res) => {
         console.log("--------------------------------------------------");
         console.log("📤 [STEP 1] Sending Booking to Vendor...");
 
+        // 1. Panggil API Vendor
         const response = await axios.post(`${BASE_URL}/Airline/Booking`, payload, {
             httpsAgent: agent,
             timeout: 60000
@@ -366,6 +370,7 @@ router.post('/create-booking', async (req, res) => {
 
         console.log("📡 [STEP 2] Response from Vendor Received!");
 
+        // 2. Jika Vendor Sukses, Simpan ke Database Internal
         if (response.data.status === "SUCCESS") {
             try {
                 console.log("💾 [STEP 3] Vendor SUCCESS. Saving to Database...");
@@ -401,34 +406,101 @@ router.post('/create-booking', async (req, res) => {
                 );
 
                 const internalId = resBooking.insertId;
-                console.log(`✅ [STEP 4] Success! Booking ${response.data.bookingCode} saved with DB ID: ${internalId}`);
+                console.log(`✅ [STEP 4] Success! Booking ${response.data.bookingCode} saved.`);
 
                 // ======================================================
-                // --- PROSES KIRIM EMAIL (TAMBAHKAN DI SINI) ---
+                // --- LOGIKA PENGIRIMAN EMAIL (FORMAT SESUAI GAMBAR) ---
                 // ======================================================
-                const customerEmail = payload.contactEmail; // Diambil dari payload STEP 1
+                const customerEmail = payload.contactEmail; 
                 if (customerEmail) {
-                    const subject = `[SiapPgo] Konfirmasi Booking - ${response.data.bookingCode}`;
-                    const emailHtml = `
-                        <div style="font-family: Arial, sans-serif; border: 1px solid #ddd; padding: 20px; max-width: 600px;">
-                            <h2 style="color: #24b3ae;">Booking Berhasil!</h2>
-                            <p>Halo <b>${usernameFromFrontend || 'Tamu'}</b>, pesanan Anda telah kami terima.</p>
-                            <table style="width: 100%;">
-                                <tr><td>Kode Booking:</td><td style="font-weight:bold;">${response.data.bookingCode}</td></tr>
-                                <tr><td>Total Bayar:</td><td>Rp ${new Intl.NumberFormat('id-ID').format(response.data.ticketPrice)}</td></tr>
-                                <tr><td>Batas Waktu:</td><td style="color:red;">${response.data.timeLimit}</td></tr>
-                            </table>
-                            <div style="margin-top: 20px; background: #f4f4f4; padding: 10px;">
-                                ${response.data.detail}
-                            </div>
-                            <p>Mohon segera lakukan pembayaran sebelum batas waktu berakhir.</p>
-                        </div>
-                    `;
+                    const subject = `[SiapPgo] Konfirmasi Pemesanan Tiket - ${response.data.bookingCode}`;
+                    
+                    // Format Tanggal untuk Tampilan Email
+                    const nowLabel = moment().tz('Asia/Jakarta').format('dddd, DD MMMM YYYY HH:mm') + ' WIB';
+                    const timeLimitLabel = moment(response.data.timeLimit).format('dddd, DD MMMM YYYY HH:mm') + ' WIB';
 
-                    // Panggil helper mailer (tanpa await agar respons frontend tetap kencang)
+                    const emailHtml = `
+                    <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; max-width: 700px; margin: auto; border: 1px solid #eee;">
+                        <div style="background-color: #24b3ae; padding: 10px; color: white; font-weight: bold;">Tiket Booked</div>
+                        <div style="padding: 20px;">
+                            <p>Anda mempunyai pemesanan tiket pesawat, segera lakukan konfirmasi pesanan berikut.</p>
+                            <p style="font-size: 13px; color: #666;">Detail data informasi pemesanan yang telah dilakukan,</p>
+                            
+                            <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 20px;">
+                                <tr><td style="width: 30%; padding: 5px 0;">Tanggal Booking</td><td>: ${nowLabel}</td></tr>
+                                <tr><td style="padding: 5px 0;">Nama Kontak</td><td>: ${usernameFromFrontend || 'Guest'}</td></tr>
+                                <tr><td style="padding: 5px 0;">Telepon</td><td>: ${payload.contactPhone || '-'}</td></tr>
+                                <tr><td style="padding: 5px 0;">Time Limit</td><td style="color: #e03f7d; font-weight: bold;">: ${timeLimitLabel}</td></tr>
+                                <tr><td style="padding: 5px 0;">Status Pesanan</td><td>: <span style="background: #e03f7d; color: white; padding: 2px 8px; font-size: 12px; border-radius: 3px;">Menunggu Pembayaran</span></td></tr>
+                            </table>
+
+                            <div style="background: #24b3ae; color: white; padding: 8px 15px; font-weight: bold;">Data Perjalanan</div>
+                            <div style="background: #c8d992; padding: 8px 15px; font-size: 13px; display: flex; justify-content: space-between;">
+                                <span><b>Penerbangan Pergi</b></span>
+                                <span style="float: right;"><b>Langsung</b></span>
+                            </div>
+
+                            <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
+                                <thead style="background: #fdfae2;">
+                                    <tr>
+                                        <th style="padding: 10px; border-bottom: 1px solid #eee;">Pesawat</th>
+                                        <th style="padding: 10px; border-bottom: 1px solid #eee;">Rute</th>
+                                        <th style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">Kode Booking</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td style="padding: 15px 10px;">
+                                            <b style="color: #24b3ae;">${payload.airlineName || payload.airlineID}</b><br>
+                                            <small>${payload.flightNo || ''}</small>
+                                        </td>
+                                        <td style="padding: 15px 10px;">
+                                            <b>${moment(payload.departDate).format('DD MMM 2026 HH:mm')}</b><br>
+                                            ${payload.originName || payload.origin} (${payload.origin})<br><br>
+                                            <b>${moment(payload.departDate).add(2, 'hours').format('DD MMM 2026 HH:mm')}</b><br>
+                                            ${payload.destinationName || payload.destination} (${payload.destination})
+                                        </td>
+                                        <td style="padding: 15px 10px; text-align: right; vertical-align: top;">
+                                            <b style="font-size: 16px;">${response.data.bookingCode}</b>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+
+                            <div style="background: #24b3ae; color: white; padding: 8px 15px; font-weight: bold; margin-top: 20px;">Data Penumpang [${payload.paxDetails?.length || 1} Dewasa]</div>
+                            <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                                <thead style="background: #f9f9f9;">
+                                    <tr>
+                                        <th style="padding: 10px; border-bottom: 1px dotted #ccc; width: 40px;">#</th>
+                                        <th style="padding: 10px; border-bottom: 1px dotted #ccc; text-align: left;">Nama</th>
+                                        <th style="padding: 10px; border-bottom: 1px dotted #ccc; text-align: right;">Tanggal Lahir</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${(payload.paxDetails || []).map((pax, index) => `
+                                        <tr>
+                                            <td style="padding: 10px; border-bottom: 1px dotted #eee;">${index + 1}</td>
+                                            <td style="padding: 10px; border-bottom: 1px dotted #eee;">${pax.title} ${pax.firstName} ${pax.lastName}</td>
+                                            <td style="padding: 10px; border-bottom: 1px dotted #eee; text-align: right;">${pax.birthDate || '-'}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+
+                            <div style="margin-top: 30px; text-align: center;">
+                                <p style="font-size: 14px;">Segera lakukan pembayaran sebelum batas waktu berakhir untuk menerbitkan tiket.</p>
+                                <a href="https://darma.siappgo.id/payment/${response.data.bookingCode}" 
+                                   style="background: #24b3ae; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">
+                                   PILIH METODE PEMBAYARAN
+                                </a>
+                            </div>
+                        </div>
+                    </div>`;
+
+                    // Kirim email tanpa await agar API response tetap cepat
                     sendBookingEmail(customerEmail, subject, emailHtml)
                         .then(() => console.log(`📧 [LOG EMAIL] Berhasil dikirim ke: ${customerEmail}`))
-                        .catch(err => console.error(`❌ [LOG EMAIL] Gagal kirim ke ${customerEmail}:`, err.message));
+                        .catch(err => console.error(`❌ [LOG EMAIL] Gagal:`, err.message));
                 }
                 // ======================================================
 
@@ -437,7 +509,6 @@ router.post('/create-booking', async (req, res) => {
                     id: internalId 
                 };
 
-                console.log("📤 [STEP 5] Sending Final Response to Frontend with ID:", internalId);
                 return res.json(finalResponse);
 
             } catch (dbError) {
@@ -445,11 +516,12 @@ router.post('/create-booking', async (req, res) => {
                 return res.json(response.data);
             }
         } else {
+            console.warn("⚠️ Vendor NON-SUCCESS:", response.data.respMessage);
             return res.json(response.data);
         }
 
     } catch (error) {
-        console.error("❌ FATAL ERROR in /create-booking:", error.message);
+        console.error("❌ FATAL ERROR:", error.message);
         res.status(500).json({ status: "FAILED", respMessage: error.message });
     }
 });

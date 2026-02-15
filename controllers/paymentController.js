@@ -26,82 +26,152 @@ function generateSignature(path, method, data) {
 const PaymentController = {
     
     // 1. CREATE PAYMENT (QRIS / VA) & SYNC TO DB
-    createPayment: async (req, res) => {
-        let connection;
-        try {
-            const { booking_id, amount, customer_name, customer_phone, customer_email, method, bank_code } = req.body;
-            
-            const partner_reff = `PAY-${Date.now()}`;
-            const expired = moment.tz('Asia/Jakarta').add(30, 'minutes').format('YYYYMMDDHHmmss');
-            const url_callback = "https://darma.siappgo.id/api/callback";
+    // 1. CREATE PAYMENT (QRIS / VA) & SYNC TO DB + SEND INSTRUCTION EMAIL
+createPayment: async (req, res) => {
+    let connection;
+    try {
+        const { booking_id, amount, customer_name, customer_phone, customer_email, method, bank_code } = req.body;
+        
+        const partner_reff = `PAY-${Date.now()}`;
+        const expired = moment.tz('Asia/Jakarta').add(30, 'minutes').format('YYYYMMDDHHmmss');
+        const url_callback = "https://darma.siappgo.id/api/callback";
 
-            // A. Koneksi Database & Update Booking awal
-            // Menggunakan db.getConnection() jika db adalah pool
-            connection = await db.getConnection();
-            
-            const [check] = await connection.query("SELECT id FROM bookings WHERE id = ?", [booking_id]);
-            
-            if (check.length === 0) {
-                return res.status(404).json({ error: "Data booking tidak ditemukan" });
-            }
-
-            // Update info pembayaran ke tabel bookings
-            await connection.query(
-                "UPDATE bookings SET payment_reff = ?, payment_method = ? WHERE id = ?",
-                [partner_reff, method === 'VA' ? `VA-${bank_code}` : 'QRIS', booking_id]
-            );
-
-            // B. Persiapan Payload LinkQu
-            const commonData = {
-                amount,
-                expired,
-                partner_reff,
-                customer_id: customer_phone,
-                customer_name,
-                customer_email
-            };
-
-            let endpoint = '';
-            let payload = { 
-                ...commonData, 
-                username: config.username, 
-                pin: config.pin, 
-                url_callback 
-            };
-
-            if (method === 'VA') {
-                endpoint = '/transaction/create/va';
-                payload.bank_code = bank_code; 
-                payload.signature = generateSignature(endpoint, 'POST', {
-                    amount, expired, bank_code, partner_reff, customer_id: payload.customer_id, customer_name, customer_email
-                });
-            } else {
-                endpoint = '/transaction/create/qris';
-                payload.signature = generateSignature(endpoint, 'POST', commonData);
-            }
-
-            // C. Request ke LinkQu
-            const resp = await axios.post(`${config.baseUrl}${endpoint}`, payload, {
-                headers: { 
-                    'client-id': config.clientId, 
-                    'client-secret': config.clientSecret 
-                }
-            });
-
-            return res.json({ 
-                status: "Success", 
-                partner_reff, 
-                data: resp.data 
-            });
-
-        } catch (err) {
-            console.error("Create Error:", err.response?.data || err.message);
-            return res.status(500).json({ error: err.response?.data || err.message });
-        } finally {
-            // Melepaskan koneksi kembali ke pool
-            if (connection) connection.release();
+        connection = await db.getConnection();
+        
+        // A. Ambil Data Booking untuk keperluan Email
+        const [rows] = await connection.query("SELECT * FROM bookings WHERE id = ?", [booking_id]);
+        if (rows.length === 0) {
+            return res.status(404).json({ error: "Data booking tidak ditemukan" });
         }
-    },
+        const b = rows[0]; // Data booking dari DB
+
+        // B. Persiapan Payload LinkQu
+        const commonData = {
+            amount,
+            expired,
+            partner_reff,
+            customer_id: customer_phone,
+            customer_name,
+            customer_email
+        };
+
+        let endpoint = '';
+        let payloadLinkQu = { 
+            ...commonData, 
+            username: config.username, 
+            pin: config.pin, 
+            url_callback 
+        };
+
+        if (method === 'VA') {
+            endpoint = '/transaction/create/va';
+            payloadLinkQu.bank_code = bank_code; 
+            payloadLinkQu.signature = generateSignature(endpoint, 'POST', {
+                amount, expired, bank_code, partner_reff, customer_id: payloadLinkQu.customer_id, customer_name, customer_email
+            });
+        } else {
+            endpoint = '/transaction/create/qris';
+            payloadLinkQu.signature = generateSignature(endpoint, 'POST', commonData);
+        }
+
+        // C. Request ke LinkQu
+        const resp = await axios.post(`${config.baseUrl}${endpoint}`, payloadLinkQu, {
+            headers: { 
+                'client-id': config.clientId, 
+                'client-secret': config.clientSecret 
+            }
+        });
+
+        const linkquData = resp.data;
+        const vaNumber = linkquData.virtual_account || linkquData.va_number || null;
+        const qrisImage = linkquData.imageqris || linkquData.qr_url || null;
+
+        // D. UPDATE DATABASE
+        await connection.query(
+            `UPDATE bookings SET 
+                payment_reff = ?, 
+                payment_method = ?, 
+                va_number = ?, 
+                qris_url = ? 
+             WHERE id = ?`,
+            [
+                partner_reff, 
+                method === 'VA' ? `VA-${bank_code}` : 'QRIS', 
+                vaNumber, 
+                qrisImage, 
+                booking_id
+            ]
+        );
+
+        // E. LOGIKA PENGIRIMAN EMAIL (INSTRUKSI PEMBAYARAN)
+        const subject = `[SiapPgo] Instruksi Pembayaran - ${b.booking_code}`;
+        const formatIDR = (num) => new Intl.NumberFormat('id-ID').format(num);
+        
+        // Parsing data penumpang dari raw_response
+        let passengers = [];
+        try { passengers = JSON.parse(b.raw_response).paxDetails || []; } catch(e) {}
+
+        const emailHtml = `
+        <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; max-width: 700px; margin: auto; border: 1px solid #eee;">
+            <div style="background-color: #24b3ae; padding: 10px; color: white; font-weight: bold;">Instruksi Pembayaran</div>
+            <div style="padding: 20px;">
+                <p>Silakan lakukan pembayaran sesuai rincian di bawah ini untuk menerbitkan tiket Anda.</p>
+                
+                <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 20px;">
+                    <tr><td style="width: 30%; padding: 5px 0;">Kode Booking</td><td style="font-weight:bold;">: ${b.booking_code}</td></tr>
+                    <tr><td style="padding: 5px 0;">Nama Kontak</td><td>: ${b.pengguna}</td></tr>
+                    <tr><td style="padding: 5px 0;">Time Limit</td><td style="color: #e03f7d; font-weight: bold;">: ${moment(b.time_limit).format('dddd, DD MMM YYYY HH:mm')} WIB</td></tr>
+                </table>
+
+                <div style="background: #24b3ae; color: white; padding: 8px 15px; font-weight: bold;">Rincian Pembayaran</div>
+                <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin: 15px 0;">
+                    ${method === 'VA' ? `
+                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">No. Rekening (VA)</td><td style="text-align:right; border-bottom: 1px solid #eee; font-weight:bold; font-size:16px;">${vaNumber}</td></tr>
+                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Bank</td><td style="text-align:right; border-bottom: 1px solid #eee;">${bank_code}</td></tr>
+                    ` : `
+                    <tr><td colspan="2" style="text-align:center; padding: 15px;">
+                        <p>Scan QRIS berikut:</p>
+                        <img src="${qrisImage}" style="max-width:200px; border:1px solid #ddd;" />
+                    </td></tr>
+                    `}
+                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Harga Tiket</td><td style="text-align:right; border-bottom: 1px solid #eee;">Rp ${formatIDR(b.total_price)}</td></tr>
+                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Biaya Layanan</td><td style="text-align:right; border-bottom: 1px solid #eee;">Rp ${formatIDR(amount - b.total_price)}</td></tr>
+                    <tr style="color: #e03f7d; font-weight: bold; font-size: 16px;">
+                        <td style="padding: 15px 0;">Nominal Pembayaran</td>
+                        <td style="text-align:right; padding: 15px 0;">Rp ${formatIDR(amount)}</td>
+                    </tr>
+                </table>
+
+                <div style="background: #24b3ae; color: white; padding: 8px 15px; font-weight: bold;">Data Perjalanan</div>
+                <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-top:10px;">
+                    <tr style="background: #fdfae2;">
+                        <td style="padding: 10px;"><b>${b.airline_name}</b></td>
+                        <td style="padding: 10px;">${b.origin} → ${b.destination}</td>
+                        <td style="padding: 10px; text-align:right;">${moment(b.depart_date).format('DD MMM YYYY')}</td>
+                    </tr>
+                </table>
+
+                <p style="text-align:center; font-style: italic; color: #e03f7d; margin-top: 20px;">*Pastikan Anda transfer sesuai dengan nominal di atas!</p>
+            </div>
+        </div>`;
+
+        // Kirim Email (Async)
+        sendBookingEmail(customer_email, subject, emailHtml).catch(e => console.error("Email Error:", e));
+
+        // F. Return Success ke Frontend
+        return res.json({ 
+            status: "Success", 
+            partner_reff, 
+            data: linkquData 
+        });
+
+    } catch (err) {
+        console.error("❌ Create Error:", err.response?.data || err.message);
+        return res.status(500).json({ error: err.response?.data || err.message });
+    } finally {
+        if (connection) connection.release();
+    }
+},
 
     // 2. CHECK PAYMENT STATUS
     checkStatus: async (req, res) => {
