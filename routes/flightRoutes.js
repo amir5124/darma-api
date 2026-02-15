@@ -6,6 +6,7 @@ const db = require('../config/db');
 // const QRCode = require('qrcode');
 const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('../helpers/darmaHelper');
 const flightController = require('../controllers/flightController');
+const { sendBookingEmail } = require('../utils/mailer'); 
 /**
  * HELPER: ARCHIVE DATA KE DATABASE
  * Membersihkan format ISO (T/Z) agar kompatibel dengan MySQL DATE & DATETIME
@@ -343,7 +344,6 @@ router.post('/get-seats', async (req, res) => {
     }
 });
 
-// 7. CREATE BOOKING
 router.post('/create-booking', async (req, res) => {
     try {
         const token = await getConsistentToken();
@@ -358,20 +358,14 @@ router.post('/create-booking', async (req, res) => {
 
         console.log("--------------------------------------------------");
         console.log("📤 [STEP 1] Sending Booking to Vendor...");
-        console.log("Payload:", JSON.stringify(payload, null, 2));
 
-        // 1. Panggil API Vendor
         const response = await axios.post(`${BASE_URL}/Airline/Booking`, payload, {
             httpsAgent: agent,
             timeout: 60000
         });
 
-        // LOG RESPONSE DARI VENDOR
         console.log("📡 [STEP 2] Response from Vendor Received!");
-        console.log("Status Code:", response.status);
-        console.log("Data Response:", JSON.stringify(response.data, null, 2));
 
-        // 2. Jika Vendor Sukses, Simpan ke Database Internal
         if (response.data.status === "SUCCESS") {
             try {
                 console.log("💾 [STEP 3] Vendor SUCCESS. Saving to Database...");
@@ -409,39 +403,56 @@ router.post('/create-booking', async (req, res) => {
                 const internalId = resBooking.insertId;
                 console.log(`✅ [STEP 4] Success! Booking ${response.data.bookingCode} saved with DB ID: ${internalId}`);
 
-                // 3. Gabungkan ID Internal ke dalam response yang dikirim ke Frontend
+                // ======================================================
+                // --- PROSES KIRIM EMAIL (TAMBAHKAN DI SINI) ---
+                // ======================================================
+                const customerEmail = payload.contactEmail; // Diambil dari payload STEP 1
+                if (customerEmail) {
+                    const subject = `[SiapPgo] Konfirmasi Booking - ${response.data.bookingCode}`;
+                    const emailHtml = `
+                        <div style="font-family: Arial, sans-serif; border: 1px solid #ddd; padding: 20px; max-width: 600px;">
+                            <h2 style="color: #24b3ae;">Booking Berhasil!</h2>
+                            <p>Halo <b>${usernameFromFrontend || 'Tamu'}</b>, pesanan Anda telah kami terima.</p>
+                            <table style="width: 100%;">
+                                <tr><td>Kode Booking:</td><td style="font-weight:bold;">${response.data.bookingCode}</td></tr>
+                                <tr><td>Total Bayar:</td><td>Rp ${new Intl.NumberFormat('id-ID').format(response.data.ticketPrice)}</td></tr>
+                                <tr><td>Batas Waktu:</td><td style="color:red;">${response.data.timeLimit}</td></tr>
+                            </table>
+                            <div style="margin-top: 20px; background: #f4f4f4; padding: 10px;">
+                                ${response.data.detail}
+                            </div>
+                            <p>Mohon segera lakukan pembayaran sebelum batas waktu berakhir.</p>
+                        </div>
+                    `;
+
+                    // Panggil helper mailer (tanpa await agar respons frontend tetap kencang)
+                    sendBookingEmail(customerEmail, subject, emailHtml)
+                        .then(() => console.log(`📧 [LOG EMAIL] Berhasil dikirim ke: ${customerEmail}`))
+                        .catch(err => console.error(`❌ [LOG EMAIL] Gagal kirim ke ${customerEmail}:`, err.message));
+                }
+                // ======================================================
+
                 const finalResponse = {
                     ...response.data,
                     id: internalId 
                 };
 
                 console.log("📤 [STEP 5] Sending Final Response to Frontend with ID:", internalId);
-                console.log("--------------------------------------------------");
                 return res.json(finalResponse);
 
             } catch (dbError) {
                 console.error("❌ DB ERROR:", dbError.message);
-                // Tetap kirim response vendor agar user tidak stuck
                 return res.json(response.data);
             }
         } else {
-            // Jika status vendor bukan SUCCESS (misal: FAILED/ERROR)
-            console.warn("⚠️ Vendor returned NON-SUCCESS status:", response.data.status);
-            console.log("Message:", response.data.respMessage);
-            console.log("--------------------------------------------------");
             return res.json(response.data);
         }
 
     } catch (error) {
         console.error("❌ FATAL ERROR in /create-booking:", error.message);
-        if (error.response) {
-            console.error("Vendor Error Response:", error.response.data);
-        }
-        console.log("--------------------------------------------------");
         res.status(500).json({ status: "FAILED", respMessage: error.message });
     }
 });
-
 // 8. BOOKING DETAIL + AUTO SYNC PRICE
 router.post('/booking-detail', async (req, res) => {
     try {

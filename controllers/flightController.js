@@ -202,53 +202,7 @@ exports.saveBooking = async (req, res) => {
         
         console.log(`✅ Berhasil Simpan ke Database. ID: ${bookingId}`);
 
-        // --- 6. PROSES KIRIM EMAIL KONFIRMASI ---
-        const customerEmail = payload.contactEmail || (payload.paxDetails && payload.paxDetails[0]?.Email);
-        
-        if (customerEmail) {
-            const subject = `[SiapPgo] Konfirmasi Booking - ${response.bookingCode}`;
-            const emailHtml = `
-                <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-                    <div style="background-color: #24b3ae; padding: 20px; text-align: center;">
-                        <h1 style="color: white; margin: 0;">Booking Berhasil!</h1>
-                    </div>
-                    <div style="padding: 20px; border: 1px solid #eee;">
-                        <p>Halo <strong>${username || 'Pelanggan'}</strong>,</p>
-                        <p>Pesanan tiket pesawat Anda telah kami terima dan sedang dalam status <strong>HOLD</strong>.</p>
-                        
-                        <table style="width: 100%; margin: 20px 0; border-collapse: collapse;">
-                            <tr>
-                                <td style="padding: 10px; background: #f9f9f9; border: 1px solid #ddd;"><strong>Kode Booking</strong></td>
-                                <td style="padding: 10px; border: 1px solid #ddd; color: #24b3ae; font-weight: bold; font-size: 18px;">${response.bookingCode}</td>
-                            </tr>
-                            <tr>
-                                <td style="padding: 10px; background: #f9f9f9; border: 1px solid #ddd;"><strong>Batas Waktu Bayar</strong></td>
-                                <td style="padding: 10px; border: 1px solid #ddd; color: #e11d48;">${response.timeLimit}</td>
-                            </tr>
-                            <tr>
-                                <td style="padding: 10px; background: #f9f9f9; border: 1px solid #ddd;"><strong>Total Pembayaran</strong></td>
-                                <td style="padding: 10px; border: 1px solid #ddd;">Rp ${new Intl.NumberFormat('id-ID').format(finalTotalPrice)}</td>
-                            </tr>
-                        </table>
-
-                        <div style="background: #f0fdfa; padding: 15px; border-left: 4px solid #24b3ae;">
-                            <h4 style="margin-top: 0; color: #134e4a;">Detail Penerbangan:</h4>
-                            ${response.detail}
-                        </div>
-
-                        <p style="margin-top: 20px;">Segera lakukan pembayaran sebelum batas waktu berakhir untuk menghindari pembatalan otomatis oleh maskapai.</p>
-                        <hr style="border: 0; border-top: 1px solid #eee;" />
-                        <p style="font-size: 12px; color: #777;">Email ini dikirim otomatis oleh sistem SiapPgo Travel. Harap tidak membalas email ini.</p>
-                    </div>
-                </div>
-            `;
-
-            // Kirim secara background (tanpa await agar respons API tetap cepat)
-            sendBookingEmail(customerEmail, subject, emailHtml)
-                .then(() => console.log(`📧 Email konfirmasi terkirim ke: ${customerEmail}`))
-                .catch(err => console.error(`❌ Gagal kirim email: ${err.message}`));
-        }
-
+       
         // RESPON SUKSES WAJIB MENGIRIM ID
         return res.status(200).json({ 
             status: "SUCCESS", 

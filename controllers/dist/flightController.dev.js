@@ -16,6 +16,9 @@ function _arrayWithHoles(arr) { if (Array.isArray(arr)) return arr; }
 
 var db = require('../config/db'); // Sesuaikan path jika db.js ada di folder root atau config
 
+
+var _require = require('../utils/mailer'),
+    sendBookingEmail = _require.sendBookingEmail;
 /**
  * Mendapatkan riwayat booking berdasarkan username (pengguna)
  */
@@ -239,7 +242,7 @@ exports.saveBooking = function _callee3(req, res) {
 
           ad = _step2.value;
           _context3.next = 41;
-          return regeneratorRuntime.awrap(connection.execute("INSERT INTO passenger_addons (passenger_id, segment_idx, baggage_code, seat_number, meals_json, pengguna) \n                             VALUES (?, ?, ?, ?, ?, ?)", [paxId, 0, ad.baggageString || "", ad.seat || "", JSON.stringify(ad.meals || []), username || 'Guest']));
+          return regeneratorRuntime.awrap(connection.execute("INSERT INTO passenger_addons (passenger_id, segment_idx, baggage_code, seat_number, meals_json, pengguna) \n                             VALUES (?, ?, ?, ?, ?, ?)", [paxId, 0, ad.baggageString || ad.baggageCode || "", ad.seat || "", JSON.stringify(ad.meals || []), username || 'Guest']));
 
         case 41:
           _iteratorNormalCompletion2 = true;
@@ -397,7 +400,7 @@ exports.saveBooking = function _callee3(req, res) {
             status: "SUCCESS",
             id: bookingId,
             bookingCode: response.bookingCode,
-            message: "Booking berhasil disimpan ke database."
+            message: "Booking berhasil disimpan dan email sedang dikirim."
           }));
 
         case 109:
@@ -413,8 +416,7 @@ exports.saveBooking = function _callee3(req, res) {
           return regeneratorRuntime.awrap(connection.rollback());
 
         case 114:
-          console.error("❌ Database Error:", _context3.t3.message); // RESPON ERROR AGAR FRONTEND TIDAK HANG/UNDEFINED
-
+          console.error("❌ Database Error:", _context3.t3.message);
           return _context3.abrupt("return", res.status(500).json({
             status: "ERROR",
             message: "Gagal menyimpan ke database internal: " + _context3.t3.message
@@ -422,7 +424,6 @@ exports.saveBooking = function _callee3(req, res) {
 
         case 116:
           _context3.prev = 116;
-          // Selalu lepaskan koneksi ke pool
           if (connection) connection.release();
           return _context3.finish(116);
 
