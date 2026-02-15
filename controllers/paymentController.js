@@ -31,7 +31,17 @@ const PaymentController = {
     try {
         const { booking_id, amount, customer_name, customer_phone, customer_email, method, bank_code } = req.body;
         
-        // 1. Array JSON untuk Mapping Kode Bank ke Nama Bank
+        // 1. Logika Perbaikan Nomor Telepon (Tambah +62 jika mulai dari 8 atau 08)
+        let formattedPhone = customer_phone ? customer_phone.toString().trim() : '';
+        if (formattedPhone.startsWith('0')) {
+            formattedPhone = '+62' + formattedPhone.substring(1);
+        } else if (formattedPhone.startsWith('8')) {
+            formattedPhone = '+62' + formattedPhone;
+        } else if (!formattedPhone.startsWith('+')) {
+            formattedPhone = '+62' + formattedPhone;
+        }
+
+        // 2. Array JSON untuk Mapping Kode Bank ke Nama Bank
         const bankMap = {
             "002": "BRI",
             "008": "MANDIRI",
@@ -41,13 +51,13 @@ const PaymentController = {
             "013": "PERMATA",
             "022": "CIMB",
             "441": "DANAMON",
-            "011": "DANAMON", // Beberapa provider menggunakan kode berbeda
+            "011": "DANAMON",
             "016": "MAYBANK",
             "422": "BRI SYARIAH",
             "451": "BSI (BANK SYARIAH INDONESIA)"
         };
 
-        const bankName = bankMap[bank_code] || bank_code; // Fallback ke kode jika tidak ada di list
+        const bankName = bankMap[bank_code] || bank_code;
         const partner_reff = `PAY-${Date.now()}`;
         const expired = moment.tz('Asia/Jakarta').add(30, 'minutes').format('YYYYMMDDHHmmss');
         const url_callback = "https://darma.siappgo.id/api/callback";
@@ -61,13 +71,13 @@ const PaymentController = {
         }
         const b = rows[0];
 
-        // B. Persiapan Payload LinkQu
+        // B. Persiapan Payload LinkQu (Menggunakan formattedPhone)
         const commonData = {
             amount,
             expired,
             partner_reff,
-            customer_id: customer_phone,
-            customer_name,
+            customer_id: formattedPhone, 
+            customer_name: customer_name || 'Customer', // Menghindari nama kosong
             customer_email
         };
 
@@ -94,10 +104,23 @@ const PaymentController = {
         const vaNumber = linkquData.virtual_account || linkquData.va_number || null;
         const qrisImage = linkquData.imageqris || linkquData.qr_url || null;
 
-        // D. UPDATE DATABASE
+        // D. UPDATE DATABASE (Update Nama Pengguna agar tidak "Guest" lagi)
         await connection.query(
-            `UPDATE bookings SET payment_reff = ?, payment_method = ?, va_number = ?, qris_url = ? WHERE id = ?`,
-            [partner_reff, method === 'VA' ? `VA-${bankName}` : 'QRIS', vaNumber, qrisImage, booking_id]
+            `UPDATE bookings SET 
+                pengguna = ?, 
+                payment_reff = ?, 
+                payment_method = ?, 
+                va_number = ?, 
+                qris_url = ? 
+             WHERE id = ?`,
+            [
+                customer_name, // Mengupdate kolom pengguna dengan nama asli dari form payment
+                partner_reff, 
+                method === 'VA' ? `VA-${bankName}` : 'QRIS', 
+                vaNumber, 
+                qrisImage, 
+                booking_id
+            ]
         );
 
         // E. LOGIKA PENGIRIMAN EMAIL
@@ -124,11 +147,11 @@ const PaymentController = {
                     ${passengers.map((pax) => `
                     <tr>
                         <td style="padding: 5px 0;">Nama</td>
-                        <td>: ${pax.firstName} ${pax.lastName}</td>
+                        <td style="padding: 5px 0;">: ${pax.firstName} ${pax.lastName}</td>
                     </tr>
                     `).join('')}
 
-                    <tr><td style="padding: 5px 0;">Telepon</td><td>: ${customer_phone || '-'}</td></tr>
+                    <tr><td style="padding: 5px 0;">Telepon</td><td>: ${formattedPhone}</td></tr>
                     <tr><td style="padding: 5px 0;">Time Limit</td><td style="color: #e03f7d; font-weight: bold;">: ${moment(b.time_limit).format('dddd, DD MMM YYYY HH:mm')} WIB</td></tr>
                 </table>
 
