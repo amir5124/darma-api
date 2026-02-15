@@ -31,18 +31,35 @@ const PaymentController = {
     try {
         const { booking_id, amount, customer_name, customer_phone, customer_email, method, bank_code } = req.body;
         
+        // 1. Array JSON untuk Mapping Kode Bank ke Nama Bank
+        const bankMap = {
+            "002": "BRI",
+            "008": "MANDIRI",
+            "009": "BNI",
+            "200": "BTN",
+            "014": "BCA",
+            "013": "PERMATA",
+            "022": "CIMB",
+            "441": "DANAMON",
+            "011": "DANAMON", // Beberapa provider menggunakan kode berbeda
+            "016": "MAYBANK",
+            "422": "BRI SYARIAH",
+            "451": "BSI (BANK SYARIAH INDONESIA)"
+        };
+
+        const bankName = bankMap[bank_code] || bank_code; // Fallback ke kode jika tidak ada di list
         const partner_reff = `PAY-${Date.now()}`;
         const expired = moment.tz('Asia/Jakarta').add(30, 'minutes').format('YYYYMMDDHHmmss');
         const url_callback = "https://darma.siappgo.id/api/callback";
 
         connection = await db.getConnection();
         
-        // A. Ambil Data Booking untuk keperluan Email
+        // A. Ambil Data Booking
         const [rows] = await connection.query("SELECT * FROM bookings WHERE id = ?", [booking_id]);
         if (rows.length === 0) {
             return res.status(404).json({ error: "Data booking tidak ditemukan" });
         }
-        const b = rows[0]; // Data booking dari DB
+        const b = rows[0];
 
         // B. Persiapan Payload LinkQu
         const commonData = {
@@ -55,12 +72,7 @@ const PaymentController = {
         };
 
         let endpoint = '';
-        let payloadLinkQu = { 
-            ...commonData, 
-            username: config.username, 
-            pin: config.pin, 
-            url_callback 
-        };
+        let payloadLinkQu = { ...commonData, username: config.username, pin: config.pin, url_callback };
 
         if (method === 'VA') {
             endpoint = '/transaction/create/va';
@@ -75,10 +87,7 @@ const PaymentController = {
 
         // C. Request ke LinkQu
         const resp = await axios.post(`${config.baseUrl}${endpoint}`, payloadLinkQu, {
-            headers: { 
-                'client-id': config.clientId, 
-                'client-secret': config.clientSecret 
-            }
+            headers: { 'client-id': config.clientId, 'client-secret': config.clientSecret }
         });
 
         const linkquData = resp.data;
@@ -87,33 +96,19 @@ const PaymentController = {
 
         // D. UPDATE DATABASE
         await connection.query(
-            `UPDATE bookings SET 
-                payment_reff = ?, 
-                payment_method = ?, 
-                va_number = ?, 
-                qris_url = ? 
-             WHERE id = ?`,
-            [
-                partner_reff, 
-                method === 'VA' ? `VA-${bank_code}` : 'QRIS', 
-                vaNumber, 
-                qrisImage, 
-                booking_id
-            ]
+            `UPDATE bookings SET payment_reff = ?, payment_method = ?, va_number = ?, qris_url = ? WHERE id = ?`,
+            [partner_reff, method === 'VA' ? `VA-${bankName}` : 'QRIS', vaNumber, qrisImage, booking_id]
         );
 
-        // E. LOGIKA PENGIRIMAN EMAIL (INSTRUKSI PEMBAYARAN)
+        // E. LOGIKA PENGIRIMAN EMAIL
         const subject = `[LinkU] Instruksi Pembayaran - ${b.booking_code}`;
         const formatIDR = (num) => new Intl.NumberFormat('id-ID').format(num);
         
-        // Parsing data penumpang dari raw_response
         let passengers = [];
         try { 
             const parsedResponse = JSON.parse(b.raw_response);
             passengers = parsedResponse.paxDetails || []; 
-        } catch(e) {
-            console.error("Gagal parse raw_response:", e.message);
-        }
+        } catch(e) { console.error("Parse error:", e); }
 
         const emailHtml = `
         <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; max-width: 700px; margin: auto; border: 1px solid #eee;">
@@ -141,7 +136,7 @@ const PaymentController = {
                 <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin: 15px 0;">
                     ${method === 'VA' ? `
                     <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">No. Rekening (VA)</td><td style="text-align:right; border-bottom: 1px solid #eee; font-weight:bold; font-size:16px;">${vaNumber}</td></tr>
-                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Bank</td><td style="text-align:right; border-bottom: 1px solid #eee;">${bank_code}</td></tr>
+                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Bank</td><td style="text-align:right; border-bottom: 1px solid #eee;">${bankName}</td></tr>
                     ` : `
                     <tr><td colspan="2" style="text-align:center; padding: 15px;">
                         <p>Scan QRIS berikut:</p>
@@ -149,7 +144,7 @@ const PaymentController = {
                     </td></tr>
                     `}
                     <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Harga Tiket</td><td style="text-align:right; border-bottom: 1px solid #eee;">Rp ${formatIDR(b.total_price)}</td></tr>
-                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Diskon</td><td style="text-align:right; border-bottom: 1px solid #eee;">Rp ${formatIDR(amount - b.total_price)}</td></tr>
+                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Biaya Layanan</td><td style="text-align:right; border-bottom: 1px solid #eee;">Rp ${formatIDR(amount - b.total_price)}</td></tr>
                     <tr style="color: #e03f7d; font-weight: bold; font-size: 16px;">
                         <td style="padding: 15px 0;">Nominal Pembayaran</td>
                         <td style="text-align:right; padding: 15px 0;">Rp ${formatIDR(amount)}</td>
@@ -169,15 +164,9 @@ const PaymentController = {
             </div>
         </div>`;
 
-        // Kirim Email (Async)
         sendBookingEmail(customer_email, subject, emailHtml).catch(e => console.error("Email Error:", e));
 
-        // F. Return Success ke Frontend
-        return res.json({ 
-            status: "Success", 
-            partner_reff, 
-            data: linkquData 
-        });
+        return res.json({ status: "Success", partner_reff, data: linkquData });
 
     } catch (err) {
         console.error("❌ Create Error:", err.response?.data || err.message);

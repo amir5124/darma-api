@@ -351,9 +351,13 @@ router.post('/create-booking', async (req, res) => {
     try {
         const token = await getConsistentToken();
         const { usernameFromFrontend, ...cleanBody } = req.body;
+        const fullPhone = cleanBody.contactRemainingPhoneNo 
+            ? `+${cleanBody.contactCountryCodePhone || '62'}${cleanBody.contactRemainingPhoneNo}`
+            : (cleanBody.contactPhone || cleanBody.customer_phone || '-');
 
         const payload = {
             ...cleanBody,
+            customer_phone: fullPhone,
             airlineAccessCode: cleanBody.airlineAccessCode || cleanBody.airlineID,
             userID: USER_CONFIG.userID,
             accessToken: token
@@ -441,7 +445,7 @@ router.post('/create-booking', async (req, res) => {
 
    <tr>
         <td style="padding: 5px 0;">Telepon</td>
-        <td>: ${payload.customer_phone || payload.contactPhone || '-'}</td>
+        <td>: ${payload.customer_phone || '-'}</td>
     </tr>
     <tr>
         <td style="padding: 5px 0;">Time Limit</td>
