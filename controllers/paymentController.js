@@ -82,7 +82,10 @@ createPayment: async (req, res) => {
         if (method === 'VA') {
             endpoint = '/transaction/create/va';
             payloadLinkQu.bank_code = bank_code; 
-            payloadLinkQu.signature = generateSignature(endpoint, 'POST', payloadLinkQu);
+            // Meniru persis logika signature kode yang berhasil
+            payloadLinkQu.signature = generateSignature(endpoint, 'POST', {
+                amount, expired, bank_code, partner_reff, customer_id: formattedPhone, customer_name, customer_email
+            });
         } else {
             endpoint = '/transaction/create/qris';
             payloadLinkQu.signature = generateSignature(endpoint, 'POST', commonData);
@@ -94,29 +97,13 @@ createPayment: async (req, res) => {
         });
 
         const linkquData = resp.data;
-        
-        // DEBUG: Aktifkan ini di console jika VA masih null untuk melihat struktur asli API
-        // console.log("LINKQU_DEBUG_RESP:", JSON.stringify(linkquData, null, 2));
 
-        // --- FIX VA NULL: Pengecekan Bertingkat Super Agresif ---
-        const vaNumber = linkquData.virtual_account || 
-                         linkquData.va_number || 
-                         linkquData.va_code || 
-                         linkquData.bill_no ||
-                         linkquData.data?.virtual_account || 
-                         linkquData.data?.va_number || 
-                         linkquData.data?.va_code || 
-                         linkquData.data?.bill_no ||
-                         null;
+        // --- POINT UTAMA: Meniru cara ambil VA dari kode yang berhasil ---
+        // LinkQu biasanya mengirimkan data langsung di root response
+        const vaNumber = linkquData.virtual_account || linkquData.va_number || (linkquData.data ? (linkquData.data.virtual_account || linkquData.data.va_number) : null);
+        const qrisImage = linkquData.imageqris || linkquData.qr_url || (linkquData.data ? linkquData.data.imageqris : null);
 
-        const qrisImage = linkquData.imageqris || 
-                          linkquData.qr_url || 
-                          linkquData.data?.imageqris || 
-                          linkquData.data?.qr_url || 
-                          linkquData.data?.qr_data ||
-                          null;
-
-        // D. UPDATE DATABASE (Memasukkan va_number & admin_fee ke kolom yang tepat)
+        // D. UPDATE DATABASE
         await connection.query(
             `UPDATE bookings SET 
                 pengguna = ?, 
@@ -126,15 +113,7 @@ createPayment: async (req, res) => {
                 qris_url = ?,
                 admin_fee = ?
              WHERE id = ?`,
-            [
-                customer_name, 
-                partner_reff, 
-                method === 'VA' ? `VA-${bankName}` : 'QRIS', 
-                vaNumber, 
-                qrisImage, 
-                feeAdmin, 
-                booking_id
-            ]
+            [customer_name, partner_reff, method === 'VA' ? `VA-${bankName}` : 'QRIS', vaNumber, qrisImage, feeAdmin, booking_id]
         );
 
         // E. LOGIKA PENGIRIMAN EMAIL
@@ -143,10 +122,9 @@ createPayment: async (req, res) => {
         
         let passengers = [];
         try { 
-            // FIX PARSE: Mencegah error "[object Object]"
             const raw = b.raw_response;
             const parsedResponse = (typeof raw === 'string') ? JSON.parse(raw) : raw;
-            passengers = (parsedResponse && parsedResponse.paxDetails) ? parsedResponse.paxDetails : []; 
+            passengers = parsedResponse.paxDetails || []; 
         } catch(e) { console.error("Parse error:", e); }
 
         const hargaAsli = Number(b.total_price || 0);
@@ -168,7 +146,7 @@ createPayment: async (req, res) => {
                 <div style="background: #24b3ae; color: white; padding: 8px 15px; font-weight: bold;">Rincian Pembayaran</div>
                 <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin: 15px 0;">
                     ${method === 'VA' ? `
-                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">No. Rekening (VA)</td><td style="text-align:right; border-bottom: 1px solid #eee; font-weight:bold; font-size:16px;">${vaNumber || 'Sedang diproses'}</td></tr>
+                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">No. Rekening (VA)</td><td style="text-align:right; border-bottom: 1px solid #eee; font-weight:bold; font-size:16px;">${vaNumber || 'Gagal generate VA'}</td></tr>
                     <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Bank</td><td style="text-align:right; border-bottom: 1px solid #eee;">${bankName}</td></tr>
                     ` : `
                     <tr><td colspan="2" style="text-align:center; padding: 15px;">
@@ -188,15 +166,13 @@ createPayment: async (req, res) => {
                 <div style="background: #fdfae2; padding: 10px; border: 1px solid #e6db55; font-size: 12px;">
                     <b>Data Perjalanan:</b> ${b.airline_name} | ${b.origin} → ${b.destination} | ${moment(b.depart_date).format('DD MMM YYYY')}
                 </div>
-
                 <p style="text-align:center; font-style: italic; color: #e03f7d; margin-top: 20px;">*Pastikan Anda transfer sesuai dengan nominal di atas agar tiket terbit otomatis!</p>
             </div>
         </div>`;
 
         sendBookingEmail(customer_email, subject, emailHtml).catch(e => console.error("Email Error:", e));
 
-        console.log(`✅ Payment Success: ${partner_reff} | VA: ${vaNumber} | Saved to DB`);
-        return res.json({ status: "Success", partner_reff, va_number: vaNumber, data: linkquData });
+        return res.json({ status: "Success", partner_reff, data: linkquData });
 
     } catch (err) {
         console.error("❌ Create Error:", err.response?.data || err.message);
