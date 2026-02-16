@@ -6,12 +6,14 @@ var moment = require('moment-timezone');
 
 var crypto = require('crypto');
 
-var https = require('https');
+var https = require('https'); // const BASE_URL = 'https://darmawisataindonesiah2h.co.id';
+// const USER_CONFIG = { userID: "S8MFEIKENB", password: "8MN2WM5VZT" };
 
-var BASE_URL = 'https://darmawisataindonesiah2h.co.id';
+
+var BASE_URL = 'https://uat-backup.darmawisataindonesiah2h.co.id:7080/h2h';
 var USER_CONFIG = {
-  userID: "S8MFEIKENB",
-  password: "8MN2WM5VZT"
+  userID: "CF0X64HBR8",
+  password: "Darmaj4y4"
 };
 var globalAccessToken = null;
 var agent = new https.Agent({
