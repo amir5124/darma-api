@@ -29,20 +29,12 @@ const PaymentController = {
 createPayment: async (req, res) => {
     let connection;
     try {
-        const { 
-            booking_id, 
-            amount, 
-            customer_name, 
-            customer_phone, 
-            customer_email, 
-            method, 
-            bank_code,
-            admin_fee_applied // Kita tangkap admin fee dari payload frontend
-        } = req.body;
-
-        const feeAdmin = Number(admin_fee_applied || 0);
+        // Tambahkan admin_fee_applied di sini
+        const { booking_id, amount, customer_name, customer_phone, customer_email, method, bank_code, admin_fee_applied } = req.body;
         
-        // 1. Logika Perbaikan Nomor Telepon
+        const feeAdmin = Number(admin_fee_applied || 0);
+
+        // 1. Logika Perbaikan Nomor Telepon (Konsisten +62)
         let formattedPhone = customer_phone ? customer_phone.toString().trim() : '';
         formattedPhone = formattedPhone.replace(/[^0-9+]/g, '');
 
@@ -56,7 +48,7 @@ createPayment: async (req, res) => {
             formattedPhone = '+62' + formattedPhone;
         }
 
-        // 2. Mapping Nama Bank
+        // 2. Array JSON untuk Mapping Kode Bank ke Nama Bank
         const bankMap = {
             "002": "BRI", "008": "MANDIRI", "009": "BNI", "200": "BTN", "014": "BCA",
             "013": "PERMATA", "022": "CIMB", "441": "DANAMON", "011": "DANAMON",
@@ -85,13 +77,15 @@ createPayment: async (req, res) => {
             customer_email
         };
 
-        let endpoint = method === 'VA' ? '/transaction/create/va' : '/transaction/create/qris';
+        let endpoint = '';
         let payloadLinkQu = { ...commonData, username: config.username, pin: config.pin, url_callback };
 
         if (method === 'VA') {
+            endpoint = '/transaction/create/va';
             payloadLinkQu.bank_code = bank_code; 
             payloadLinkQu.signature = generateSignature(endpoint, 'POST', payloadLinkQu);
         } else {
+            endpoint = '/transaction/create/qris';
             payloadLinkQu.signature = generateSignature(endpoint, 'POST', commonData);
         }
 
@@ -100,11 +94,12 @@ createPayment: async (req, res) => {
             headers: { 'client-id': config.clientId, 'client-secret': config.clientSecret }
         });
 
+        // PERBAIKAN: Ambil data dari resp.data (LinkQu response)
         const linkquData = resp.data;
-        const vaNumber = linkquData.virtual_account || linkquData.va_number || null;
-        const qrisImage = linkquData.imageqris || linkquData.qr_url || null;
+        const vaNumber = linkquData.data?.virtual_account || linkquData.virtual_account || linkquData.va_number || null;
+        const qrisImage = linkquData.data?.imageqris || linkquData.imageqris || linkquData.qr_url || null;
 
-        // D. UPDATE DATABASE (Termasuk logging admin fee)
+        // D. UPDATE DATABASE (Logging Admin Fee di sini)
         await connection.query(
             `UPDATE bookings SET 
                 pengguna = ?, 
@@ -112,73 +107,70 @@ createPayment: async (req, res) => {
                 payment_method = ?, 
                 va_number = ?, 
                 qris_url = ?,
-                admin_fee = ? 
+                admin_fee = ?
              WHERE id = ?`,
-            [
-                customer_name, 
-                partner_reff, 
-                method === 'VA' ? `VA-${bankName}` : 'QRIS', 
-                vaNumber, 
-                qrisImage,
-                feeAdmin, // Log biaya admin ke DB
-                booking_id
-            ]
+            [customer_name, partner_reff, method === 'VA' ? `VA-${bankName}` : 'QRIS', vaNumber, qrisImage, feeAdmin, booking_id]
         );
 
         // E. LOGIKA PENGIRIMAN EMAIL
         const subject = `[LinkU] Instruksi Pembayaran - ${b.booking_code}`;
         const formatIDR = (num) => new Intl.NumberFormat('id-ID').format(num);
         
-        const originalPrice = Number(b.total_price || 0);
-        // Diskon murni = (Total Bayar - Fee Admin) - Harga Tiket Asli
-        const discountAmount = (amount - feeAdmin) - originalPrice;
-
         let passengers = [];
         try { 
-            const parsedResponse = JSON.parse(b.raw_response);
+            // FIX: Cek jika sudah objek tidak perlu di parse
+            const raw = b.raw_response;
+            const parsedResponse = (typeof raw === 'string') ? JSON.parse(raw) : raw;
             passengers = parsedResponse.paxDetails || []; 
         } catch(e) { console.error("Parse error:", e); }
 
+        // Hitung diskon murni (Selisih tanpa admin)
+        const hargaAsli = Number(b.total_price || 0);
+        const diskonMurni = (amount - feeAdmin) - hargaAsli;
+
         const emailHtml = `
         <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; max-width: 700px; margin: auto; border: 1px solid #eee;">
-            <div style="background-color: #24b3ae; padding: 10px; color: white; font-weight: bold; text-align: center; text-transform: uppercase;">Instruksi Pembayaran</div>
+            <div style="background-color: #24b3ae; padding: 10px; color: white; font-weight: bold;">Instruksi Pembayaran</div>
             <div style="padding: 20px;">
-                <p>Halo <b>${customer_name}</b>, silakan selesaikan pembayaran Anda sebelum waktu habis.</p>
-                
+                <p>Silakan lakukan pembayaran sesuai rincian di bawah ini untuk menerbitkan tiket Anda.</p>
                 <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 20px;">
                     <tr><td style="width: 30%; padding: 5px 0;">Kode Booking</td><td style="font-weight:bold;">: ${b.booking_code}</td></tr>
+                    <tr><td style="padding: 5px 0;">Nama Kontak</td><td>: ${customer_name}</td></tr>
+                    ${passengers.map((pax) => `<tr><td style="padding: 5px 0;">Nama Penumpang</td><td>: ${pax.title || ''} ${pax.firstName} ${pax.lastName}</td></tr>`).join('')}
+                    <tr><td style="padding: 5px 0;">Telepon</td><td>: ${formattedPhone}</td></tr>
                     <tr><td style="padding: 5px 0;">Time Limit</td><td style="color: #e03f7d; font-weight: bold;">: ${moment(b.time_limit).format('dddd, DD MMM YYYY HH:mm')} WIB</td></tr>
                 </table>
 
-                <div style="background: #f8f9fa; border: 1px solid #eee; padding: 15px; margin-bottom: 20px; text-align: center;">
-                    ${method === 'VA' ? `
-                        <p style="margin: 0; font-size: 12px; color: #666;">Transfer ke Virtual Account <b>${bankName}</b>:</p>
-                        <h2 style="margin: 10px 0; color: #24b3ae; letter-spacing: 2px;">${vaNumber}</h2>
-                    ` : `
-                        <p style="margin: 0 0 10px 0; font-size: 12px; color: #666;">Scan QRIS berikut untuk membayar:</p>
-                        <img src="${qrisImage}" style="max-width:200px; border:4px solid #333; padding: 5px; background: #white;" />
-                    `}
-                </div>
-
-                <div style="background: #24b3ae; color: white; padding: 8px 15px; font-weight: bold;">Rincian Harga</div>
+                <div style="background: #24b3ae; color: white; padding: 8px 15px; font-weight: bold;">Rincian Pembayaran</div>
                 <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin: 15px 0;">
-                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Harga Tiket</td><td style="text-align:right; border-bottom: 1px solid #eee;">Rp ${formatIDR(originalPrice)}</td></tr>
+                    ${method === 'VA' ? `
+                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">No. Rekening (VA)</td><td style="text-align:right; border-bottom: 1px solid #eee; font-weight:bold; font-size:16px;">${vaNumber}</td></tr>
+                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Bank</td><td style="text-align:right; border-bottom: 1px solid #eee;">${bankName}</td></tr>
+                    ` : `
+                    <tr><td colspan="2" style="text-align:center; padding: 15px;">
+                        <p>Scan QRIS berikut:</p>
+                        <img src="${qrisImage}" style="max-width:200px; border:1px solid #ddd;" />
+                    </td></tr>
+                    `}
+                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Harga Tiket</td><td style="text-align:right; border-bottom: 1px solid #eee;">Rp ${formatIDR(hargaAsli)}</td></tr>
                     
-                    ${discountAmount < 0 ? `
-                        <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee; color: green;">Diskon Komisi 50%</td><td style="text-align:right; border-bottom: 1px solid #eee; color: green;">- Rp ${formatIDR(Math.abs(discountAmount))}</td></tr>
+                    ${diskonMurni !== 0 ? `
+                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee; color: green;">Potongan Harga</td><td style="text-align:right; border-bottom: 1px solid #eee; color: green;">- Rp ${formatIDR(Math.abs(diskonMurni))}</td></tr>
                     ` : ''}
 
                     <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Biaya Admin ${method}</td><td style="text-align:right; border-bottom: 1px solid #eee;">+ Rp ${formatIDR(feeAdmin)}</td></tr>
                     
-                    <tr style="color: #e03f7d; font-weight: bold; font-size: 18px;">
-                        <td style="padding: 15px 0;">TOTAL BAYAR</td>
+                    <tr style="color: #e03f7d; font-weight: bold; font-size: 16px;">
+                        <td style="padding: 15px 0;">Total Pembayaran</td>
                         <td style="text-align:right; padding: 15px 0;">Rp ${formatIDR(amount)}</td>
                     </tr>
                 </table>
 
-                <div style="background: #eee; padding: 10px; font-size: 11px; text-align: center; color: #666;">
-                    <b>PENTING:</b> Mohon transfer tepat hingga digit terakhir agar tiket dapat terbit otomatis secara instan.
+                <div style="background: #fdfae2; padding: 10px; border: 1px solid #e6db55; font-size: 12px;">
+                    <b>Data Perjalanan:</b> ${b.airline_name} | ${b.origin} → ${b.destination} | ${moment(b.depart_date).format('DD MMM YYYY')}
                 </div>
+
+                <p style="text-align:center; font-style: italic; color: #e03f7d; margin-top: 20px;">*Pastikan Anda transfer sesuai dengan nominal di atas agar tiket terbit otomatis!</p>
             </div>
         </div>`;
 
