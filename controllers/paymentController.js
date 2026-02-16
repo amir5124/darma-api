@@ -29,7 +29,6 @@ const PaymentController = {
 createPayment: async (req, res) => {
     let connection;
     try {
-        // Tambahkan admin_fee_applied di sini
         const { booking_id, amount, customer_name, customer_phone, customer_email, method, bank_code, admin_fee_applied } = req.body;
         
         const feeAdmin = Number(admin_fee_applied || 0);
@@ -48,7 +47,7 @@ createPayment: async (req, res) => {
             formattedPhone = '+62' + formattedPhone;
         }
 
-        // 2. Array JSON untuk Mapping Kode Bank ke Nama Bank
+        // 2. Mapping Nama Bank
         const bankMap = {
             "002": "BRI", "008": "MANDIRI", "009": "BNI", "200": "BTN", "014": "BCA",
             "013": "PERMATA", "022": "CIMB", "441": "DANAMON", "011": "DANAMON",
@@ -94,12 +93,25 @@ createPayment: async (req, res) => {
             headers: { 'client-id': config.clientId, 'client-secret': config.clientSecret }
         });
 
-        // PERBAIKAN: Ambil data dari resp.data (LinkQu response)
         const linkquData = resp.data;
-        const vaNumber = linkquData.data?.virtual_account || linkquData.virtual_account || linkquData.va_number || null;
-        const qrisImage = linkquData.data?.imageqris || linkquData.imageqris || linkquData.qr_url || null;
 
-        // D. UPDATE DATABASE (Logging Admin Fee di sini)
+        // --- FIX VA NULL: Pengecekan Bertingkat (va_number, virtual_account, va_code, bill_no) ---
+        const vaNumber = linkquData.virtual_account || 
+                         linkquData.va_number || 
+                         linkquData.va_code || 
+                         linkquData.bill_no ||
+                         linkquData.data?.virtual_account || 
+                         linkquData.data?.va_number || 
+                         linkquData.data?.va_code || 
+                         null;
+
+        const qrisImage = linkquData.imageqris || 
+                          linkquData.qr_url || 
+                          linkquData.data?.imageqris || 
+                          linkquData.data?.qr_url || 
+                          null;
+
+        // D. UPDATE DATABASE
         await connection.query(
             `UPDATE bookings SET 
                 pengguna = ?, 
@@ -118,13 +130,12 @@ createPayment: async (req, res) => {
         
         let passengers = [];
         try { 
-            // FIX: Cek jika sudah objek tidak perlu di parse
+            // FIX PARSE: Mencegah error "[object Object]"
             const raw = b.raw_response;
             const parsedResponse = (typeof raw === 'string') ? JSON.parse(raw) : raw;
             passengers = parsedResponse.paxDetails || []; 
         } catch(e) { console.error("Parse error:", e); }
 
-        // Hitung diskon murni (Selisih tanpa admin)
         const hargaAsli = Number(b.total_price || 0);
         const diskonMurni = (amount - feeAdmin) - hargaAsli;
 
@@ -153,13 +164,8 @@ createPayment: async (req, res) => {
                     </td></tr>
                     `}
                     <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Harga Tiket</td><td style="text-align:right; border-bottom: 1px solid #eee;">Rp ${formatIDR(hargaAsli)}</td></tr>
-                    
-                    ${diskonMurni !== 0 ? `
-                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee; color: green;">Potongan Harga</td><td style="text-align:right; border-bottom: 1px solid #eee; color: green;">- Rp ${formatIDR(Math.abs(diskonMurni))}</td></tr>
-                    ` : ''}
-
+                    ${diskonMurni !== 0 ? `<tr><td style="padding: 8px 0; border-bottom: 1px solid #eee; color: green;">Potongan Harga</td><td style="text-align:right; border-bottom: 1px solid #eee; color: green;">- Rp ${formatIDR(Math.abs(diskonMurni))}</td></tr>` : ''}
                     <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Biaya Admin ${method}</td><td style="text-align:right; border-bottom: 1px solid #eee;">+ Rp ${formatIDR(feeAdmin)}</td></tr>
-                    
                     <tr style="color: #e03f7d; font-weight: bold; font-size: 16px;">
                         <td style="padding: 15px 0;">Total Pembayaran</td>
                         <td style="text-align:right; padding: 15px 0;">Rp ${formatIDR(amount)}</td>
@@ -176,7 +182,7 @@ createPayment: async (req, res) => {
 
         sendBookingEmail(customer_email, subject, emailHtml).catch(e => console.error("Email Error:", e));
 
-        console.log(`✅ Payment Created: ${partner_reff} | Total: ${amount} (Admin: ${feeAdmin})`);
+        console.log(`✅ Payment Created: ${partner_reff} | VA: ${vaNumber} | Admin: ${feeAdmin}`);
         return res.json({ status: "Success", partner_reff, data: linkquData });
 
     } catch (err) {
