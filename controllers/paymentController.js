@@ -4,14 +4,13 @@ const moment = require('moment-timezone');
 const db = require('../config/db'); 
 const { sendBookingEmail } = require('../utils/mailer'); 
 
-// KONFIGURASI SANDBOX
 const config = {
-    clientId: "testing",
-    clientSecret: "123",
-    username: "LI307GXIN",
-    pin: "2K2NPCBBNNTovgB",
-    serverKey: "LinkQu@2020",
-    baseUrl: 'https://gateway-dev.linkqu.id'
+    clientId: "5f5aa496-7e16-4ca1-9967-33c768dac6c7",
+    clientSecret: "TM1rVhfaFm5YJxKruHo0nWMWC",
+    username: "LI9019VKS",
+    pin: "5m6uYAScSxQtCmU",
+    serverKey: "QtwGEr997XDcmMb1Pq8S5X1N",
+    baseUrl: 'https://api.linkqu.id/linkqu-partner'
 };
 
 /**
@@ -34,7 +33,7 @@ createPayment: async (req, res) => {
         
         const feeAdmin = Number(admin_fee_applied || 0);
 
-        // 1. Logika Perbaikan Nomor Telepon
+        // 1. Logika Perbaikan Nomor Telepon (Konsisten +62)
         let formattedPhone = customer_phone ? customer_phone.toString().trim() : '';
         formattedPhone = formattedPhone.replace(/[^0-9+]/g, '');
 
@@ -83,6 +82,7 @@ createPayment: async (req, res) => {
         if (method === 'VA') {
             endpoint = '/transaction/create/va';
             payloadLinkQu.bank_code = bank_code; 
+            // Meniru persis logika signature kode yang berhasil
             payloadLinkQu.signature = generateSignature(endpoint, 'POST', {
                 amount, expired, bank_code, partner_reff, customer_id: formattedPhone, customer_name, customer_email
             });
@@ -98,16 +98,12 @@ createPayment: async (req, res) => {
 
         const linkquData = resp.data;
 
-        // --- PROTEKSI VA SANDBOX ---
-        const vaNumber = linkquData.virtual_account || 
-                         linkquData.va_number || 
-                         (linkquData.data ? (linkquData.data.virtual_account || linkquData.data.va_number || linkquData.data.payment_code) : null);
-        
-        const qrisImage = linkquData.imageqris || 
-                          linkquData.qr_url || 
-                          (linkquData.data ? (linkquData.data.imageqris || linkquData.data.qr_url) : null);
+        // --- POINT UTAMA: Meniru cara ambil VA dari kode yang berhasil ---
+        // LinkQu biasanya mengirimkan data langsung di root response
+        const vaNumber = linkquData.virtual_account || linkquData.va_number || (linkquData.data ? (linkquData.data.virtual_account || linkquData.data.va_number) : null);
+        const qrisImage = linkquData.imageqris || linkquData.qr_url || (linkquData.data ? linkquData.data.imageqris : null);
 
-        // D. UPDATE DATABASE (Update Nama Pengguna agar tidak "Guest" lagi)
+        // D. UPDATE DATABASE
         await connection.query(
             `UPDATE bookings SET 
                 pengguna = ?, 
@@ -120,20 +116,63 @@ createPayment: async (req, res) => {
             [customer_name, partner_reff, method === 'VA' ? `VA-${bankName}` : 'QRIS', vaNumber, qrisImage, feeAdmin, booking_id]
         );
 
-        // E. LOGIKA EMAIL (DINONAKTIFKAN UNTUK SANDBOX)
-        /* const subject = `[LinkU] Instruksi Pembayaran - ${b.booking_code}`;
-        // ... logika html email Anda ...
+        // E. LOGIKA PENGIRIMAN EMAIL
+        const subject = `[LinkU] Instruksi Pembayaran - ${b.booking_code}`;
+        const formatIDR = (num) => new Intl.NumberFormat('id-ID').format(num);
+        
+        let passengers = [];
+        try { 
+            const raw = b.raw_response;
+            const parsedResponse = (typeof raw === 'string') ? JSON.parse(raw) : raw;
+            passengers = parsedResponse.paxDetails || []; 
+        } catch(e) { console.error("Parse error:", e); }
+
+        const hargaAsli = Number(b.total_price || 0);
+        const diskonMurni = (amount - feeAdmin) - hargaAsli;
+
+        const emailHtml = `
+        <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; max-width: 700px; margin: auto; border: 1px solid #eee;">
+            <div style="background-color: #24b3ae; padding: 10px; color: white; font-weight: bold;">Instruksi Pembayaran</div>
+            <div style="padding: 20px;">
+                <p>Silakan lakukan pembayaran sesuai rincian di bawah ini untuk menerbitkan tiket Anda.</p>
+                <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 20px;">
+                    <tr><td style="width: 30%; padding: 5px 0;">Kode Booking</td><td style="font-weight:bold;">: ${b.booking_code}</td></tr>
+                    <tr><td style="padding: 5px 0;">Nama Kontak</td><td>: ${customer_name}</td></tr>
+                    ${passengers.map((pax) => `<tr><td style="padding: 5px 0;">Nama Penumpang</td><td>: ${pax.title || ''} ${pax.firstName} ${pax.lastName}</td></tr>`).join('')}
+                    <tr><td style="padding: 5px 0;">Telepon</td><td>: ${formattedPhone}</td></tr>
+                    <tr><td style="padding: 5px 0;">Time Limit</td><td style="color: #e03f7d; font-weight: bold;">: ${moment(b.time_limit).format('dddd, DD MMM YYYY HH:mm')} WIB</td></tr>
+                </table>
+
+                <div style="background: #24b3ae; color: white; padding: 8px 15px; font-weight: bold;">Rincian Pembayaran</div>
+                <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin: 15px 0;">
+                    ${method === 'VA' ? `
+                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">No. Rekening (VA)</td><td style="text-align:right; border-bottom: 1px solid #eee; font-weight:bold; font-size:16px;">${vaNumber || 'Gagal generate VA'}</td></tr>
+                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Bank</td><td style="text-align:right; border-bottom: 1px solid #eee;">${bankName}</td></tr>
+                    ` : `
+                    <tr><td colspan="2" style="text-align:center; padding: 15px;">
+                        <p>Scan QRIS berikut:</p>
+                        <img src="${qrisImage}" style="max-width:200px; border:1px solid #ddd;" />
+                    </td></tr>
+                    `}
+                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Harga Tiket</td><td style="text-align:right; border-bottom: 1px solid #eee;">Rp ${formatIDR(hargaAsli)}</td></tr>
+                    ${diskonMurni !== 0 ? `<tr><td style="padding: 8px 0; border-bottom: 1px solid #eee; color: green;">Potongan Harga</td><td style="text-align:right; border-bottom: 1px solid #eee; color: green;">- Rp ${formatIDR(Math.abs(diskonMurni))}</td></tr>` : ''}
+                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Biaya Admin ${method}</td><td style="text-align:right; border-bottom: 1px solid #eee;">+ Rp ${formatIDR(feeAdmin)}</td></tr>
+                    <tr style="color: #e03f7d; font-weight: bold; font-size: 16px;">
+                        <td style="padding: 15px 0;">Total Pembayaran</td>
+                        <td style="text-align:right; padding: 15px 0;">Rp ${formatIDR(amount)}</td>
+                    </tr>
+                </table>
+
+                <div style="background: #fdfae2; padding: 10px; border: 1px solid #e6db55; font-size: 12px;">
+                    <b>Data Perjalanan:</b> ${b.airline_name} | ${b.origin} → ${b.destination} | ${moment(b.depart_date).format('DD MMM YYYY')}
+                </div>
+                <p style="text-align:center; font-style: italic; color: #e03f7d; margin-top: 20px;">*Pastikan Anda transfer sesuai dengan nominal di atas agar tiket terbit otomatis!</p>
+            </div>
+        </div>`;
+
         sendBookingEmail(customer_email, subject, emailHtml).catch(e => console.error("Email Error:", e));
-        */
 
-        console.log(`✅ Payment Created (Sandbox): ${partner_reff} for ${customer_name}`);
-
-        return res.json({ 
-            status: "Success", 
-            partner_reff, 
-            va_number: vaNumber, 
-            data: linkquData 
-        });
+        return res.json({ status: "Success", partner_reff, data: linkquData });
 
     } catch (err) {
         console.error("❌ Create Error:", err.response?.data || err.message);
@@ -142,7 +181,6 @@ createPayment: async (req, res) => {
         if (connection) connection.release();
     }
 },
-
     // 2. CHECK PAYMENT STATUS
     checkStatus: async (req, res) => {
     try {
@@ -157,11 +195,25 @@ createPayment: async (req, res) => {
                 'client-id': config.clientId, 
                 'client-secret': config.clientSecret 
             },
-            validateStatus: (status) => status < 500
+            // TAMBAHKAN INI: Agar Axios tidak throw error jika status 4xx atau 5xx
+            validateStatus: function (status) {
+                return status < 500; // Hanya throw error jika benar-benar error server (500+)
+            }
         });
+
+        // Kirim data apa adanya ke frontend
         return res.json(resp.data);
+
     } catch (err) {
-        return res.status(200).json({ status: 'PENDING', respMessage: 'Menunggu pembayaran' });
+        // Jika terjadi error (misal timeout atau server LinkQu down)
+        console.error("❌ LinkQu Polling Error:", err.message);
+        
+        // JANGAN kirim 500 jika hanya data tidak ketemu
+        // Kirim status PENDING agar frontend tetap jalan
+        return res.status(200).json({ 
+            status: 'PENDING', 
+            respMessage: 'Sedang menunggu pembayaran atau data belum tersedia' 
+        });
     }
 },
 
@@ -170,6 +222,7 @@ createPayment: async (req, res) => {
         try {
             const { qr_url, reff } = req.query;
             const response = await axios({ url: qr_url, method: 'GET', responseType: 'stream' });
+            
             res.setHeader('Content-disposition', `attachment; filename=QRIS-${reff}.png`);
             res.setHeader('Content-type', 'image/png');
             return response.data.pipe(res);
@@ -178,15 +231,34 @@ createPayment: async (req, res) => {
         }
     },
 
-    // 4. CALLBACK HANDLER
+    // 4. CALLBACK HANDLER (SINKRONISASI STATUS LUNAS)
     handleCallback: async (req, res) => {
         try {
             const { partner_reff, status } = req.body;
+
             if (status === "SUCCESS") {
-                await db.query("UPDATE bookings SET ticket_status = 'TICKETED' WHERE payment_reff = ?", [partner_reff]);
-                console.log(`✅ LUNAS: Reff ${partner_reff}`);
+                // Cari booking berdasarkan payment_reff
+                const [rows] = await db.query(
+                    "SELECT id, booking_code, pengguna FROM bookings WHERE payment_reff = ?", 
+                    [partner_reff]
+                );
+
+                if (rows.length > 0) {
+                    const booking = rows[0];
+                    
+                    // Update status di database agar UI Frontend berubah
+                    await db.query(
+                        "UPDATE bookings SET ticket_status = 'TICKETED' WHERE id = ?",
+                        [booking.id]
+                    );
+
+                    console.log(`✅ LUNAS: Reff ${partner_reff} | Booking ${booking.booking_code} | User ${booking.pengguna}`);
+                }
             }
+            
+            // LinkQu mewajibkan balasan JSON/Text OK agar tidak retry
             return res.json({ message: "OK" });
+
         } catch (err) {
             console.error("Callback Error:", err.message);
             return res.status(500).send("Internal Server Error");
