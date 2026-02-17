@@ -5,20 +5,20 @@ const db = require('../config/db');
 const { sendBookingEmail } = require('../utils/mailer'); 
 
 const config = {
-    clientId: "5f5aa496-7e16-4ca1-9967-33c768dac6c7",
-    clientSecret: "TM1rVhfaFm5YJxKruHo0nWMWC",
-    username: "LI9019VKS",
-    pin: "5m6uYAScSxQtCmU",
-    serverKey: "QtwGEr997XDcmMb1Pq8S5X1N",
-    baseUrl: 'https://api.linkqu.id/linkqu-partner'
+    clientId: "testing",
+    clientSecret: "123",
+    username: "LI307GXIN",
+    pin: "2K2NPCBBNNTovgB",
+    serverKey: "LinkQu@2020",
+    baseUrl: 'https://gateway-dev.linkqu.id' // Perhatikan perubahan URL ini
 };
 
-/**
- * Helper untuk Signature Generator
- */
 function generateSignature(path, method, data) {
-    const rawValue = Object.values(data).join('') + config.clientId;
+    // Pastikan data yang masuk ke join tidak undefined
+    const values = Object.values(data).map(v => v === undefined ? "" : v);
+    const rawValue = values.join('') + config.clientId;
     const cleaned = rawValue.replace(/[^0-9a-zA-Z]/g, "").toLowerCase();
+    
     return crypto.createHmac("sha256", config.serverKey)
                  .update(path + method + cleaned)
                  .digest("hex");
