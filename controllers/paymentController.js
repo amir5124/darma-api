@@ -99,7 +99,6 @@ createPayment: async (req, res) => {
         const linkquData = resp.data;
 
         // --- PROTEKSI VA SANDBOX ---
-        // Pengecekan bertingkat: cek root, lalu cek properti 'data'
         const vaNumber = linkquData.virtual_account || 
                          linkquData.va_number || 
                          (linkquData.data ? (linkquData.data.virtual_account || linkquData.data.va_number || linkquData.data.payment_code) : null);
@@ -108,7 +107,7 @@ createPayment: async (req, res) => {
                           linkquData.qr_url || 
                           (linkquData.data ? (linkquData.data.imageqris || linkquData.data.qr_url) : null);
 
-        // D. UPDATE DATABASE
+        // D. UPDATE DATABASE (Update Nama Pengguna agar tidak "Guest" lagi)
         await connection.query(
             `UPDATE bookings SET 
                 pengguna = ?, 
@@ -121,50 +120,20 @@ createPayment: async (req, res) => {
             [customer_name, partner_reff, method === 'VA' ? `VA-${bankName}` : 'QRIS', vaNumber, qrisImage, feeAdmin, booking_id]
         );
 
-        // E. LOGIKA PENGIRIMAN EMAIL
-        const subject = `[LinkU] Instruksi Pembayaran - ${b.booking_code}`;
-        const formatIDR = (num) => new Intl.NumberFormat('id-ID').format(num);
-        
-        let passengers = [];
-        try { 
-            const raw = b.raw_response;
-            const parsedResponse = (typeof raw === 'string') ? JSON.parse(raw) : raw;
-            passengers = parsedResponse.paxDetails || []; 
-        } catch(e) { console.error("Parse error:", e); }
-
-        const hargaAsli = Number(b.total_price || 0);
-        const diskonMurni = (amount - feeAdmin) - hargaAsli;
-
-        const emailHtml = `
-        <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; max-width: 700px; margin: auto; border: 1px solid #eee;">
-            <div style="background-color: #24b3ae; padding: 10px; color: white; font-weight: bold;">Instruksi Pembayaran (SANDBOX)</div>
-            <div style="padding: 20px;">
-                <p>Silakan lakukan pembayaran sesuai rincian di bawah ini.</p>
-                <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 20px;">
-                    <tr><td style="width: 30%; padding: 5px 0;">Kode Booking</td><td style="font-weight:bold;">: ${b.booking_code}</td></tr>
-                    <tr><td style="padding: 5px 0;">Nama Kontak</td><td>: ${customer_name}</td></tr>
-                    ${passengers.map((pax) => `<tr><td style="padding: 5px 0;">Nama Penumpang</td><td>: ${pax.title || ''} ${pax.firstName} ${pax.lastName}</td></tr>`).join('')}
-                    <tr><td style="padding: 5px 0;">Telepon</td><td>: ${formattedPhone}</td></tr>
-                </table>
-
-                <div style="background: #24b3ae; color: white; padding: 8px 15px; font-weight: bold;">Rincian Pembayaran</div>
-                <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin: 15px 0;">
-                    ${method === 'VA' ? `
-                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">No. Rekening (VA)</td><td style="text-align:right; border-bottom: 1px solid #eee; font-weight:bold; font-size:16px;">${vaNumber || 'Menunggu VA...'}</td></tr>
-                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Bank</td><td style="text-align:right; border-bottom: 1px solid #eee;">${bankName}</td></tr>
-                    ` : `
-                    <tr><td colspan="2" style="text-align:center; padding: 15px;">
-                        <img src="${qrisImage}" style="max-width:200px; border:1px solid #ddd;" />
-                    </td></tr>
-                    `}
-                    <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Total Pembayaran</td><td style="text-align:right; border-bottom: 1px solid #eee; font-weight:bold;">Rp ${formatIDR(amount)}</td></tr>
-                </table>
-            </div>
-        </div>`;
-
+        // E. LOGIKA EMAIL (DINONAKTIFKAN UNTUK SANDBOX)
+        /* const subject = `[LinkU] Instruksi Pembayaran - ${b.booking_code}`;
+        // ... logika html email Anda ...
         sendBookingEmail(customer_email, subject, emailHtml).catch(e => console.error("Email Error:", e));
+        */
 
-        return res.json({ status: "Success", partner_reff, va_number: vaNumber, data: linkquData });
+        console.log(`✅ Payment Created (Sandbox): ${partner_reff} for ${customer_name}`);
+
+        return res.json({ 
+            status: "Success", 
+            partner_reff, 
+            va_number: vaNumber, 
+            data: linkquData 
+        });
 
     } catch (err) {
         console.error("❌ Create Error:", err.response?.data || err.message);
