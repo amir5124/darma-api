@@ -382,35 +382,37 @@ router.post('/create-booking', async (req, res) => {
             try {
                 console.log("💾 [STEP 3] Vendor SUCCESS. Saving to Database...");
 
-                const [resBooking] = await db.execute(
-                    `INSERT INTO bookings (
-                        booking_code, reference_no, airline_id, airline_name, 
-                        trip_type, origin, destination, origin_port, destination_port,
-                        depart_date, ticket_status, total_price, sales_price, time_limit, 
-                        user_id, pengguna, access_token, payload_request, raw_response
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                    [
-                        response.data.bookingCode,
-                        response.data.referenceNo,
-                        payload.airlineID,
-                        payload.airlineName || payload.airlineID,
-                        payload.tripType || "OneWay",
-                        payload.origin,
-                        payload.destination,
-                        response.data.origin || null,
-                        response.data.destination || null,
-                        payload.departDate ? payload.departDate.replace('T', ' ').replace('Z', '').split('.')[0] : null,
-                        response.data.ticketStatus || "HOLD",
-                        response.data.ticketPrice || 0,
-                        response.data.salesPrice || 0,
-                        response.data.timeLimit,
-                        response.data.userID,
-                        usernameFromFrontend || 'Guest',
-                        payload.accessToken,
-                        JSON.stringify(payload),
-                        JSON.stringify(response.data)
-                    ]
-                );
+               // Cari baris ini di route /create-booking:
+const [resBooking] = await db.execute(
+    `INSERT INTO bookings (
+        booking_code, reference_no, airline_id, airline_name, 
+        trip_type, origin, destination, origin_port, destination_port,
+        depart_date, ticket_status, total_price, sales_price, time_limit, 
+        user_id, pengguna, customer_email, access_token, payload_request, raw_response
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, // Tambahkan satu '?'
+    [
+        response.data.bookingCode,
+        response.data.referenceNo,
+        payload.airlineID,
+        payload.airlineName || payload.airlineID,
+        payload.tripType || "OneWay",
+        payload.origin,
+        payload.destination,
+        response.data.origin || null,
+        response.data.destination || null,
+        payload.departDate ? payload.departDate.replace('T', ' ').replace('Z', '').split('.')[0] : null,
+        response.data.ticketStatus || "HOLD",
+        response.data.ticketPrice || 0,
+        response.data.salesPrice || 0,
+        response.data.timeLimit,
+        response.data.userID,
+        usernameFromFrontend || 'Guest',
+        payload.contactEmail, // <--- MASUKKAN EMAIL DI SINI
+        payload.accessToken,
+        JSON.stringify(payload),
+        JSON.stringify(response.data)
+    ]
+);
 
                 const internalId = resBooking.insertId;
                 console.log(`✅ [STEP 4] Success! Booking ${response.data.bookingCode} saved.`);
@@ -592,16 +594,28 @@ router.post('/booking-detail', async (req, res) => {
 router.post('/issued-ticket', async (req, res) => {
     try {
         const token = await getConsistentToken();
-        const response = await axios.post(`${BASE_URL}/Airline/Issued`, { ...req.body, userID: USER_CONFIG.userID, accessToken: token }, { httpsAgent: agent });
+        const response = await axios.post(
+            `${BASE_URL}/Airline/Issued`, 
+            { ...req.body, userID: USER_CONFIG.userID, accessToken: token }, 
+            { httpsAgent: agent }
+        );
 
         if (response.data.status === "SUCCESS") {
             const bCode = req.body.bookingCode;
             
-            // 1. Update DB (Tanpa await agar cepat)
-            db.execute("UPDATE bookings SET ticket_status = 'Ticketed' WHERE booking_code = ?", [bCode]);
-
-            // 2. Jalankan pengiriman email di background (tanpa await)
-            sendTicketEmail(bCode);
+            // Update status dan kirim email
+            try {
+                await db.execute(
+                    "UPDATE bookings SET ticket_status = 'Ticketed' WHERE booking_code = ?", 
+                    [bCode]
+                );
+                
+                // Panggil pengiriman email (tanpa await agar user tidak menunggu lama)
+                sendTicketEmail(bCode).catch(e => console.error("Background Email Error:", e.message));
+                
+            } catch (dbErr) {
+                console.error("DB Update Error during Issued:", dbErr.message);
+            }
         }
 
         res.json(response.data);
@@ -1019,32 +1033,22 @@ async function generateTicketBuffer(bookingCode) {
 
 async function sendTicketEmail(bookingCode) {
     try {
-        // Ambil data email penumpang dari DB
-        const [rows] = await db.execute("SELECT customer_email FROM bookings WHERE booking_code = ?", [bookingCode]);
-        const userEmail = rows[0]?.customer_email;
-        if (!userEmail) return console.log("⚠️ No email found for", bookingCode);
+        // Ambil data dari kolom customer_email yang baru dibuat
+        const [rows] = await db.execute(
+            "SELECT customer_email, booking_code FROM bookings WHERE booking_code = ?", 
+            [bookingCode]
+        );
 
-        // Generate PDF Buffer menggunakan fungsi di atas
-        const pdfBuffer = await generateTicketBuffer(bookingCode);
-
-        const transporter = nodemailer.createTransport({
-            host: "smtp.linkutransport.id",
-            port: 465,
-            secure: true,
-            auth: { user: "tiket@linkutransport.id", pass: "PASSWORD_ANDA" }
-        });
-
-        await transporter.sendMail({
-            from: '"LinkU Transport" <tiket@linkutransport.id>',
-            to: userEmail,
-            subject: `E-Ticket LinkU - ${bookingCode}`,
-            html: `<h3>Pembayaran Berhasil!</h3><p>Terlampir adalah e-ticket untuk kode booking <b>${bookingCode}</b>. Pastikan Anda tiba di bandara 90 menit sebelum keberangkatan.</p>`,
-            attachments: [{ filename: `Ticket-${bookingCode}.pdf`, content: pdfBuffer }]
-        });
-
-        console.log("✅ Email sent to:", userEmail);
+        if (rows.length > 0 && rows[0].customer_email) {
+            const email = rows[0].customer_email;
+            const subject = `[LinkU] E-Ticket Berhasil Terbit - ${bookingCode}`;
+            const html = `<h1>Tiket Anda ${bookingCode} sudah terbit!</h1>...`; // Sesuai template Anda
+            
+            await sendBookingEmail(email, subject, html);
+            console.log(`📧 [SUCCESS] E-Ticket dikirim ke ${email}`);
+        }
     } catch (err) {
-        console.error("❌ Email failed:", err.message);
+        console.error("❌ Error di sendTicketEmail:", err.message);
     }
 }
 
