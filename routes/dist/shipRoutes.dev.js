@@ -6,6 +6,8 @@ var router = express.Router();
 
 var axios = require('axios');
 
+var shipController = require('../controllers/shipController');
+
 var _require = require('../helpers/darmaSandbox'),
     BASE_URL = _require.BASE_URL,
     USER_CONFIG = _require.USER_CONFIG,
@@ -468,4 +470,6 @@ router.post('/booking-detail', function _callee7(req, res) {
     }
   }, null, null, [[0, 14]]);
 });
+router.post('/save-booking', shipController.saveShipBooking);
+router.get('/history/:username', shipController.getShipHistory);
 module.exports = router;

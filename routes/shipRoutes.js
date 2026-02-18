@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
+const shipController = require('../controllers/shipController');
 const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('../helpers/darmaSandbox');
 
 /**
@@ -284,5 +285,9 @@ router.post('/booking-detail', async (req, res) => {
         });
     }
 });
+
+router.post('/save-booking', shipController.saveShipBooking);
+
+router.get('/history/:username', shipController.getShipHistory);
 
 module.exports = router;
