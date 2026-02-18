@@ -26,6 +26,8 @@ var historyRoutes = require('./routes/historyRoutes');
 
 var paymentRoutes = require('./routes/paymentRoutes');
 
+var shipPaymentRoutes = require('./routes/shipPaymentRoutes');
+
 var app = express();
 app.use(express.json());
 app.use(cors()); // 2. Daftarkan Routes (Tambahkan Train)
@@ -39,6 +41,7 @@ app.use('/api/train', trainRoutes); // <-- BARU (Akses via /api/train/schedule)
 
 app.use('/api/booking-history', historyRoutes);
 app.use('/api', paymentRoutes);
+app.use('/api/pay/ship', shipPaymentRoutes);
 var PORT = 3000;
 app.listen(PORT, function () {
   logger.success("=============================================");
