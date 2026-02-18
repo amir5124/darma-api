@@ -900,11 +900,25 @@ async function sendTicketEmail(bookingCode) {
         const subject = `[LinkU] E-Ticket Berhasil Terbit - ${bookingCode}`;
         
         // Body email sederhana (karena tiket utama ada di attachment PDF)
-        const emailBody = `
-            <h3>Tiket Anda ${bookingCode} sudah terbit!</h3>
-            <p>Terima kasih telah memesan melalui LinkU IKN. E-Tiket resmi Anda telah kami lampirkan pada email ini dalam format PDF.</p>
-            <p>Mohon simpan dan tunjukkan tiket tersebut saat keberangkatan.</p>
-        `;
+       const emailBody = `
+    <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
+        <h3>Tiket Anda <b>${bookingCode}</b> sudah terbit!</h3>
+        
+        <p>Terima kasih telah memesan melalui <b>LinkU</b> IKN. 
+        E-Tiket resmi Anda telah kami lampirkan pada email ini dalam format PDF.</p>
+        
+        <p>Mohon simpan dan tunjukkan tiket tersebut saat keberangkatan.</p>
+        
+        <p><b>LinkU</b>, satu aplikasi semua kebutuhan</p>
+
+        <div style="margin-top: 20px; border-top: 1px solid #eee; padding-top: 10px; font-size: 13px;">
+            <p style="margin: 2px 0;">WA : 081347423737</p>
+            <p style="margin: 2px 0;">Email : linkuikn@gmail.com</p>
+            <p style="margin: 2px 0;">IG : @linkuapps</p>
+            <p style="margin: 2px 0;">FB : Linku Nusantara</p>
+        </div>
+    </div>
+`;
 
         // Kirim email (Pastikan fungsi sendBookingEmail Anda mendukung attachment)
         await sendBookingEmail(email, subject, emailBody, [
