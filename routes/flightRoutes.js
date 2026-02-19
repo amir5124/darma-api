@@ -351,9 +351,13 @@ router.post('/get-seats', async (req, res) => {
 
 
 router.post('/create-booking', async (req, res) => {
+    // Menggunakan connection untuk mendukung Transaction agar data antar tabel sinkron
+    const connection = await db.getConnection(); 
+
     try {
         const token = await getConsistentToken();
         const { usernameFromFrontend, ...cleanBody } = req.body;
+        
         const fullPhone = cleanBody.contactRemainingPhoneNo 
             ? `+${cleanBody.contactCountryCodePhone || '62'}${cleanBody.contactRemainingPhoneNo}`
             : (cleanBody.contactPhone || cleanBody.customer_phone || '-');
@@ -382,40 +386,76 @@ router.post('/create-booking', async (req, res) => {
             try {
                 console.log("💾 [STEP 3] Vendor SUCCESS. Saving to Database...");
 
-               // Cari baris ini di route /create-booking:
-const [resBooking] = await db.execute(
-    `INSERT INTO bookings (
-        booking_code, reference_no, airline_id, airline_name, 
-        trip_type, origin, destination, origin_port, destination_port,
-        depart_date, ticket_status, total_price, sales_price, time_limit, 
-        user_id, pengguna, customer_email, access_token, payload_request, raw_response
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, // Tambahkan satu '?'
-    [
-        response.data.bookingCode,
-        response.data.referenceNo,
-        payload.airlineID,
-        payload.airlineName || payload.airlineID,
-        payload.tripType || "OneWay",
-        payload.origin,
-        payload.destination,
-        response.data.origin || null,
-        response.data.destination || null,
-        payload.departDate ? payload.departDate.replace('T', ' ').replace('Z', '').split('.')[0] : null,
-        response.data.ticketStatus || "HOLD",
-        response.data.ticketPrice || 0,
-        response.data.salesPrice || 0,
-        response.data.timeLimit,
-        response.data.userID,
-        usernameFromFrontend || 'Guest',
-        payload.contactEmail, // <--- MASUKKAN EMAIL DI SINI
-        payload.accessToken,
-        JSON.stringify(payload),
-        JSON.stringify(response.data)
-    ]
-);
+                // Mulai Transaksi Database agar ketiga tabel (bookings, itinerary, passengers) terisi semua
+                await connection.beginTransaction();
+
+                // --- A. INSERT KE TABEL bookings ---
+                const [resBooking] = await connection.execute(
+                    `INSERT INTO bookings (
+                        booking_code, reference_no, airline_id, airline_name, 
+                        trip_type, origin, destination, origin_port, destination_port,
+                        depart_date, ticket_status, total_price, sales_price, time_limit, 
+                        user_id, pengguna, customer_email, access_token, payload_request, raw_response
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [
+                        response.data.bookingCode,
+                        response.data.referenceNo,
+                        payload.airlineID,
+                        payload.airlineName || payload.airlineID,
+                        payload.tripType || "OneWay",
+                        payload.origin,
+                        payload.destination,
+                        response.data.origin || payload.origin_port || null,
+                        response.data.destination || payload.destination_port || null,
+                        payload.departDate ? payload.departDate.replace('T', ' ').replace('Z', '').split('.')[0] : null,
+                        response.data.ticketStatus || "HOLD",
+                        response.data.ticketPrice || 0,
+                        response.data.salesPrice || 0,
+                        response.data.timeLimit ? response.data.timeLimit.replace('T', ' ').substring(0, 19) : null,
+                        response.data.userID,
+                        usernameFromFrontend || 'Guest',
+                        payload.contactEmail,
+                        payload.accessToken,
+                        JSON.stringify(payload),
+                        JSON.stringify(response.data)
+                    ]
+                );
 
                 const internalId = resBooking.insertId;
-                console.log(`✅ [STEP 4] Success! Booking ${response.data.bookingCode} saved.`);
+
+                // --- B. INSERT KE TABEL flight_itinerary (Agar jam tidak muncul --:--) ---
+                const itineraryData = (payload.schDeparts && payload.schDeparts.length > 0) ? payload.schDeparts : [];
+                for (const f of itineraryData) {
+                    await connection.execute(
+                        `INSERT INTO flight_itinerary (
+                            booking_id, category, flight_number, origin, 
+                            destination, depart_time, arrival_time, flight_class, pengguna
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        [
+                            internalId, 'Departure', f.flightNumber, f.schOrigin, f.schDestination,
+                            f.schDepartTime ? f.schDepartTime.replace('T', ' ').substring(0, 19) : null,
+                            f.schArrivalTime ? f.schArrivalTime.replace('T', ' ').substring(0, 19) : null,
+                            f.flightClass, usernameFromFrontend || 'Guest'
+                        ]
+                    );
+                }
+
+                // --- C. INSERT KE TABEL passengers (Agar nama muncul di riwayat) ---
+                const passengers = payload.paxDetails || [];
+                for (const p of passengers) {
+                    await connection.execute(
+                        `INSERT INTO passengers (booking_id, title, first_name, last_name, pax_type, id_number, birth_date, pengguna) 
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                        [
+                            internalId, p.title, p.firstName, p.lastName, 
+                            p.type === 0 ? 'Adult' : 'Child', p.IDNumber || '', p.birthDate || null, usernameFromFrontend || 'Guest'
+                        ]
+                    );
+                }
+
+                // Commit Transaksi
+                await connection.commit();
+                console.log(`✅ [STEP 4] Success! Booking ${response.data.bookingCode} saved with details.`);
 
                 // ======================================================
                 // --- LOGIKA PENGIRIMAN EMAIL (FORMAT SESUAI GAMBAR) ---
@@ -424,7 +464,6 @@ const [resBooking] = await db.execute(
                 if (customerEmail) {
                     const subject = `[LinkU] Konfirmasi Pemesanan Tiket - ${response.data.bookingCode}`;
 
-                    // Format Tanggal untuk Tampilan Email
                     const nowLabel = moment().tz('Asia/Jakarta').format('dddd, DD MMMM YYYY HH:mm') + ' WIB';
                     const timeLimitLabel = moment(response.data.timeLimit).format('dddd, DD MMMM YYYY HH:mm') + ' WIB';
 
@@ -435,32 +474,15 @@ const [resBooking] = await db.execute(
                             <p>Anda mempunyai pemesanan tiket pesawat, segera lakukan konfirmasi pesanan berikut.</p>
                             <p style="font-size: 13px; color: #666;">Detail data informasi pemesanan yang telah dilakukan,</p>
                             
-                           <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 20px;">
-    <tr>
-        <td style="width: 30%; padding: 5px 0;">Tanggal Booking</td>
-        <td>: ${nowLabel}</td>
-    </tr>
-    
-    ${(payload.paxDetails || []).map((pax) => `
-    <tr>
-        <td style="width: 30%; padding: 5px 0;">Nama</td>
-        <td style="padding: 5px 0;">: ${pax.firstName} ${pax.lastName}</td>
-    </tr>
-    `).join('')}
-
-   <tr>
-        <td style="padding: 5px 0;">Telepon</td>
-        <td>: ${payload.customer_phone || '-'}</td>
-    </tr>
-    <tr>
-        <td style="padding: 5px 0;">Time Limit</td>
-        <td style="color: #e03f7d; font-weight: bold;">: ${timeLimitLabel}</td>
-    </tr>
-    <tr>
-        <td style="padding: 5px 0;">Status Pesanan</td>
-        <td>: <span style="background: #e03f7d; color: white; padding: 2px 8px; font-size: 12px; border-radius: 3px;">Menunggu Pembayaran</span></td>
-    </tr>
-</table>
+                            <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 20px;">
+                                <tr><td style="width: 30%; padding: 5px 0;">Tanggal Booking</td><td>: ${nowLabel}</td></tr>
+                                ${(payload.paxDetails || []).map((pax) => `
+                                <tr><td style="width: 30%; padding: 5px 0;">Nama</td><td style="padding: 5px 0;">: ${pax.firstName} ${pax.lastName}</td></tr>
+                                `).join('')}
+                                <tr><td style="padding: 5px 0;">Telepon</td><td>: ${payload.customer_phone || '-'}</td></tr>
+                                <tr><td style="padding: 5px 0;">Time Limit</td><td style="color: #e03f7d; font-weight: bold;">: ${timeLimitLabel}</td></tr>
+                                <tr><td style="padding: 5px 0;">Status Pesanan</td><td>: <span style="background: #e03f7d; color: white; padding: 2px 8px; font-size: 12px; border-radius: 3px;">Menunggu Pembayaran</span></td></tr>
+                            </table>
 
                             <div style="background: #24b3ae; color: white; padding: 8px 15px; font-weight: bold;">Data Perjalanan</div>
                             <div style="background: #c8d992; padding: 8px 15px; font-size: 13px; display: flex; justify-content: space-between;">
@@ -480,7 +502,7 @@ const [resBooking] = await db.execute(
                                     <tr>
                                         <td style="padding: 15px 10px;">
                                             <b style="color: #24b3ae;">${payload.airlineName || payload.airlineID}</b><br>
-                                            <small>${payload.flightNo || ''}</small>
+                                            <small>${itineraryData[0]?.flightNumber || ''}</small>
                                         </td>
                                         <td style="padding: 15px 10px;">
                                             <b>${moment(payload.departDate).format('DD MMM 2026 HH:mm')}</b><br>
@@ -517,26 +539,20 @@ const [resBooking] = await db.execute(
 
                             <div style="margin-top: 30px; text-align: center;">
                                 <p style="font-size: 14px;">Segera lakukan pembayaran sebelum batas waktu berakhir untuk menerbitkan tiket.</p>
-                               
                             </div>
                         </div>
                     </div>`;
 
-                    // Kirim email tanpa await agar API response tetap cepat
                     sendBookingEmail(customerEmail, subject, emailHtml)
                         .then(() => console.log(`📧 [LOG EMAIL] Berhasil dikirim ke: ${customerEmail}`))
                         .catch(err => console.error(`❌ [LOG EMAIL] Gagal:`, err.message));
                 }
-                // ======================================================
 
-                const finalResponse = {
-                    ...response.data,
-                    id: internalId
-                };
-
+                const finalResponse = { ...response.data, id: internalId };
                 return res.json(finalResponse);
 
             } catch (dbError) {
+                if (connection) await connection.rollback();
                 console.error("❌ DB ERROR:", dbError.message);
                 return res.json(response.data);
             }
@@ -548,6 +564,8 @@ const [resBooking] = await db.execute(
     } catch (error) {
         console.error("❌ FATAL ERROR:", error.message);
         res.status(500).json({ status: "FAILED", respMessage: error.message });
+    } finally {
+        if (connection) connection.release();
     }
 });
 // 8. BOOKING DETAIL + AUTO SYNC PRICE
