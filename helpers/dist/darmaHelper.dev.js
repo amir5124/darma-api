@@ -6,15 +6,15 @@ var moment = require('moment-timezone');
 
 var crypto = require('crypto');
 
-var https = require('https'); // const BASE_URL = 'https://darmawisataindonesiah2h.co.id';
-// const USER_CONFIG = { userID: "S8MFEIKENB", password: "8MN2WM5VZT" };
+var https = require('https');
 
-
-var BASE_URL = 'https://uat-backup.darmawisataindonesiah2h.co.id:7080/h2h';
+var BASE_URL = 'https://darmawisataindonesiah2h.co.id';
 var USER_CONFIG = {
-  userID: "CF0X64HBR8",
-  password: "Darmaj4y4"
-};
+  userID: "S8MFEIKENB",
+  password: "8MN2WM5VZT"
+}; // const BASE_URL = 'https://uat-backup.darmawisataindonesiah2h.co.id:7080/h2h';
+// const USER_CONFIG = { userID: "CF0X64HBR8", password: "Darmaj4y4" };
+
 var globalAccessToken = null;
 var agent = new https.Agent({
   rejectUnauthorized: false,
