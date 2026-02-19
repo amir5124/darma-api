@@ -128,7 +128,7 @@ const ShipPaymentController = {
 
             const emailHtml = `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #ddd; border-radius: 10px; overflow: hidden;">
-                <div style="background: #0054a6; color: white; padding: 20px; text-align: center;">
+                <div style="background: #24B3AE; color: white; padding: 20px; text-align: center;">
                     <h2 style="margin:0;">INSTRUKSI PEMBAYARAN</h2>
                 </div>
                 <div style="padding: 20px; background: #ffffff;">
@@ -141,17 +141,17 @@ const ShipPaymentController = {
                     </table>
 
                     <div style="margin-bottom: 20px; padding: 10px; border: 1px solid #eee; border-radius: 8px;">
-                        <strong style="color: #0054a6; display: block; margin-bottom: 5px; border-bottom: 2px solid #0054a6; width: fit-content;">Detail Penumpang & Kursi</strong>
+                        <strong style="color: #24B3AE; display: block; margin-bottom: 5px; border-bottom: 2px solid #24B3AE; width: fit-content;">Detail Penumpang & Kursi</strong>
                         ${daftarPenumpangHtml}
                     </div>
 
-                    <div style="text-align: center; margin-top: 20px; padding: 25px; border: 2px dashed #0054a6; border-radius: 10px; background: #fffcf2;">
+                    <div style="text-align: center; margin-top: 20px; padding: 25px; border: 2px dashed #24B3AE; border-radius: 10px; background: #fffcf2;">
                         <span style="font-size: 14px; color: #666;">Total yang harus dibayar:</span><br>
                         <strong style="font-size: 28px; color: #e03f7d;">Rp ${formatIDR(amount)}</strong><br><br>
                         
                         ${method === 'VA' ? `
                             <p style="margin-bottom:5px;">Virtual Account <b>${bankName}</b>:</p>
-                            <h1 style="letter-spacing: 2px; color: #0054a6; margin: 10px 0; font-size: 32px;">${vaNumber}</h1>
+                            <h1 style="letter-spacing: 2px; color: #24B3AE; margin: 10px 0; font-size: 32px;">${vaNumber}</h1>
                         ` : `
                             <p style="margin-bottom:10px;">Silakan scan QRIS di bawah ini:</p>
                             <img src="${qrisImage}" style="width: 250px; border: 1px solid #ddd;" />
