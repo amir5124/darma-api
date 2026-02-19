@@ -185,36 +185,38 @@ const ShipPaymentController = {
 },
 
 checkShipStatus: async (req, res) => {
-    const { reff } = req.params; // payment_reff (contoh: SHIP-PAY-1771467...)
+    const { reff } = req.params; 
     
     try {
-        // 1. CEK DATABASE LOKAL DULU (Optimasi Kecepatan)
+        // 1. CEK DATABASE LOKAL
         const [rows] = await db.query(
             "SELECT id, num_code, payment_status, ticket_status, booking_code FROM bookings_pelni WHERE payment_reff = ?", 
             [reff]
         );
 
-        if (rows.length > 0) {
-            const b = rows[0];
-            // Jika database sudah diupdate oleh Callback LinkQu menjadi SUCCESS
-            if (b.payment_status === 'SUCCESS' || b.ticket_status === 'ISSUED') {
-                console.log(`✅ [POLLING DB] Reff ${reff} terdeteksi LUNAS di Database.`);
-                return res.json({ 
-                    status: 'SUCCESS', 
-                    payment_status: 'SUCCESS',
-                    numCode: b.num_code,
-                    bookingCode: b.booking_code 
-                });
-            }
-        } else {
+        if (rows.length === 0) {
             return res.status(404).json({ error: "Data transaksi tidak ditemukan." });
         }
 
-        // 2. JIKA DI DB MASIH PENDING, TANYA KE API LINKQU (Verifikasi Vendor)
-        console.log(`🔍 [POLLING VENDOR] Memeriksa status LinkQu untuk Reff: ${reff}`);
+        const b = rows[0];
+        // Normalize status ke UpperCase untuk perbandingan aman
+        const currentPaymentStatus = (b.payment_status || '').toUpperCase();
+
+        if (currentPaymentStatus === 'SUCCESS' || b.ticket_status === 'ISSUED') {
+            console.log(`✅ [POLLING DB] Reff ${reff} sudah LUNAS.`);
+            return res.json({ 
+                status: 'SUCCESS', 
+                payment_status: 'SUCCESS',
+                numCode: b.num_code,
+                bookingCode: b.booking_code 
+            });
+        }
+
+        // 2. TANYA KE API LINKQU
+        console.log(`🔍 [POLLING VENDOR] Memeriksa LinkQu untuk Reff: ${reff}`);
         const resp = await axios.get(`${config.baseUrl}/transaction/check-status`, {
             params: { 
-                partner_reff: reff, 
+                partner_reff: reff, // Pastikan apakah partner_reff atau partner_ref
                 username: config.username, 
                 pin: config.pin 
             },
@@ -225,13 +227,14 @@ checkShipStatus: async (req, res) => {
             validateStatus: (status) => status < 500
         });
 
-        // LinkQu biasanya mengembalikan 'SUCCESS' atau 'SETTLED' jika lunas
-        const statusFromServer = resp.data.status;
+        // Ambil status dan ubah ke UpperCase agar tidak miss
+        const statusFromServer = (resp.data.status || '').toUpperCase();
+        console.log(`ℹ️ [VENDOR RESPONSE] Status Reff ${reff}: ${statusFromServer}`);
 
         if (statusFromServer === 'SUCCESS' || statusFromServer === 'SETTLED') {
-            console.log(`✅ [POLLING VENDOR SUCCESS] Transaksi ${reff} lunas via LinkQu.`);
+            console.log(`✅ [POLLING VENDOR SUCCESS] Transaksi ${reff} lunas.`);
             
-            // Backup Update: Jika LinkQu bilang sukses tapi DB kita belum (callback delay)
+            // Update database: Pastikan payment_status jadi SUCCESS
             await db.query(
                 "UPDATE bookings_pelni SET payment_status = 'SUCCESS' WHERE payment_reff = ?", 
                 [reff]
@@ -240,21 +243,20 @@ checkShipStatus: async (req, res) => {
             return res.json({ 
                 status: 'SUCCESS', 
                 payment_status: 'SUCCESS',
-                numCode: rows[0].num_code,
+                numCode: b.num_code,
+                bookingCode: b.booking_code, // Ambil dari baris database awal
                 data: resp.data 
             });
         } 
 
-        // 3. JIKA MASIH PENDING ATAU FAILED
-        console.log(`⏳ [POLLING PENDING] Transaksi ${reff} masih menunggu pembayaran.`);
+        // 3. JIKA MASIH PENDING
         return res.json({
-            status: statusFromServer || 'PENDING',
-            payment_status: statusFromServer || 'PENDING'
+            status: 'PENDING',
+            payment_status: 'PENDING'
         });
 
     } catch (err) {
         console.error(`❌ [POLLING ERROR] ${reff}:`, err.message);
-        // Tetap kembalikan status PENDING agar polling di frontend tidak berhenti karena error teknis
         return res.json({ status: 'PENDING' });
     }
 },
