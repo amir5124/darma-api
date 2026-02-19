@@ -18,8 +18,16 @@ exports.saveShipBooking = async (req, res) => {
     try {
         await connection.beginTransaction();
 
-        // 1. Insert ke Tabel Utama (bookings_pelni)
-        // Menggunakan struktur yang mirip dengan tabel pesawat Anda
+        /**
+         * 1. Helper untuk merapikan format DateTime ISO ke MySQL format (YYYY-MM-DD HH:mm:ss)
+         * Menghindari error jika ada milidetik atau karakter 'T'
+         */
+        const formatMySQLDateTime = (dateStr) => {
+            if (!dateStr) return null;
+            return dateStr.replace('T', ' ').substring(0, 19);
+        };
+
+        // 2. Insert ke Tabel Utama (bookings_pelni)
         const [resBooking] = await connection.execute(
             `INSERT INTO bookings_pelni (
                 booking_code, num_code, ship_number, ship_name,
@@ -30,73 +38,79 @@ exports.saveShipBooking = async (req, res) => {
                 payload_request, raw_response
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
-                response.bokingNumber || response.bookingNumber || response.pnr || response.bookingCode || null,
-                response.numCode || payload.numCode,
-                response.shipNumber || payload.shipNumber,
+                response.bookingNumber || response.bokingNumber || response.pnr || null,
+                response.numCode || payload.numCode || null,
+                response.shipNumber || payload.shipNumber || null,
                 response.shipName || "KM. PELNI",
-                response.originPort || payload.originPort,
+                response.originPort || payload.originPort || null,
                 response.originName || null,
-                response.destinationPort || payload.destinationPort,
+                response.destinationPort || payload.destinationPort || null,
                 response.destinationName || null,
-                response.departDateTime ? response.departDateTime.replace('T', ' ') : null,
-                response.arrivalDateTime ? response.arrivalDateTime.replace('T', ' ') : null,
+                formatMySQLDateTime(response.departDate), 
+                formatMySQLDateTime(response.arrivalDate),
                 response.ticketStatus || "HOLD",
-                response.ticketPrice || payload.totalPrice, // total_price
+                response.ticketPrice || 0, 
                 response.salesPrice || 0,
-                payload.adminFee || 0, // Admin Fee aplikasi/LinkQu
-                response.issuedDateTimeLimit || response.timeLimit,
-                response.userID || payload.userID,
+                payload.adminFee || 0, 
+                formatMySQLDateTime(response.issuedDateTimeLimit || response.timeLimit),
+                response.userID || payload.userID || null,
                 username || 'Guest',
                 payload.ticketBuyerEmail || null,
-                JSON.stringify(payload),
-                JSON.stringify(response)
+                JSON.stringify(payload) || null,
+                JSON.stringify(response) || null
             ]
         );
 
         const bookingId = resBooking.insertId;
 
-        // 2. Simpan Data Penumpang ke booking_passengers_pelni
-        const paxs = response.paxBookingDetails || payload.paxDetails;
-        if (paxs && paxs.length > 0) {
-            for (const p of paxs) {
-                await connection.execute(
-                    `INSERT INTO booking_passengers_pelni (
-                        booking_id, pax_name, pax_type, pax_gender, 
-                        birth_date, id_number, phone, 
-                        deck, cabin, bed
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                    [
-                        bookingId,
-                        (p.paxName || `${p.firstName} ${p.lastName}`).toUpperCase(),
-                        p.paxType || 'Adult',
-                        p.paxGender || 'M',
-                        p.birthDate ? p.birthDate.split('T')[0] : null,
-                        p.ID || p.id_number,
-                        p.phone || '',
-                        p.deck || '-',
-                        p.cabin || '-',
-                        p.bed || '-'
-                    ]
-                );
+        // 3. Simpan Data Penumpang ke booking_passengers_pelni
+        // Mengutamakan data dari response (paxBookingDetails) lalu fallback ke payload
+        const paxs = response.paxBookingDetails || payload.paxDetails || [];
+        
+        for (const p of paxs) {
+            // Logika Nama: Gabung firstName & lastName jika paxName tidak ada
+            let fullName = p.paxName;
+            if (!fullName && p.firstName) {
+                fullName = `${p.firstName} ${p.lastName || ''}`.trim();
             }
+
+            await connection.execute(
+                `INSERT INTO booking_passengers_pelni (
+                    booking_id, pax_name, pax_type, pax_gender, 
+                    birth_date, id_number, phone, 
+                    deck, cabin, bed
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    bookingId,
+                    (fullName || 'NONAME').toUpperCase(),
+                    p.paxType || 'Adult',
+                    p.paxGender || 'M',
+                    p.birthDate ? p.birthDate.split('T')[0] : null,
+                    p.ID || p.id_number || null, // Penting: Hindari undefined
+                    p.phone || '',
+                    p.deck || '-',
+                    p.cabin || '-',
+                    p.bed || '-'
+                ]
+            );
         }
 
         await connection.commit();
         
-        // Logika kirim email instruksi pembayaran
-        // sendShipBookingEmail(bookingId); 
-
         res.status(200).json({ 
             status: "SUCCESS", 
             id: bookingId, 
-            bookingCode: response.bokingNumber,
+            bookingCode: response.bookingNumber || response.bokingNumber,
             message: "Booking PELNI berhasil disimpan." 
         });
 
     } catch (error) {
         if (connection) await connection.rollback();
         console.error("❌ Database PELNI Error:", error.message);
-        res.status(500).json({ status: "ERROR", message: error.message });
+        res.status(500).json({ 
+            status: "ERROR", 
+            message: "Database Error: " + error.message 
+        });
     } finally {
         if (connection) connection.release();
     }

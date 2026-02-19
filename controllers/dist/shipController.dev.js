@@ -18,7 +18,7 @@ var _require = require('../utils/mailer'),
 
 
 exports.saveShipBooking = function _callee(req, res) {
-  var _req$body, payload, response, username, connection, _ref, _ref2, resBooking, bookingId, paxs, _iteratorNormalCompletion, _didIteratorError, _iteratorError, _iterator, _step, p;
+  var _req$body, payload, response, username, connection, formatMySQLDateTime, _ref, _ref2, resBooking, bookingId, paxs, _iteratorNormalCompletion, _didIteratorError, _iteratorError, _iterator, _step, p, fullName;
 
   return regeneratorRuntime.async(function _callee$(_context) {
     while (1) {
@@ -47,24 +47,27 @@ exports.saveShipBooking = function _callee(req, res) {
           return regeneratorRuntime.awrap(connection.beginTransaction());
 
         case 9:
-          _context.next = 11;
-          return regeneratorRuntime.awrap(connection.execute("INSERT INTO bookings_pelni (\n                booking_code, num_code, ship_number, ship_name,\n                origin_port, origin_name, destination_port, destination_name,\n                depart_date, arrival_date, ticket_status,\n                total_price, sales_price, admin_fee, time_limit, \n                user_id, pengguna, customer_email, \n                payload_request, raw_response\n            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [response.bokingNumber || response.bookingNumber || response.pnr || response.bookingCode || null, response.numCode || payload.numCode, response.shipNumber || payload.shipNumber, response.shipName || "KM. PELNI", response.originPort || payload.originPort, response.originName || null, response.destinationPort || payload.destinationPort, response.destinationName || null, response.departDateTime ? response.departDateTime.replace('T', ' ') : null, response.arrivalDateTime ? response.arrivalDateTime.replace('T', ' ') : null, response.ticketStatus || "HOLD", response.ticketPrice || payload.totalPrice, // total_price
-          response.salesPrice || 0, payload.adminFee || 0, // Admin Fee aplikasi/LinkQu
-          response.issuedDateTimeLimit || response.timeLimit, response.userID || payload.userID, username || 'Guest', payload.ticketBuyerEmail || null, JSON.stringify(payload), JSON.stringify(response)]));
+          /**
+           * 1. Helper untuk merapikan format DateTime ISO ke MySQL format (YYYY-MM-DD HH:mm:ss)
+           * Menghindari error jika ada milidetik atau karakter 'T'
+           */
+          formatMySQLDateTime = function formatMySQLDateTime(dateStr) {
+            if (!dateStr) return null;
+            return dateStr.replace('T', ' ').substring(0, 19);
+          }; // 2. Insert ke Tabel Utama (bookings_pelni)
 
-        case 11:
+
+          _context.next = 12;
+          return regeneratorRuntime.awrap(connection.execute("INSERT INTO bookings_pelni (\n                booking_code, num_code, ship_number, ship_name,\n                origin_port, origin_name, destination_port, destination_name,\n                depart_date, arrival_date, ticket_status,\n                total_price, sales_price, admin_fee, time_limit, \n                user_id, pengguna, customer_email, \n                payload_request, raw_response\n            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [response.bookingNumber || response.bokingNumber || response.pnr || null, response.numCode || payload.numCode || null, response.shipNumber || payload.shipNumber || null, response.shipName || "KM. PELNI", response.originPort || payload.originPort || null, response.originName || null, response.destinationPort || payload.destinationPort || null, response.destinationName || null, formatMySQLDateTime(response.departDate), formatMySQLDateTime(response.arrivalDate), response.ticketStatus || "HOLD", response.ticketPrice || 0, response.salesPrice || 0, payload.adminFee || 0, formatMySQLDateTime(response.issuedDateTimeLimit || response.timeLimit), response.userID || payload.userID || null, username || 'Guest', payload.ticketBuyerEmail || null, JSON.stringify(payload) || null, JSON.stringify(response) || null]));
+
+        case 12:
           _ref = _context.sent;
           _ref2 = _slicedToArray(_ref, 1);
           resBooking = _ref2[0];
-          bookingId = resBooking.insertId; // 2. Simpan Data Penumpang ke booking_passengers_pelni
+          bookingId = resBooking.insertId; // 3. Simpan Data Penumpang ke booking_passengers_pelni
+          // Mengutamakan data dari response (paxBookingDetails) lalu fallback ke payload
 
-          paxs = response.paxBookingDetails || payload.paxDetails;
-
-          if (!(paxs && paxs.length > 0)) {
-            _context.next = 43;
-            break;
-          }
-
+          paxs = response.paxBookingDetails || payload.paxDetails || [];
           _iteratorNormalCompletion = true;
           _didIteratorError = false;
           _iteratorError = undefined;
@@ -73,99 +76,105 @@ exports.saveShipBooking = function _callee(req, res) {
 
         case 22:
           if (_iteratorNormalCompletion = (_step = _iterator.next()).done) {
-            _context.next = 29;
+            _context.next = 31;
             break;
           }
 
           p = _step.value;
-          _context.next = 26;
-          return regeneratorRuntime.awrap(connection.execute("INSERT INTO booking_passengers_pelni (\n                        booking_id, pax_name, pax_type, pax_gender, \n                        birth_date, id_number, phone, \n                        deck, cabin, bed\n                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [bookingId, (p.paxName || "".concat(p.firstName, " ").concat(p.lastName)).toUpperCase(), p.paxType || 'Adult', p.paxGender || 'M', p.birthDate ? p.birthDate.split('T')[0] : null, p.ID || p.id_number, p.phone || '', p.deck || '-', p.cabin || '-', p.bed || '-']));
+          // Logika Nama: Gabung firstName & lastName jika paxName tidak ada
+          fullName = p.paxName;
 
-        case 26:
+          if (!fullName && p.firstName) {
+            fullName = "".concat(p.firstName, " ").concat(p.lastName || '').trim();
+          }
+
+          _context.next = 28;
+          return regeneratorRuntime.awrap(connection.execute("INSERT INTO booking_passengers_pelni (\n                    booking_id, pax_name, pax_type, pax_gender, \n                    birth_date, id_number, phone, \n                    deck, cabin, bed\n                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [bookingId, (fullName || 'NONAME').toUpperCase(), p.paxType || 'Adult', p.paxGender || 'M', p.birthDate ? p.birthDate.split('T')[0] : null, p.ID || p.id_number || null, // Penting: Hindari undefined
+          p.phone || '', p.deck || '-', p.cabin || '-', p.bed || '-']));
+
+        case 28:
           _iteratorNormalCompletion = true;
           _context.next = 22;
           break;
 
-        case 29:
-          _context.next = 35;
+        case 31:
+          _context.next = 37;
           break;
 
-        case 31:
-          _context.prev = 31;
+        case 33:
+          _context.prev = 33;
           _context.t0 = _context["catch"](20);
           _didIteratorError = true;
           _iteratorError = _context.t0;
 
-        case 35:
-          _context.prev = 35;
-          _context.prev = 36;
+        case 37:
+          _context.prev = 37;
+          _context.prev = 38;
 
           if (!_iteratorNormalCompletion && _iterator["return"] != null) {
             _iterator["return"]();
           }
 
-        case 38:
-          _context.prev = 38;
+        case 40:
+          _context.prev = 40;
 
           if (!_didIteratorError) {
-            _context.next = 41;
+            _context.next = 43;
             break;
           }
 
           throw _iteratorError;
 
-        case 41:
-          return _context.finish(38);
-
-        case 42:
-          return _context.finish(35);
-
         case 43:
-          _context.next = 45;
-          return regeneratorRuntime.awrap(connection.commit());
+          return _context.finish(40);
+
+        case 44:
+          return _context.finish(37);
 
         case 45:
-          // Logika kirim email instruksi pembayaran
-          // sendShipBookingEmail(bookingId); 
+          _context.next = 47;
+          return regeneratorRuntime.awrap(connection.commit());
+
+        case 47:
           res.status(200).json({
             status: "SUCCESS",
             id: bookingId,
-            bookingCode: response.bokingNumber,
+            bookingCode: response.bookingNumber || response.bokingNumber,
             message: "Booking PELNI berhasil disimpan."
           });
-          _context.next = 55;
+          _context.next = 57;
           break;
 
-        case 48:
-          _context.prev = 48;
+        case 50:
+          _context.prev = 50;
           _context.t1 = _context["catch"](6);
 
           if (!connection) {
-            _context.next = 53;
+            _context.next = 55;
             break;
           }
 
-          _context.next = 53;
+          _context.next = 55;
           return regeneratorRuntime.awrap(connection.rollback());
 
-        case 53:
+        case 55:
           console.error("❌ Database PELNI Error:", _context.t1.message);
           res.status(500).json({
             status: "ERROR",
-            message: _context.t1.message
+            message: "Database Error: " + _context.t1.message
           });
 
-        case 55:
-          _context.prev = 55;
+        case 57:
+          _context.prev = 57;
           if (connection) connection.release();
-          return _context.finish(55);
+          return _context.finish(57);
 
-        case 58:
+        case 60:
         case "end":
           return _context.stop();
       }
     }
-  }, null, null, [[6, 48, 55, 58], [20, 31, 35, 43], [36,, 38, 42]]);
+  }, null, null, [[6, 50, 57, 60], [20, 33, 37, 45], [38,, 40, 44]]);
 };
 /**
  * Ambil riwayat booking PELNI per pengguna
