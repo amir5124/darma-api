@@ -27,7 +27,7 @@ const ShipPaymentController = {
     let connection;
     try {
         const { 
-            booking_id, // Ini adalah numCode dari Frontend
+            booking_id, // Ini berisi numCode dari frontend (misal: "25171025")
             amount, 
             customer_name, 
             customer_phone, 
@@ -39,7 +39,7 @@ const ShipPaymentController = {
         
         const feeAdmin = Number(admin_fee_applied || 0);
 
-        // 1. Format Phone (Standardisasi ke format Internasional)
+        // 1. Format Phone ke Standar Internasional
         let formattedPhone = customer_phone ? customer_phone.toString().trim() : '';
         formattedPhone = formattedPhone.replace(/[^0-9+]/g, '');
         if (formattedPhone.startsWith('0')) formattedPhone = '+62' + formattedPhone.substring(1);
@@ -52,26 +52,21 @@ const ShipPaymentController = {
 
         connection = await db.getConnection();
         
-        // A. Ambil Data Booking Pelni Berdasarkan num_code
-        // PENTING: Kita mencari berdasarkan num_code karena itu yang dikirim oleh Frontend
+        // 2. Cari Data Booking berdasarkan num_code (PENTING)
         const [rows] = await connection.query(
             "SELECT * FROM bookings_pelni WHERE num_code = ? ORDER BY id DESC LIMIT 1", 
             [booking_id]
         );
         
         if (rows.length === 0) {
-            return res.status(404).json({ error: "Data booking kapal tidak ditemukan di sistem kami." });
+            return res.status(404).json({ error: "Data booking kapal tidak ditemukan di database kami." });
         }
         const b = rows[0];
 
-        // B. Persiapan Payload LinkQu
+        // 3. Persiapan Payload LinkQu
         const commonData = { 
-            amount, 
-            expired, 
-            partner_reff, 
-            customer_id: formattedPhone, 
-            customer_name, 
-            customer_email 
+            amount, expired, partner_reff, 
+            customer_id: formattedPhone, customer_name, customer_email 
         };
         
         let endpoint = method === 'VA' ? '/transaction/create/va' : '/transaction/create/qris';
@@ -86,7 +81,7 @@ const ShipPaymentController = {
             payloadLinkQu.signature = generateSignature(endpoint, 'POST', commonData);
         }
 
-        // C. Request ke API LinkQu (Payment Gateway)
+        // 4. Hit ke API LinkQu
         const resp = await axios.post(`${config.baseUrl}${endpoint}`, payloadLinkQu, {
             headers: { 
                 'client-id': config.clientId, 
@@ -96,12 +91,10 @@ const ShipPaymentController = {
         });
 
         const linkquData = resp.data;
-        
-        // Ambil VA atau QRIS dari response LinkQu
-        const vaNumber = linkquData.virtual_account || linkquData.va_number || (linkquData.data ? linkquData.data.va_number : null);
-        const qrisImage = linkquData.imageqris || linkquData.qr_url || (linkquData.data ? linkquData.data.qr_url : null);
+        const vaNumber = linkquData.virtual_account || linkquData.va_number || (linkquData.data?.va_number);
+        const qrisImage = linkquData.imageqris || linkquData.qr_url || (linkquData.data?.qr_url);
 
-        // D. UPDATE DATABASE menggunakan ID internal hasil select tadi
+        // 5. UPDATE DATABASE (Update record yang ditemukan tadi)
         await connection.query(
             `UPDATE bookings_pelni SET 
                 payment_reff = ?, 
@@ -113,72 +106,48 @@ const ShipPaymentController = {
             [partner_reff, method === 'VA' ? `VA-${bankName}` : 'QRIS', vaNumber, qrisImage, feeAdmin, b.id]
         );
 
-        // E. Kirim Email Instruksi Pembayaran Kapal
+        // 6. Template Email Profesional
         const subject = `[PELNI] Instruksi Pembayaran - ${b.num_code}`;
         const formatIDR = (num) => new Intl.NumberFormat('id-ID').format(num);
 
         const emailHtml = `
-            <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #eeeeee; border-radius: 8px; overflow: hidden;">
-                <div style="background: #0054a6; color: white; padding: 30px; text-align: center;">
-                    <h2 style="margin: 0;">PEMBAYARAN TIKET PELNI</h2>
-                    <p style="margin: 5px 0 0 0; opacity: 0.8;">Segera selesaikan pembayaran Anda</p>
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #ddd; border-radius: 10px; overflow: hidden;">
+                <div style="background: #0054a6; color: white; padding: 20px; text-align: center;">
+                    <h2 style="margin:0;">INSTRUKSI PEMBAYARAN</h2>
                 </div>
-                <div style="padding: 25px; color: #333333;">
-                    <p>Halo <b>${customer_name}</b>,</p>
-                    <p>Terima kasih telah memesan tiket kapal di platform kami. Berikut adalah detail pesanan Anda:</p>
-                    
-                    <table style="width: 100%; border-collapse: collapse; margin: 20px 0; background: #fcfcfc;">
-                        <tr><td style="padding: 8px; color: #666;">Kode Reservasi</td><td style="padding: 8px;"><b>${b.num_code}</b></td></tr>
-                        <tr><td style="padding: 8px; color: #666;">Nama Kapal</td><td style="padding: 8px;">${b.ship_name || 'Pelni Ship'}</td></tr>
-                        <tr><td style="padding: 8px; color: #666;">Rute</td><td style="padding: 8px;">${b.origin_name} &rarr; ${b.destination_name}</td></tr>
-                        <tr><td style="padding: 8px; color: #666;">Keberangkatan</td><td style="padding: 8px;">${moment(b.depart_date).format('DD MMM YYYY, HH:mm')} WIB</td></tr>
+                <div style="padding: 20px;">
+                    <p>Halo <b>${customer_name}</b>, silakan selesaikan pembayaran tiket kapal Anda:</p>
+                    <table style="width: 100%; background: #f9f9f9; padding: 10px; border-radius: 5px;">
+                        <tr><td>No. Booking</td><td>: <b>${b.num_code}</b></td></tr>
+                        <tr><td>Kapal</td><td>: ${b.ship_name}</td></tr>
+                        <tr><td>Rute</td><td>: ${b.origin_name} &rarr; ${b.destination_name}</td></tr>
                     </table>
-
-                    <div style="background: #fff4f7; padding: 20px; border-radius: 10px; text-align: center; border: 1px dashed #e03f7d;">
-                        <p style="margin:0; font-size: 14px; color: #666;">Total Tagihan:</p>
-                        <h1 style="color: #e03f7d; margin: 5px 0; font-size: 32px;">Rp ${formatIDR(amount)}</h1>
-                        
+                    <div style="text-align: center; margin-top: 20px; padding: 20px; border: 2px dashed #0054a6;">
+                        <span style="font-size: 14px; color: #666;">Total Bayar:</span><br>
+                        <strong style="font-size: 24px; color: #e03f7d;">Rp ${formatIDR(amount)}</strong><br><br>
                         ${method === 'VA' ? `
-                            <p style="margin-top: 15px; color: #444;">Transfer ke <b>Bank ${bankName}</b> Virtual Account:</p>
-                            <div style="background: #ffffff; padding: 10px; font-size: 24px; font-weight: bold; letter-spacing: 3px; color: #0054a6; border-radius: 5px;">${vaNumber}</div>
+                            <p>Bank ${bankName} Virtual Account:</p>
+                            <h1 style="letter-spacing: 2px; color: #0054a6;">${vaNumber}</h1>
                         ` : `
-                            <p style="margin-top: 15px; color: #444;">Scan Kode QRIS di bawah ini:</p>
-                            <img src="${qrisImage}" style="width: 220px; border: 5px solid white; box-shadow: 0 4px 10px rgba(0,0,0,0.1);" />
+                            <p>Scan QRIS di bawah ini:</p>
+                            <img src="${qrisImage}" style="width: 200px;" />
                         `}
                     </div>
-                    
-                    <p style="font-size: 12px; color: #888; margin-top: 25px; text-align: center;">
-                        *Pembayaran akan diverifikasi otomatis oleh sistem kami.<br>
-                        Mohon selesaikan pembayaran sebelum 60 menit.
-                    </p>
-                </div>
-                <div style="background: #f4f4f4; padding: 15px; text-align: center; font-size: 12px; color: #999;">
-                    &copy; ${new Date().getFullYear()} SiappGo - Tiket Kapal Laut Indonesia
                 </div>
             </div>`;
 
-        // Kirim email tanpa menunggu (background process)
-        sendBookingEmail(customer_email, subject, emailHtml).catch(e => console.error("❌ Email Error:", e));
+        // Jalankan kirim email (Async)
+        sendBookingEmail(customer_email, subject, emailHtml).catch(err => console.error("Email Error:", err));
 
-        // Berikan response sukses ke Frontend
-        return res.json({ 
-            status: "Success", 
-            partner_reff, 
-            data: {
-                ...linkquData,
-                virtual_account: vaNumber,
-                qr_url: qrisImage
-            }
-        });
+        return res.json({ status: "Success", partner_reff, data: linkquData });
 
     } catch (err) {
-        console.error("❌ Ship Payment Critical Error:", err.message);
-        return res.status(500).json({ error: "Gagal membuat pembayaran: " + err.message });
+        console.error("❌ Error:", err.message);
+        return res.status(500).json({ error: err.message });
     } finally {
         if (connection) connection.release();
     }
 },
-
     handleShipCallback: async (req, res) => {
         console.log("📥 [SHIP CALLBACK] Received:", req.body.partner_reff);
         try {
