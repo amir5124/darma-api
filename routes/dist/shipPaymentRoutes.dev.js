@@ -2,7 +2,7 @@
 
 var express = require('express');
 
-var router = express.Router();
+var router = express.Router(); // Pastikan path import ini benar mengarah ke file controller Anda
 
 var shipPaymentController = require('../controllers/shipPaymentController'); // Endpoint: /api/payment/...
 
