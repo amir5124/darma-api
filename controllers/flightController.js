@@ -1,7 +1,8 @@
 const db = require('../config/db'); // Sesuaikan path jika db.js ada di folder root atau config
- const { sendBookingEmail } = require('../utils/mailer'); 
+const { sendBookingEmail } = require('../utils/mailer'); 
+
 /**
- * Mendapatkan riwayat booking berdasarkan username (pengguna)
+ * Mendapatkan riwayat booking sederhana
  */
 exports.getMyBookings = async (req, res) => {
     const { username } = req.params;
@@ -20,6 +21,9 @@ exports.getMyBookings = async (req, res) => {
     }
 };
 
+/**
+ * Mendapatkan riwayat booking lengkap dengan JOIN Itinerary (Jam Berangkat/Tiba)
+ */
 exports.getBookingPengguna = async (req, res) => {
     const { username } = req.params;
 
@@ -36,7 +40,7 @@ exports.getBookingPengguna = async (req, res) => {
                 b.reference_no, b.airline_name, UPPER(b.ticket_status) AS ticket_status,
                 b.total_price, b.sales_price, b.time_limit, b.depart_date,
                 b.origin AS origin_code, b.destination AS destination_code,
-                b.origin_port, b.destination_port, -- Kolom nama lengkap baru
+                b.origin_port, b.destination_port,
                 b.access_token AS accessToken, b.payload_request,
                 i.flight_number, i.origin, i.destination, i.depart_time, i.arrival_time, i.flight_class,
                 p.first_name AS main_pax_first, p.last_name AS main_pax_last,
@@ -59,6 +63,7 @@ exports.getBookingPengguna = async (req, res) => {
             const formatTime = (dateStr) => {
                 if (!dateStr) return '--:--';
                 const d = new Date(dateStr);
+                // Menggunakan locale id-ID dan memastikan format HH:mm
                 return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false }).replace('.', ':');
             };
 
@@ -68,7 +73,6 @@ exports.getBookingPengguna = async (req, res) => {
 
             return {
                 ...item,
-                // Logika tampilan: Utamakan nama lengkap (port), fallback ke kode (SUB/CGK)
                 origin: item.origin_port || item.origin || item.origin_code,
                 destination: item.destination_port || item.destination || item.destination_code,
                 ticket_status: status,
@@ -89,11 +93,12 @@ exports.getBookingPengguna = async (req, res) => {
     }
 };
 
-
+/**
+ * Menyimpan data booking pesawat
+ */
 exports.saveBooking = async (req, res) => {
     const { payload, response, username } = req.body;
 
-    // 1. Validasi awal: Jangan biarkan proses lanjut jika data dari vendor gagal
     if (!response || response.status !== "SUCCESS") {
         return res.status(400).json({ 
             status: "ERROR", 
@@ -105,10 +110,15 @@ exports.saveBooking = async (req, res) => {
     try {
         await connection.beginTransaction();
 
+        const formatDBDate = (dateStr) => {
+            if (!dateStr) return null;
+            return dateStr.replace('T', ' ').replace('Z', '').split('.')[0];
+        };
+
         const finalTotalPrice = response.ticketPrice || response.totalPrice || payload.totalPrice || 0;
         const finalSalesPrice = response.salesPrice || 0;
 
-        // 2. Insert Table Bookings
+        // 1. Insert Table Bookings
         const [resBooking] = await connection.execute(
             `INSERT INTO bookings (
                 booking_code, reference_no, airline_id, airline_name, 
@@ -117,21 +127,21 @@ exports.saveBooking = async (req, res) => {
                 user_id, pengguna, access_token, payload_request, raw_response
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
-                response.bookingCode,
-                response.referenceNo,
-                payload.airlineID,
-                payload.airlineName || payload.airlineID,
+                response.bookingCode || response.booking_code,
+                response.referenceNo || response.reference_no,
+                payload.airlineID || response.airline_name,
+                payload.airlineName || payload.airlineID || response.airline_name,
                 payload.tripType || "OneWay",
                 payload.origin,
                 payload.destination,
-                response.origin || null,
-                response.destination || null,
-                payload.departDate ? payload.departDate.replace('T', ' ').replace('Z', '').split('.')[0] : null,
-                response.ticketStatus || "HOLD",
+                response.origin || payload.origin_port || null,
+                response.destination || payload.destination_port || null,
+                formatDBDate(payload.departDate || response.depart_date),
+                response.ticketStatus || response.ticket_status || "HOLD",
                 finalTotalPrice,
                 finalSalesPrice,
-                response.timeLimit,
-                response.userID,
+                formatDBDate(response.timeLimit || response.time_limit),
+                response.userID || payload.userID,
                 username || 'Guest',
                 payload.accessToken,
                 JSON.stringify(payload),
@@ -141,7 +151,7 @@ exports.saveBooking = async (req, res) => {
 
         const bookingId = resBooking.insertId;
 
-        // 3. Simpan Data Penumpang
+        // 2. Simpan Data Penumpang
         if (payload.paxDetails && payload.paxDetails.length > 0) {
             for (const p of payload.paxDetails) {
                 const [resPax] = await connection.execute(
@@ -161,8 +171,6 @@ exports.saveBooking = async (req, res) => {
                 );
 
                 const paxId = resPax.insertId;
-                
-                // Add-ons (Bagasi/Kursi)
                 if (p.addOns && p.addOns.length > 0) {
                     for (const ad of p.addOns) {
                         await connection.execute(
@@ -175,50 +183,44 @@ exports.saveBooking = async (req, res) => {
             }
         }
 
-        // 4. Simpan Itinerary Penerbangan
-        if (response.flightDeparts && response.flightDeparts.length > 0) {
-            for (const f of response.flightDeparts) {
-                const cleanDate = (dateStr) => {
-                    if (!dateStr) return null;
-                    return dateStr.replace('T', ' ').replace('Z', '').split('.')[0];
-                };
+        // 3. Simpan Itinerary Penerbangan (DIPERBAIKI)
+        // Mengecek di response.flightDeparts ATAU payload.schDeparts
+        const itineraryData = (response.flightDeparts && response.flightDeparts.length > 0) 
+            ? response.flightDeparts 
+            : (payload.schDeparts || []);
 
-                await connection.execute(
-                    `INSERT INTO flight_itinerary (
-                        booking_id, category, flight_number, origin, 
-                        destination, depart_time, arrival_time, flight_class, pengguna
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                    [
-                        bookingId, 'Departure', f.flightNumber, f.fdOrigin, f.fdDestination,
-                        cleanDate(f.fdDepartTime), cleanDate(f.fdArrivalTime),
-                        f.fdFlightClass, username || null
-                    ]
-                );
-            }
+        for (const f of itineraryData) {
+            await connection.execute(
+                `INSERT INTO flight_itinerary (
+                    booking_id, category, flight_number, origin, 
+                    destination, depart_time, arrival_time, flight_class, pengguna
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    bookingId, 
+                    'Departure', 
+                    f.flightNumber, 
+                    f.fdOrigin || f.schOrigin, 
+                    f.fdDestination || f.schDestination,
+                    formatDBDate(f.fdDepartTime || f.schDepartTime), 
+                    formatDBDate(f.fdArrivalTime || f.schArrivalTime),
+                    f.fdFlightClass || f.flightClass, 
+                    username || null
+                ]
+            );
         }
 
-        // 5. Commit Transaksi
         await connection.commit();
-        
-        console.log(`✅ Berhasil Simpan ke Database. ID: ${bookingId}`);
-
-       
-        // RESPON SUKSES WAJIB MENGIRIM ID
         return res.status(200).json({ 
             status: "SUCCESS", 
             id: bookingId, 
-            bookingCode: response.bookingCode,
-            message: "Booking berhasil disimpan dan email sedang dikirim." 
+            bookingCode: response.bookingCode || response.booking_code,
+            message: "Booking berhasil disimpan." 
         });
 
     } catch (error) {
         if (connection) await connection.rollback();
         console.error("❌ Database Error:", error.message);
-        
-        return res.status(500).json({ 
-            status: "ERROR", 
-            message: "Gagal menyimpan ke database internal: " + error.message 
-        });
+        return res.status(500).json({ status: "ERROR", message: error.message });
     } finally {
         if (connection) connection.release();
     }

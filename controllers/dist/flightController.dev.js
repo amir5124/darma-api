@@ -20,7 +20,7 @@ var db = require('../config/db'); // Sesuaikan path jika db.js ada di folder roo
 var _require = require('../utils/mailer'),
     sendBookingEmail = _require.sendBookingEmail;
 /**
- * Mendapatkan riwayat booking berdasarkan username (pengguna)
+ * Mendapatkan riwayat booking sederhana
  */
 
 
@@ -62,6 +62,10 @@ exports.getMyBookings = function _callee(req, res) {
     }
   }, null, null, [[1, 10]]);
 };
+/**
+ * Mendapatkan riwayat booking lengkap dengan JOIN Itinerary (Jam Berangkat/Tiba)
+ */
+
 
 exports.getBookingPengguna = function _callee2(req, res) {
   var username, query, _ref3, _ref4, rows, historyData;
@@ -86,7 +90,7 @@ exports.getBookingPengguna = function _callee2(req, res) {
 
         case 3:
           _context2.prev = 3;
-          query = "\n            SELECT \n                b.id AS booking_id, b.booking_code, b.booking_code AS bookingCodeAirline,\n                b.reference_no, b.airline_name, UPPER(b.ticket_status) AS ticket_status,\n                b.total_price, b.sales_price, b.time_limit, b.depart_date,\n                b.origin AS origin_code, b.destination AS destination_code,\n                b.origin_port, b.destination_port, -- Kolom nama lengkap baru\n                b.access_token AS accessToken, b.payload_request,\n                i.flight_number, i.origin, i.destination, i.depart_time, i.arrival_time, i.flight_class,\n                p.first_name AS main_pax_first, p.last_name AS main_pax_last,\n                (SELECT COUNT(*) FROM passengers WHERE booking_id = b.id) AS total_pax\n            FROM bookings b\n            LEFT JOIN flight_itinerary i ON b.id = i.booking_id\n            LEFT JOIN passengers p ON b.id = p.booking_id AND p.id = (\n                SELECT MIN(id) FROM passengers WHERE booking_id = b.id\n            )\n            WHERE b.pengguna = ? \n            ORDER BY b.created_at DESC\n        ";
+          query = "\n            SELECT \n                b.id AS booking_id, b.booking_code, b.booking_code AS bookingCodeAirline,\n                b.reference_no, b.airline_name, UPPER(b.ticket_status) AS ticket_status,\n                b.total_price, b.sales_price, b.time_limit, b.depart_date,\n                b.origin AS origin_code, b.destination AS destination_code,\n                b.origin_port, b.destination_port,\n                b.access_token AS accessToken, b.payload_request,\n                i.flight_number, i.origin, i.destination, i.depart_time, i.arrival_time, i.flight_class,\n                p.first_name AS main_pax_first, p.last_name AS main_pax_last,\n                (SELECT COUNT(*) FROM passengers WHERE booking_id = b.id) AS total_pax\n            FROM bookings b\n            LEFT JOIN flight_itinerary i ON b.id = i.booking_id\n            LEFT JOIN passengers p ON b.id = p.booking_id AND p.id = (\n                SELECT MIN(id) FROM passengers WHERE booking_id = b.id\n            )\n            WHERE b.pengguna = ? \n            ORDER BY b.created_at DESC\n        ";
           _context2.next = 7;
           return regeneratorRuntime.awrap(db.execute(query, [username]));
 
@@ -100,7 +104,8 @@ exports.getBookingPengguna = function _callee2(req, res) {
 
             var formatTime = function formatTime(dateStr) {
               if (!dateStr) return '--:--';
-              var d = new Date(dateStr);
+              var d = new Date(dateStr); // Menggunakan locale id-ID dan memastikan format HH:mm
+
               return d.toLocaleTimeString('id-ID', {
                 hour: '2-digit',
                 minute: '2-digit',
@@ -112,7 +117,6 @@ exports.getBookingPengguna = function _callee2(req, res) {
             var isTicketed = status === 'TICKETED';
             var isExpired = !isTicketed && limit ? now > limit : false;
             return _objectSpread({}, item, {
-              // Logika tampilan: Utamakan nama lengkap (port), fallback ke kode (SUB/CGK)
               origin: item.origin_port || item.origin || item.origin_code,
               destination: item.destination_port || item.destination || item.destination_code,
               ticket_status: status,
@@ -153,15 +157,19 @@ exports.getBookingPengguna = function _callee2(req, res) {
     }
   }, null, null, [[3, 14]]);
 };
+/**
+ * Menyimpan data booking pesawat
+ */
+
 
 exports.saveBooking = function _callee3(req, res) {
-  var _req$body, payload, response, username, connection, finalTotalPrice, finalSalesPrice, _ref5, _ref6, resBooking, bookingId, _iteratorNormalCompletion, _didIteratorError, _iteratorError, _iterator, _step, p, _ref7, _ref8, resPax, paxId, _iteratorNormalCompletion2, _didIteratorError2, _iteratorError2, _iterator2, _step2, ad, _iteratorNormalCompletion3, _didIteratorError3, _iteratorError3, _iterator3, _step3, f, cleanDate;
+  var _req$body, payload, response, username, connection, formatDBDate, finalTotalPrice, finalSalesPrice, _ref5, _ref6, resBooking, bookingId, _iteratorNormalCompletion, _didIteratorError, _iteratorError, _iterator, _step, p, _ref7, _ref8, resPax, paxId, _iteratorNormalCompletion2, _didIteratorError2, _iteratorError2, _iterator2, _step2, ad, itineraryData, _iteratorNormalCompletion3, _didIteratorError3, _iteratorError3, _iterator3, _step3, f;
 
   return regeneratorRuntime.async(function _callee3$(_context3) {
     while (1) {
       switch (_context3.prev = _context3.next) {
         case 0:
-          _req$body = req.body, payload = _req$body.payload, response = _req$body.response, username = _req$body.username; // 1. Validasi awal: Jangan biarkan proses lanjut jika data dari vendor gagal
+          _req$body = req.body, payload = _req$body.payload, response = _req$body.response, username = _req$body.username;
 
           if (!(!response || response.status !== "SUCCESS")) {
             _context3.next = 3;
@@ -184,175 +192,172 @@ exports.saveBooking = function _callee3(req, res) {
           return regeneratorRuntime.awrap(connection.beginTransaction());
 
         case 9:
+          formatDBDate = function formatDBDate(dateStr) {
+            if (!dateStr) return null;
+            return dateStr.replace('T', ' ').replace('Z', '').split('.')[0];
+          };
+
           finalTotalPrice = response.ticketPrice || response.totalPrice || payload.totalPrice || 0;
-          finalSalesPrice = response.salesPrice || 0; // 2. Insert Table Bookings
+          finalSalesPrice = response.salesPrice || 0; // 1. Insert Table Bookings
 
-          _context3.next = 13;
-          return regeneratorRuntime.awrap(connection.execute("INSERT INTO bookings (\n                booking_code, reference_no, airline_id, airline_name, \n                trip_type, origin, destination, origin_port, destination_port,\n                depart_date, ticket_status, total_price, sales_price, time_limit, \n                user_id, pengguna, access_token, payload_request, raw_response\n            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [response.bookingCode, response.referenceNo, payload.airlineID, payload.airlineName || payload.airlineID, payload.tripType || "OneWay", payload.origin, payload.destination, response.origin || null, response.destination || null, payload.departDate ? payload.departDate.replace('T', ' ').replace('Z', '').split('.')[0] : null, response.ticketStatus || "HOLD", finalTotalPrice, finalSalesPrice, response.timeLimit, response.userID, username || 'Guest', payload.accessToken, JSON.stringify(payload), JSON.stringify(response)]));
+          _context3.next = 14;
+          return regeneratorRuntime.awrap(connection.execute("INSERT INTO bookings (\n                booking_code, reference_no, airline_id, airline_name, \n                trip_type, origin, destination, origin_port, destination_port,\n                depart_date, ticket_status, total_price, sales_price, time_limit, \n                user_id, pengguna, access_token, payload_request, raw_response\n            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [response.bookingCode || response.booking_code, response.referenceNo || response.reference_no, payload.airlineID || response.airline_name, payload.airlineName || payload.airlineID || response.airline_name, payload.tripType || "OneWay", payload.origin, payload.destination, response.origin || payload.origin_port || null, response.destination || payload.destination_port || null, formatDBDate(payload.departDate || response.depart_date), response.ticketStatus || response.ticket_status || "HOLD", finalTotalPrice, finalSalesPrice, formatDBDate(response.timeLimit || response.time_limit), response.userID || payload.userID, username || 'Guest', payload.accessToken, JSON.stringify(payload), JSON.stringify(response)]));
 
-        case 13:
+        case 14:
           _ref5 = _context3.sent;
           _ref6 = _slicedToArray(_ref5, 1);
           resBooking = _ref6[0];
-          bookingId = resBooking.insertId; // 3. Simpan Data Penumpang
+          bookingId = resBooking.insertId; // 2. Simpan Data Penumpang
 
           if (!(payload.paxDetails && payload.paxDetails.length > 0)) {
-            _context3.next = 75;
+            _context3.next = 76;
             break;
           }
 
           _iteratorNormalCompletion = true;
           _didIteratorError = false;
           _iteratorError = undefined;
-          _context3.prev = 21;
+          _context3.prev = 22;
           _iterator = payload.paxDetails[Symbol.iterator]();
 
-        case 23:
+        case 24:
           if (_iteratorNormalCompletion = (_step = _iterator.next()).done) {
-            _context3.next = 61;
+            _context3.next = 62;
             break;
           }
 
           p = _step.value;
-          _context3.next = 27;
+          _context3.next = 28;
           return regeneratorRuntime.awrap(connection.execute("INSERT INTO passengers (booking_id, title, first_name, last_name, pax_type, phone, id_number, birth_date, pengguna) \n                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [bookingId, (p.title || 'MR').toUpperCase(), (p.firstName || '').toUpperCase(), (p.lastName || p.firstName || '').toUpperCase(), p.type === 0 ? 'Adult' : p.type === 1 ? 'Child' : 'Infant', (payload.contactCountryCodePhone || "") + (payload.contactRemainingPhoneNo || ""), p.idNumber || p.IDNumber || "", p.birthDate ? p.birthDate.split('T')[0] : '1900-01-01', username || 'Guest']));
 
-        case 27:
+        case 28:
           _ref7 = _context3.sent;
           _ref8 = _slicedToArray(_ref7, 1);
           resPax = _ref8[0];
-          paxId = resPax.insertId; // Add-ons (Bagasi/Kursi)
+          paxId = resPax.insertId;
 
           if (!(p.addOns && p.addOns.length > 0)) {
-            _context3.next = 58;
+            _context3.next = 59;
             break;
           }
 
           _iteratorNormalCompletion2 = true;
           _didIteratorError2 = false;
           _iteratorError2 = undefined;
-          _context3.prev = 35;
+          _context3.prev = 36;
           _iterator2 = p.addOns[Symbol.iterator]();
 
-        case 37:
+        case 38:
           if (_iteratorNormalCompletion2 = (_step2 = _iterator2.next()).done) {
-            _context3.next = 44;
+            _context3.next = 45;
             break;
           }
 
           ad = _step2.value;
-          _context3.next = 41;
+          _context3.next = 42;
           return regeneratorRuntime.awrap(connection.execute("INSERT INTO passenger_addons (passenger_id, segment_idx, baggage_code, seat_number, meals_json, pengguna) \n                             VALUES (?, ?, ?, ?, ?, ?)", [paxId, 0, ad.baggageString || ad.baggageCode || "", ad.seat || "", JSON.stringify(ad.meals || []), username || 'Guest']));
 
-        case 41:
+        case 42:
           _iteratorNormalCompletion2 = true;
-          _context3.next = 37;
+          _context3.next = 38;
           break;
 
-        case 44:
-          _context3.next = 50;
+        case 45:
+          _context3.next = 51;
           break;
 
-        case 46:
-          _context3.prev = 46;
-          _context3.t0 = _context3["catch"](35);
+        case 47:
+          _context3.prev = 47;
+          _context3.t0 = _context3["catch"](36);
           _didIteratorError2 = true;
           _iteratorError2 = _context3.t0;
 
-        case 50:
-          _context3.prev = 50;
+        case 51:
           _context3.prev = 51;
+          _context3.prev = 52;
 
           if (!_iteratorNormalCompletion2 && _iterator2["return"] != null) {
             _iterator2["return"]();
           }
 
-        case 53:
-          _context3.prev = 53;
+        case 54:
+          _context3.prev = 54;
 
           if (!_didIteratorError2) {
-            _context3.next = 56;
+            _context3.next = 57;
             break;
           }
 
           throw _iteratorError2;
 
-        case 56:
-          return _context3.finish(53);
-
         case 57:
-          return _context3.finish(50);
+          return _context3.finish(54);
 
         case 58:
+          return _context3.finish(51);
+
+        case 59:
           _iteratorNormalCompletion = true;
-          _context3.next = 23;
+          _context3.next = 24;
           break;
 
-        case 61:
-          _context3.next = 67;
+        case 62:
+          _context3.next = 68;
           break;
 
-        case 63:
-          _context3.prev = 63;
-          _context3.t1 = _context3["catch"](21);
+        case 64:
+          _context3.prev = 64;
+          _context3.t1 = _context3["catch"](22);
           _didIteratorError = true;
           _iteratorError = _context3.t1;
 
-        case 67:
-          _context3.prev = 67;
+        case 68:
           _context3.prev = 68;
+          _context3.prev = 69;
 
           if (!_iteratorNormalCompletion && _iterator["return"] != null) {
             _iterator["return"]();
           }
 
-        case 70:
-          _context3.prev = 70;
+        case 71:
+          _context3.prev = 71;
 
           if (!_didIteratorError) {
-            _context3.next = 73;
+            _context3.next = 74;
             break;
           }
 
           throw _iteratorError;
 
-        case 73:
-          return _context3.finish(70);
-
         case 74:
-          return _context3.finish(67);
+          return _context3.finish(71);
 
         case 75:
-          if (!(response.flightDeparts && response.flightDeparts.length > 0)) {
-            _context3.next = 103;
-            break;
-          }
+          return _context3.finish(68);
 
+        case 76:
+          // 3. Simpan Itinerary Penerbangan (DIPERBAIKI)
+          // Mengecek di response.flightDeparts ATAU payload.schDeparts
+          itineraryData = response.flightDeparts && response.flightDeparts.length > 0 ? response.flightDeparts : payload.schDeparts || [];
           _iteratorNormalCompletion3 = true;
           _didIteratorError3 = false;
           _iteratorError3 = undefined;
-          _context3.prev = 79;
-          _iterator3 = response.flightDeparts[Symbol.iterator]();
+          _context3.prev = 80;
+          _iterator3 = itineraryData[Symbol.iterator]();
 
-        case 81:
+        case 82:
           if (_iteratorNormalCompletion3 = (_step3 = _iterator3.next()).done) {
             _context3.next = 89;
             break;
           }
 
           f = _step3.value;
-
-          cleanDate = function cleanDate(dateStr) {
-            if (!dateStr) return null;
-            return dateStr.replace('T', ' ').replace('Z', '').split('.')[0];
-          };
-
           _context3.next = 86;
-          return regeneratorRuntime.awrap(connection.execute("INSERT INTO flight_itinerary (\n                        booking_id, category, flight_number, origin, \n                        destination, depart_time, arrival_time, flight_class, pengguna\n                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [bookingId, 'Departure', f.flightNumber, f.fdOrigin, f.fdDestination, cleanDate(f.fdDepartTime), cleanDate(f.fdArrivalTime), f.fdFlightClass, username || null]));
+          return regeneratorRuntime.awrap(connection.execute("INSERT INTO flight_itinerary (\n                    booking_id, category, flight_number, origin, \n                    destination, depart_time, arrival_time, flight_class, pengguna\n                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [bookingId, 'Departure', f.flightNumber, f.fdOrigin || f.schOrigin, f.fdDestination || f.schDestination, formatDBDate(f.fdDepartTime || f.schDepartTime), formatDBDate(f.fdArrivalTime || f.schArrivalTime), f.fdFlightClass || f.flightClass, username || null]));
 
         case 86:
           _iteratorNormalCompletion3 = true;
-          _context3.next = 81;
+          _context3.next = 82;
           break;
 
         case 89:
@@ -361,7 +366,7 @@ exports.saveBooking = function _callee3(req, res) {
 
         case 91:
           _context3.prev = 91;
-          _context3.t2 = _context3["catch"](79);
+          _context3.t2 = _context3["catch"](80);
           _didIteratorError3 = true;
           _iteratorError3 = _context3.t2;
 
@@ -394,43 +399,41 @@ exports.saveBooking = function _callee3(req, res) {
           return regeneratorRuntime.awrap(connection.commit());
 
         case 105:
-          console.log("\u2705 Berhasil Simpan ke Database. ID: ".concat(bookingId)); // RESPON SUKSES WAJIB MENGIRIM ID
-
           return _context3.abrupt("return", res.status(200).json({
             status: "SUCCESS",
             id: bookingId,
-            bookingCode: response.bookingCode,
-            message: "Booking berhasil disimpan dan email sedang dikirim."
+            bookingCode: response.bookingCode || response.booking_code,
+            message: "Booking berhasil disimpan."
           }));
 
-        case 109:
-          _context3.prev = 109;
+        case 108:
+          _context3.prev = 108;
           _context3.t3 = _context3["catch"](6);
 
           if (!connection) {
-            _context3.next = 114;
+            _context3.next = 113;
             break;
           }
 
-          _context3.next = 114;
+          _context3.next = 113;
           return regeneratorRuntime.awrap(connection.rollback());
 
-        case 114:
+        case 113:
           console.error("❌ Database Error:", _context3.t3.message);
           return _context3.abrupt("return", res.status(500).json({
             status: "ERROR",
-            message: "Gagal menyimpan ke database internal: " + _context3.t3.message
+            message: _context3.t3.message
           }));
 
-        case 116:
-          _context3.prev = 116;
+        case 115:
+          _context3.prev = 115;
           if (connection) connection.release();
-          return _context3.finish(116);
+          return _context3.finish(115);
 
-        case 119:
+        case 118:
         case "end":
           return _context3.stop();
       }
     }
-  }, null, null, [[6, 109, 116, 119], [21, 63, 67, 75], [35, 46, 50, 58], [51,, 53, 57], [68,, 70, 74], [79, 91, 95, 103], [96,, 98, 102]]);
+  }, null, null, [[6, 108, 115, 118], [22, 64, 68, 76], [36, 47, 51, 59], [52,, 54, 58], [69,, 71, 75], [80, 91, 95, 103], [96,, 98, 102]]);
 };
