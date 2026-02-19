@@ -185,33 +185,38 @@ const ShipPaymentController = {
 },
 
 checkShipStatus: async (req, res) => {
-    const { reff } = req.params; 
+    const { reff } = req.params;
     
     try {
-        // 1. CEK DATABASE LOKAL
+        // 1. CEK DATABASE LOKAL DULU
+        // Menggunakan tabel bookings_pelni sesuai struktur database Anda
         const [rows] = await db.query(
             "SELECT id, num_code, payment_status, ticket_status, booking_code FROM bookings_pelni WHERE payment_reff = ?", 
             [reff]
         );
 
-        if (rows.length === 0) {
-            return res.status(404).json({ error: "Data transaksi tidak ditemukan." });
+        if (rows.length > 0) {
+            const b = rows[0];
+            const currentPaymentStatus = (b.payment_status || '').toUpperCase();
+            
+            // Jika sudah sukses di DB (karena callback), langsung respon sukses ke frontend
+            if (currentPaymentStatus === 'SUCCESS' || b.ticket_status === 'ISSUED') {
+                console.log(`✅ [POLLING DB] Reff ${reff} sudah lunas di Database Pelni.`);
+                return res.json({ 
+                    status: 'SUCCESS', 
+                    payment_status: 'SUCCESS',
+                    numCode: b.num_code,
+                    bookingCode: b.booking_code 
+                });
+            }
+        } else {
+            // Jika data tidak ada sama sekali di DB kita
+            return res.status(404).json({ error: "Data transaksi tidak ditemukan di database lokal." });
         }
 
-        const b = rows[0];
-        const currentPaymentStatus = (b.payment_status || '').toUpperCase();
-
-        if (currentPaymentStatus === 'SUCCESS' || b.ticket_status === 'ISSUED') {
-            return res.json({ 
-                status: 'SUCCESS', 
-                payment_status: 'SUCCESS',
-                numCode: b.num_code,
-                bookingCode: b.booking_code 
-            });
-        }
-
-        // 2. TANYA KE API LINKQU
-        console.log(`🔍 [POLLING VENDOR] Memeriksa LinkQu untuk Reff: ${reff}`);
+        // 2. JIKA DI DB BELUM SUKSES, TANYA KE API LINKQU
+        console.log(`🔍 [POLLING VENDOR] Memeriksa status LinkQu untuk Reff Pelni: ${reff}`);
+        
         const resp = await axios.get(`${config.baseUrl}/transaction/check-status`, {
             params: { 
                 partner_reff: reff, 
@@ -222,20 +227,16 @@ checkShipStatus: async (req, res) => {
                 'client-id': config.clientId, 
                 'client-secret': config.clientSecret 
             },
-            timeout: 10000 // Tambahkan timeout agar tidak gantung
+            // Menghindari Axios melempar error jika status code 404 (LinkQu sering 404 jika data belum sinkron)
+            validateStatus: (status) => status < 500 
         });
 
-        // --- PERBAIKAN DI SINI ---
-        // LinkQu terkadang mengirim status di resp.data.status atau resp.data.data.status
-        const linkquData = resp.data.data || resp.data;
-        const statusFromServer = (linkquData.status || '').toUpperCase();
-        
-        console.log(`ℹ️ [VENDOR RESPONSE] Status Reff ${reff}:`, statusFromServer);
-        // Tambahkan log mentah jika masih kosong untuk debug
-        if (!statusFromServer) console.log("⚠️ DEBUG RAW RESP:", JSON.stringify(resp.data));
+        // Ambil status dari vendor, fallback ke PENDING jika undefined
+        const statusFromServer = (resp.data.status || 'PENDING').toUpperCase();
 
+        // 3. LOGIKA UPDATE JIKA SUKSES
         if (statusFromServer === 'SUCCESS' || statusFromServer === 'SETTLED' || statusFromServer === 'PAID') {
-            console.log(`✅ [POLLING VENDOR SUCCESS] Transaksi ${reff} lunas.`);
+            console.log(`✅ [POLLING VENDOR SUCCESS] Transaksi Pelni ${reff} lunas via API Vendor.`);
             
             await db.query(
                 "UPDATE bookings_pelni SET payment_status = 'SUCCESS' WHERE payment_reff = ?", 
@@ -243,24 +244,25 @@ checkShipStatus: async (req, res) => {
             );
 
             return res.json({ 
-                status: 'SUCCESS', 
+                ...resp.data, 
+                status: 'SUCCESS',
                 payment_status: 'SUCCESS',
-                numCode: b.num_code,
-                bookingCode: b.booking_code,
-                data: resp.data 
+                numCode: rows[0].num_code,
+                bookingCode: rows[0].booking_code
             });
         } 
 
-        // 3. JIKA MASIH PENDING
+        // 4. JIKA MASIH PENDING ATAU 404 (Data belum ditemukan di LinkQu)
+        console.log(`⏳ [POLLING PENDING] Transaksi Pelni ${reff} masih: ${statusFromServer}`);
         return res.json({
             status: 'PENDING',
-            payment_status: 'PENDING',
-            vendor_msg: statusFromServer // Kirim pesan vendor ke frontend untuk info
+            payment_status: 'PENDING'
         });
 
     } catch (err) {
-        console.error(`❌ [POLLING ERROR] ${reff}:`, err.message);
-        return res.json({ status: 'PENDING', error: err.message });
+        // Blok Catch dibuat identik dengan kode pesawat agar polling tidak berhenti karena error teknis
+        console.error(`❌ [POLLING ERROR] Pelni ${reff}:`, err.message);
+        return res.status(200).json({ status: 'PENDING' });
     }
 },
 
