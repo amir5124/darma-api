@@ -51,7 +51,7 @@ createPayment: async (req, res) => {
         const bankMap = {
             "002": "BRI", "008": "MANDIRI", "009": "BNI", "200": "BTN", "014": "BCA",
             "013": "PERMATA", "022": "CIMB", "441": "DANAMON", "011": "DANAMON",
-            "016": "MAYBANK", "422": "BRI SYARIAH", "451": "BSI (BANK SYARIAH INDONESIA)"
+            "016": "MAYBANK", "422": "BRI SYARIAH", "451": "BSI"
         };
 
         const bankName = bankMap[bank_code] || bank_code;
