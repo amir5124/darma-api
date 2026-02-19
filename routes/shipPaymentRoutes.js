@@ -4,5 +4,7 @@ const shipPaymentController = require('../controllers/shipPaymentController');
 
 // Endpoint: /api/payment/...
 router.post('/create-payment', shipPaymentController.createShipPayment);
+router.get('/status/:reff', shipPaymentController.checkStatus);
+router.get('/download-qris', shipPaymentController.downloadQR);
 router.post('/callback', shipPaymentController.handleShipCallback);
 module.exports = router;
