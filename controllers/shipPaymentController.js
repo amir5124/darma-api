@@ -199,11 +199,9 @@ checkShipStatus: async (req, res) => {
         }
 
         const b = rows[0];
-        // Normalize status ke UpperCase untuk perbandingan aman
         const currentPaymentStatus = (b.payment_status || '').toUpperCase();
 
         if (currentPaymentStatus === 'SUCCESS' || b.ticket_status === 'ISSUED') {
-            console.log(`✅ [POLLING DB] Reff ${reff} sudah LUNAS.`);
             return res.json({ 
                 status: 'SUCCESS', 
                 payment_status: 'SUCCESS',
@@ -216,7 +214,7 @@ checkShipStatus: async (req, res) => {
         console.log(`🔍 [POLLING VENDOR] Memeriksa LinkQu untuk Reff: ${reff}`);
         const resp = await axios.get(`${config.baseUrl}/transaction/check-status`, {
             params: { 
-                partner_reff: reff, // Pastikan apakah partner_reff atau partner_ref
+                partner_reff: reff, 
                 username: config.username, 
                 pin: config.pin 
             },
@@ -224,17 +222,21 @@ checkShipStatus: async (req, res) => {
                 'client-id': config.clientId, 
                 'client-secret': config.clientSecret 
             },
-            validateStatus: (status) => status < 500
+            timeout: 10000 // Tambahkan timeout agar tidak gantung
         });
 
-        // Ambil status dan ubah ke UpperCase agar tidak miss
-        const statusFromServer = (resp.data.status || '').toUpperCase();
-        console.log(`ℹ️ [VENDOR RESPONSE] Status Reff ${reff}: ${statusFromServer}`);
+        // --- PERBAIKAN DI SINI ---
+        // LinkQu terkadang mengirim status di resp.data.status atau resp.data.data.status
+        const linkquData = resp.data.data || resp.data;
+        const statusFromServer = (linkquData.status || '').toUpperCase();
+        
+        console.log(`ℹ️ [VENDOR RESPONSE] Status Reff ${reff}:`, statusFromServer);
+        // Tambahkan log mentah jika masih kosong untuk debug
+        if (!statusFromServer) console.log("⚠️ DEBUG RAW RESP:", JSON.stringify(resp.data));
 
-        if (statusFromServer === 'SUCCESS' || statusFromServer === 'SETTLED') {
+        if (statusFromServer === 'SUCCESS' || statusFromServer === 'SETTLED' || statusFromServer === 'PAID') {
             console.log(`✅ [POLLING VENDOR SUCCESS] Transaksi ${reff} lunas.`);
             
-            // Update database: Pastikan payment_status jadi SUCCESS
             await db.query(
                 "UPDATE bookings_pelni SET payment_status = 'SUCCESS' WHERE payment_reff = ?", 
                 [reff]
@@ -244,7 +246,7 @@ checkShipStatus: async (req, res) => {
                 status: 'SUCCESS', 
                 payment_status: 'SUCCESS',
                 numCode: b.num_code,
-                bookingCode: b.booking_code, // Ambil dari baris database awal
+                bookingCode: b.booking_code,
                 data: resp.data 
             });
         } 
@@ -252,12 +254,13 @@ checkShipStatus: async (req, res) => {
         // 3. JIKA MASIH PENDING
         return res.json({
             status: 'PENDING',
-            payment_status: 'PENDING'
+            payment_status: 'PENDING',
+            vendor_msg: statusFromServer // Kirim pesan vendor ke frontend untuk info
         });
 
     } catch (err) {
         console.error(`❌ [POLLING ERROR] ${reff}:`, err.message);
-        return res.json({ status: 'PENDING' });
+        return res.json({ status: 'PENDING', error: err.message });
     }
 },
 
