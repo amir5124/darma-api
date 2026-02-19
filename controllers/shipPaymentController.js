@@ -184,7 +184,127 @@ const ShipPaymentController = {
     }
 },
 
+checkShipStatus: async (req, res) => {
+    const { reff } = req.params; // payment_reff (contoh: SHIP-PAY-1771467...)
+    
+    try {
+        // 1. CEK DATABASE LOKAL DULU (Optimasi Kecepatan)
+        const [rows] = await db.query(
+            "SELECT id, num_code, payment_status, ticket_status, booking_code FROM bookings_pelni WHERE payment_reff = ?", 
+            [reff]
+        );
 
+        if (rows.length > 0) {
+            const b = rows[0];
+            // Jika database sudah diupdate oleh Callback LinkQu menjadi SUCCESS
+            if (b.payment_status === 'SUCCESS' || b.ticket_status === 'ISSUED') {
+                console.log(`✅ [POLLING DB] Reff ${reff} terdeteksi LUNAS di Database.`);
+                return res.json({ 
+                    status: 'SUCCESS', 
+                    payment_status: 'SUCCESS',
+                    numCode: b.num_code,
+                    bookingCode: b.booking_code 
+                });
+            }
+        } else {
+            return res.status(404).json({ error: "Data transaksi tidak ditemukan." });
+        }
+
+        // 2. JIKA DI DB MASIH PENDING, TANYA KE API LINKQU (Verifikasi Vendor)
+        console.log(`🔍 [POLLING VENDOR] Memeriksa status LinkQu untuk Reff: ${reff}`);
+        const resp = await axios.get(`${config.baseUrl}/transaction/check-status`, {
+            params: { 
+                partner_reff: reff, 
+                username: config.username, 
+                pin: config.pin 
+            },
+            headers: { 
+                'client-id': config.clientId, 
+                'client-secret': config.clientSecret 
+            },
+            validateStatus: (status) => status < 500
+        });
+
+        // LinkQu biasanya mengembalikan 'SUCCESS' atau 'SETTLED' jika lunas
+        const statusFromServer = resp.data.status;
+
+        if (statusFromServer === 'SUCCESS' || statusFromServer === 'SETTLED') {
+            console.log(`✅ [POLLING VENDOR SUCCESS] Transaksi ${reff} lunas via LinkQu.`);
+            
+            // Backup Update: Jika LinkQu bilang sukses tapi DB kita belum (callback delay)
+            await db.query(
+                "UPDATE bookings_pelni SET payment_status = 'SUCCESS' WHERE payment_reff = ?", 
+                [reff]
+            );
+
+            return res.json({ 
+                status: 'SUCCESS', 
+                payment_status: 'SUCCESS',
+                numCode: rows[0].num_code,
+                data: resp.data 
+            });
+        } 
+
+        // 3. JIKA MASIH PENDING ATAU FAILED
+        console.log(`⏳ [POLLING PENDING] Transaksi ${reff} masih menunggu pembayaran.`);
+        return res.json({
+            status: statusFromServer || 'PENDING',
+            payment_status: statusFromServer || 'PENDING'
+        });
+
+    } catch (err) {
+        console.error(`❌ [POLLING ERROR] ${reff}:`, err.message);
+        // Tetap kembalikan status PENDING agar polling di frontend tidak berhenti karena error teknis
+        return res.json({ status: 'PENDING' });
+    }
+},
+
+downloadShipQR: async (req, res) => {
+    try {
+        const { num_code, type } = req.query; // type: 'PAYMENT' atau 'TICKET'
+
+        // 1. Ambil data dari database untuk mendapatkan URL QR yang asli
+        const [rows] = await db.query(
+            `SELECT b.qris_url, p.ticket_qrcode, b.num_code 
+             FROM bookings_pelni b
+             LEFT JOIN booking_passengers_pelni p ON b.id = p.booking_id
+             WHERE b.num_code = ? LIMIT 1`, 
+            [num_code]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).send("Data booking tidak ditemukan.");
+        }
+
+        const data = rows[0];
+        // Pilih URL berdasarkan tipe download
+        // Jika TICKET, ambil dari tabel penumpang. Jika PAYMENT, ambil qris_url dari tabel booking.
+        const targetUrl = type === 'TICKET' ? data.ticket_qrcode : data.qris_url;
+        const fileName = type === 'TICKET' ? `TIKET-PELNI-${num_code}` : `QRIS-BAYAR-${num_code}`;
+
+        if (!targetUrl) {
+            return res.status(404).send("Gambar QR belum tersedia.");
+        }
+
+        // 2. Download gambar dari URL Vendor (Darmawisata/LinkQu)
+        const response = await axios({
+            url: targetUrl,
+            method: 'GET',
+            responseType: 'stream'
+        });
+
+        // 3. Set Header agar browser otomatis mendownload (bukan sekadar buka gambar)
+        res.setHeader('Content-disposition', `attachment; filename=${fileName}.png`);
+        res.setHeader('Content-type', 'image/png');
+
+        // Kirim stream data ke client
+        return response.data.pipe(res);
+
+    } catch (err) {
+        console.error("❌ Download Error:", err.message);
+        return res.status(500).send("Gagal mengunduh gambar QR");
+    }
+},
 
     handleShipCallback: async (req, res) => {
         console.log("📥 [SHIP CALLBACK] Received:", req.body.partner_reff);

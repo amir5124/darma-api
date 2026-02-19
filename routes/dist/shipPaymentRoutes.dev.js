@@ -8,5 +8,7 @@ var shipPaymentController = require('../controllers/shipPaymentController'); // 
 
 
 router.post('/create-payment', shipPaymentController.createShipPayment);
+router.get('/status/:reff', shipPaymentController.checkShipStatus);
+router.get('/download-qris', shipPaymentController.downloadShipQR);
 router.post('/callback', shipPaymentController.handleShipCallback);
 module.exports = router;
