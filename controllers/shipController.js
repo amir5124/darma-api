@@ -30,7 +30,7 @@ exports.saveShipBooking = async (req, res) => {
                 payload_request, raw_response
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
-                response.bokingNumber || response.bookingNumber, // PNR PELNI
+                response.bokingNumber || response.bookingNumber || response.pnr || response.bookingCode || null,
                 response.numCode || payload.numCode,
                 response.shipNumber || payload.shipNumber,
                 response.shipName || "KM. PELNI",
