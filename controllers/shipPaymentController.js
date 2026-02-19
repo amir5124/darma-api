@@ -184,6 +184,39 @@ const ShipPaymentController = {
     }
 },
 
+checkStatus: async (req, res) => {
+        const { reff } = req.params;
+        try {
+            // Cek lokal DB
+            const [rows] = await db.query(
+                "SELECT payment_status, booking_code, num_code FROM bookings_pelni WHERE payment_reff = ?", 
+                [reff]
+            );
+
+            if (rows.length > 0 && rows[0].payment_status === 'SUCCESS') {
+                return res.json({ status: 'SUCCESS', numCode: rows[0].num_code });
+            }
+
+            // Cek API Vendor LinkQu
+            const resp = await axios.get(`${config.baseUrl}/transaction/check-status`, {
+                params: { partner_reff: reff, username: config.username, pin: config.pin },
+                headers: { 'client-id': config.clientId, 'client-secret': config.clientSecret },
+                validateStatus: (status) => status < 500
+            });
+
+            const statusVendor = resp.data.status;
+            if (statusVendor === 'SUCCESS' || statusVendor === 'SETTLED') {
+                await db.query("UPDATE bookings_pelni SET payment_status = 'SUCCESS' WHERE payment_reff = ?", [reff]);
+                return res.json({ status: 'SUCCESS' });
+            }
+
+            return res.json({ status: statusVendor || 'PENDING' });
+        } catch (err) {
+            console.error("Polling Error:", err.message);
+            return res.json({ status: 'PENDING' });
+        }
+    },
+
 downloadShipQR: async (req, res) => {
     try {
         const { num_code, type } = req.query; // type: 'PAYMENT' atau 'TICKET'
