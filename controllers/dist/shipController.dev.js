@@ -48,8 +48,7 @@ exports.saveShipBooking = function _callee(req, res) {
 
         case 9:
           /**
-           * 1. Helper untuk merapikan format DateTime ISO ke MySQL format (YYYY-MM-DD HH:mm:ss)
-           * Menghindari error jika ada milidetik atau karakter 'T'
+           * 1. Helper untuk merapikan format DateTime
            */
           formatMySQLDateTime = function formatMySQLDateTime(dateStr) {
             if (!dateStr) return null;
@@ -58,14 +57,17 @@ exports.saveShipBooking = function _callee(req, res) {
 
 
           _context.next = 12;
-          return regeneratorRuntime.awrap(connection.execute("INSERT INTO bookings_pelni (\n                booking_code, num_code, ship_number, ship_name,\n                origin_port, origin_name, destination_port, destination_name,\n                depart_date, arrival_date, ticket_status,\n                total_price, sales_price, admin_fee, time_limit, \n                user_id, pengguna, customer_email, \n                payload_request, raw_response\n            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [response.bookingNumber || response.bokingNumber || response.pnr || null, response.numCode || payload.numCode || null, response.shipNumber || payload.shipNumber || null, response.shipName || "KM. PELNI", response.originPort || payload.originPort || null, response.originName || null, response.destinationPort || payload.destinationPort || null, response.destinationName || null, formatMySQLDateTime(response.departDate), formatMySQLDateTime(response.arrivalDate), response.ticketStatus || "HOLD", response.ticketPrice || 0, response.salesPrice || 0, payload.adminFee || 0, formatMySQLDateTime(response.issuedDateTimeLimit || response.timeLimit), response.userID || payload.userID || null, username || 'Guest', payload.ticketBuyerEmail || null, JSON.stringify(payload) || null, JSON.stringify(response) || null]));
+          return regeneratorRuntime.awrap(connection.execute("INSERT INTO bookings_pelni (\n                booking_code, num_code, ship_number, ship_name,\n                origin_port, origin_name, destination_port, destination_name,\n                depart_date, arrival_date, ticket_status,\n                total_price, sales_price, admin_fee, time_limit, \n                user_id, pengguna, customer_email, \n                payload_request, raw_response\n            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [response.bookingNumber || response.bokingNumber || response.pnr || null, response.numCode || payload.numCode || null, response.shipNumber || payload.shipNumber || null, // --- FALLBACK LOGIC UNTUK NAMA ---
+          response.shipName || payload.shipName || "KM. PELNI", response.originPort || payload.originPort || null, response.originName || payload.originName || null, // Ambil dari payload jika response vendor null
+          response.destinationPort || payload.destinationPort || null, response.destinationName || payload.destinationName || null, // Ambil dari payload jika response vendor null
+          // ---------------------------------
+          formatMySQLDateTime(response.departDate || payload.departDate), formatMySQLDateTime(response.arrivalDate || payload.arrivalDate), response.ticketStatus || "HOLD", response.ticketPrice || 0, response.salesPrice || 0, payload.adminFee || 0, formatMySQLDateTime(response.issuedDateTimeLimit || response.timeLimit || payload.timeLimit), response.userID || payload.userID || null, username || 'Guest', payload.ticketBuyerEmail || null, JSON.stringify(payload) || null, JSON.stringify(response) || null]));
 
         case 12:
           _ref = _context.sent;
           _ref2 = _slicedToArray(_ref, 1);
           resBooking = _ref2[0];
-          bookingId = resBooking.insertId; // 3. Simpan Data Penumpang ke booking_passengers_pelni
-          // Mengutamakan data dari response (paxBookingDetails) lalu fallback ke payload
+          bookingId = resBooking.insertId; // 3. Simpan Data Penumpang
 
           paxs = response.paxBookingDetails || payload.paxDetails || [];
           _iteratorNormalCompletion = true;
@@ -81,7 +83,6 @@ exports.saveShipBooking = function _callee(req, res) {
           }
 
           p = _step.value;
-          // Logika Nama: Gabung firstName & lastName jika paxName tidak ada
           fullName = p.paxName;
 
           if (!fullName && p.firstName) {
@@ -89,8 +90,7 @@ exports.saveShipBooking = function _callee(req, res) {
           }
 
           _context.next = 28;
-          return regeneratorRuntime.awrap(connection.execute("INSERT INTO booking_passengers_pelni (\n                    booking_id, pax_name, pax_type, pax_gender, \n                    birth_date, id_number, phone, \n                    deck, cabin, bed\n                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [bookingId, (fullName || 'NONAME').toUpperCase(), p.paxType || 'Adult', p.paxGender || 'M', p.birthDate ? p.birthDate.split('T')[0] : null, p.ID || p.id_number || null, // Penting: Hindari undefined
-          p.phone || '', p.deck || '-', p.cabin || '-', p.bed || '-']));
+          return regeneratorRuntime.awrap(connection.execute("INSERT INTO booking_passengers_pelni (\n                    booking_id, pax_name, pax_type, pax_gender, \n                    birth_date, id_number, phone, \n                    deck, cabin, bed\n                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [bookingId, (fullName || 'NONAME').toUpperCase(), p.paxType || 'Adult', p.paxGender || 'M', p.birthDate ? p.birthDate.split('T')[0] : null, p.ID || p.id_number || null, p.phone || '', p.deck || '-', p.cabin || '-', p.bed || '-']));
 
         case 28:
           _iteratorNormalCompletion = true;
@@ -140,7 +140,7 @@ exports.saveShipBooking = function _callee(req, res) {
             status: "SUCCESS",
             id: bookingId,
             bookingCode: response.bookingNumber || response.bokingNumber,
-            message: "Booking PELNI berhasil disimpan."
+            message: "Booking PELNI berhasil disimpan secara lokal."
           });
           _context.next = 57;
           break;

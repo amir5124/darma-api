@@ -19,8 +19,7 @@ exports.saveShipBooking = async (req, res) => {
         await connection.beginTransaction();
 
         /**
-         * 1. Helper untuk merapikan format DateTime ISO ke MySQL format (YYYY-MM-DD HH:mm:ss)
-         * Menghindari error jika ada milidetik atau karakter 'T'
+         * 1. Helper untuk merapikan format DateTime
          */
         const formatMySQLDateTime = (dateStr) => {
             if (!dateStr) return null;
@@ -41,18 +40,22 @@ exports.saveShipBooking = async (req, res) => {
                 response.bookingNumber || response.bokingNumber || response.pnr || null,
                 response.numCode || payload.numCode || null,
                 response.shipNumber || payload.shipNumber || null,
-                response.shipName || "KM. PELNI",
+                
+                // --- FALLBACK LOGIC UNTUK NAMA ---
+                response.shipName || payload.shipName || "KM. PELNI",
                 response.originPort || payload.originPort || null,
-                response.originName || null,
+                response.originName || payload.originName || null, // Ambil dari payload jika response vendor null
                 response.destinationPort || payload.destinationPort || null,
-                response.destinationName || null,
-                formatMySQLDateTime(response.departDate), 
-                formatMySQLDateTime(response.arrivalDate),
+                response.destinationName || payload.destinationName || null, // Ambil dari payload jika response vendor null
+                // ---------------------------------
+
+                formatMySQLDateTime(response.departDate || payload.departDate), 
+                formatMySQLDateTime(response.arrivalDate || payload.arrivalDate),
                 response.ticketStatus || "HOLD",
                 response.ticketPrice || 0, 
                 response.salesPrice || 0,
                 payload.adminFee || 0, 
-                formatMySQLDateTime(response.issuedDateTimeLimit || response.timeLimit),
+                formatMySQLDateTime(response.issuedDateTimeLimit || response.timeLimit || payload.timeLimit),
                 response.userID || payload.userID || null,
                 username || 'Guest',
                 payload.ticketBuyerEmail || null,
@@ -63,12 +66,10 @@ exports.saveShipBooking = async (req, res) => {
 
         const bookingId = resBooking.insertId;
 
-        // 3. Simpan Data Penumpang ke booking_passengers_pelni
-        // Mengutamakan data dari response (paxBookingDetails) lalu fallback ke payload
+        // 3. Simpan Data Penumpang
         const paxs = response.paxBookingDetails || payload.paxDetails || [];
         
         for (const p of paxs) {
-            // Logika Nama: Gabung firstName & lastName jika paxName tidak ada
             let fullName = p.paxName;
             if (!fullName && p.firstName) {
                 fullName = `${p.firstName} ${p.lastName || ''}`.trim();
@@ -86,7 +87,7 @@ exports.saveShipBooking = async (req, res) => {
                     p.paxType || 'Adult',
                     p.paxGender || 'M',
                     p.birthDate ? p.birthDate.split('T')[0] : null,
-                    p.ID || p.id_number || null, // Penting: Hindari undefined
+                    p.ID || p.id_number || null,
                     p.phone || '',
                     p.deck || '-',
                     p.cabin || '-',
@@ -101,7 +102,7 @@ exports.saveShipBooking = async (req, res) => {
             status: "SUCCESS", 
             id: bookingId, 
             bookingCode: response.bookingNumber || response.bokingNumber,
-            message: "Booking PELNI berhasil disimpan." 
+            message: "Booking PELNI berhasil disimpan secara lokal." 
         });
 
     } catch (error) {
