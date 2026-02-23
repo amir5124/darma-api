@@ -9,8 +9,8 @@ const flightController = require('../controllers/flightController');
 const { sendBookingEmail } = require('../utils/mailer');
 const moment = require('moment-timezone');
 const nodemailer = require('nodemailer');
-const puppeteer = require('puppeteer');
-const QRCode = require('qrcode');
+// const puppeteer = require('puppeteer');
+// const QRCode = require('qrcode');
 /**
  * HELPER: ARCHIVE DATA KE DATABASE
  * Membersihkan format ISO (T/Z) agar kompatibel dengan MySQL DATE & DATETIME
