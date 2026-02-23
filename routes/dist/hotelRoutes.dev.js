@@ -14,4 +14,5 @@ router.post('/booking-detail', hotelController.bookingDetail);
 router.post('/payment-callback', hotelController.handlePaymentNotification); // Penting untuk email sukses
 
 router.get('/image', hotelController.getHotelImage);
+router.get('/room-image', hotelController.getRoomImage);
 module.exports = router;

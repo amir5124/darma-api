@@ -367,17 +367,40 @@ const hotelController = {
     },
 
     // 8. IMAGES
+   // Endpoint untuk Gambar Hotel / Logo
     getHotelImage: async (req, res) => {
         try {
-            const response = await axios.get(`${BASE_URL}/Hotel/Image?id=${req.query.id}`, {
+            const id = req.query.id; 
+            if (!id) return res.status(400).send('ID is required');
+
+            const response = await axios.get(`${BASE_URL}/Hotel/Image?id=${id}`, {
                 httpsAgent: agent,
                 responseType: 'arraybuffer'
             });
-            res.set('Content-Type', 'image/jpeg').send(response.data);
+            res.set('Content-Type', 'image/jpeg');
+            res.send(response.data);
         } catch (error) {
-            res.status(404).send('Not Found');
+            res.status(404).send('Hotel image not found');
         }
-    }
+    },
+
+    // Endpoint untuk Gambar Kamar
+    getRoomImage: async (req, res) => {
+        try {
+            // Kita ambil RoomID dari query string
+            const RoomID = req.query.RoomID; 
+            if (!RoomID) return res.status(400).send('RoomID is required');
+
+            const response = await axios.get(`${BASE_URL}/Hotel/RoomImage?RoomID=${RoomID}`, {
+                httpsAgent: agent,
+                responseType: 'arraybuffer'
+            });
+            res.set('Content-Type', 'image/jpeg');
+            res.send(response.data);
+        } catch (error) {
+            res.status(404).send('Room image not found');
+        }
+    },
 };
 
 module.exports = hotelController;

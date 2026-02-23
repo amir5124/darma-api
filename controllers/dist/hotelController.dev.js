@@ -682,36 +682,92 @@ var hotelController = {
     }, null, null, [[0, 12]]);
   },
   // 8. IMAGES
+  // Endpoint untuk Gambar Hotel / Logo
   getHotelImage: function getHotelImage(req, res) {
-    var response;
+    var id, response;
     return regeneratorRuntime.async(function getHotelImage$(_context8) {
       while (1) {
         switch (_context8.prev = _context8.next) {
           case 0:
             _context8.prev = 0;
-            _context8.next = 3;
-            return regeneratorRuntime.awrap(axios.get("".concat(BASE_URL, "/Hotel/Image?id=").concat(req.query.id), {
+            id = req.query.id;
+
+            if (id) {
+              _context8.next = 4;
+              break;
+            }
+
+            return _context8.abrupt("return", res.status(400).send('ID is required'));
+
+          case 4:
+            _context8.next = 6;
+            return regeneratorRuntime.awrap(axios.get("".concat(BASE_URL, "/Hotel/Image?id=").concat(id), {
               httpsAgent: agent,
               responseType: 'arraybuffer'
             }));
 
-          case 3:
+          case 6:
             response = _context8.sent;
-            res.set('Content-Type', 'image/jpeg').send(response.data);
-            _context8.next = 10;
+            res.set('Content-Type', 'image/jpeg');
+            res.send(response.data);
+            _context8.next = 14;
             break;
 
-          case 7:
-            _context8.prev = 7;
+          case 11:
+            _context8.prev = 11;
             _context8.t0 = _context8["catch"](0);
-            res.status(404).send('Not Found');
+            res.status(404).send('Hotel image not found');
 
-          case 10:
+          case 14:
           case "end":
             return _context8.stop();
         }
       }
-    }, null, null, [[0, 7]]);
+    }, null, null, [[0, 11]]);
+  },
+  // Endpoint untuk Gambar Kamar
+  getRoomImage: function getRoomImage(req, res) {
+    var RoomID, response;
+    return regeneratorRuntime.async(function getRoomImage$(_context9) {
+      while (1) {
+        switch (_context9.prev = _context9.next) {
+          case 0:
+            _context9.prev = 0;
+            // Kita ambil RoomID dari query string
+            RoomID = req.query.RoomID;
+
+            if (RoomID) {
+              _context9.next = 4;
+              break;
+            }
+
+            return _context9.abrupt("return", res.status(400).send('RoomID is required'));
+
+          case 4:
+            _context9.next = 6;
+            return regeneratorRuntime.awrap(axios.get("".concat(BASE_URL, "/Hotel/RoomImage?RoomID=").concat(RoomID), {
+              httpsAgent: agent,
+              responseType: 'arraybuffer'
+            }));
+
+          case 6:
+            response = _context9.sent;
+            res.set('Content-Type', 'image/jpeg');
+            res.send(response.data);
+            _context9.next = 14;
+            break;
+
+          case 11:
+            _context9.prev = 11;
+            _context9.t0 = _context9["catch"](0);
+            res.status(404).send('Room image not found');
+
+          case 14:
+          case "end":
+            return _context9.stop();
+        }
+      }
+    }, null, null, [[0, 11]]);
   }
 };
 module.exports = hotelController;
