@@ -13,6 +13,7 @@ const trainRoutes = require('./routes/trainRoutes'); // <-- BARU
 const historyRoutes = require('./routes/historyRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const shipPaymentRoutes = require('./routes/shipPaymentRoutes')
+const hotelPaymentRoutes = require('./routes/hotelPaymentRoutes')
 
 const app = express();
 app.use(express.json());

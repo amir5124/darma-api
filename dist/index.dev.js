@@ -28,6 +28,8 @@ var paymentRoutes = require('./routes/paymentRoutes');
 
 var shipPaymentRoutes = require('./routes/shipPaymentRoutes');
 
+var hotelPaymentRoutes = require('./routes/hotelPaymentRoutes');
+
 var app = express();
 app.use(express.json());
 app.use(cors()); // 2. Daftarkan Routes (Tambahkan Train)
