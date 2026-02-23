@@ -106,69 +106,80 @@ const hotelController = {
     },
 
     // 4. BOOKING (INSERT TO DB & EMAIL KONFIRMASI)
-    booking: async (req, res) => {
-        let connection;
-        try {
-            const token = await getConsistentToken();
-            const b = req.body;
+   booking: async (req, res) => {
+    let connection;
+    try {
+        const token = await getConsistentToken();
+        const b = req.body;
 
-            const payload = {
-                paxPassport: b.paxPassport || "ID",
-                countryID: b.countryID || "ID",
-                cityID: String(b.cityID),
-                checkInDate: b.checkInDate.endsWith('Z') ? b.checkInDate : b.checkInDate + 'Z',
-                checkOutDate: b.checkOutDate.endsWith('Z') ? b.checkOutDate : b.checkOutDate + 'Z',
-                roomRequest: b.roomRequest.map(room => ({
-                    paxes: room.paxes.map(pax => ({
-                        title: pax.title,
-                        firstName: pax.firstName.trim(),
-                        lastName: pax.lastName.trim()
-                    })),
-                    isSmokingRoom: Boolean(room.isSmokingRoom),
-                    phone: String(room.phone),
-                    email: String(room.email),
-                    roomType: 0,
-                    childNum: parseInt(room.childNum) || 0,
-                    childAges: room.childAges || [0]
+        // 1. Validasi Input Dasar
+        if (!b.roomRequest || !b.roomRequest[0]) {
+            return res.status(400).json({ status: "ERROR", respMessage: "Data paxes tidak lengkap." });
+        }
+
+        const payload = {
+            paxPassport: b.paxPassport || "ID",
+            countryID: b.countryID || "ID",
+            cityID: String(b.cityID),
+            checkInDate: b.checkInDate.endsWith('Z') ? b.checkInDate : b.checkInDate + 'Z',
+            checkOutDate: b.checkOutDate.endsWith('Z') ? b.checkOutDate : b.checkOutDate + 'Z',
+            roomRequest: b.roomRequest.map(room => ({
+                paxes: room.paxes.map(pax => ({
+                    title: pax.title || 'Mr.',
+                    firstName: (pax.firstName || '').trim(),
+                    lastName: (pax.lastName || '').trim()
                 })),
-                internalCode: b.internalCode,
-                hotelID: b.hotelID,
-                breakfast: b.breakfast,
-                roomID: b.roomID,
-                bedType: { ID: null, bed: null },
-                agentOsRef: b.agentOsRef,
-                userID: USER_CONFIG.userID,
-                accessToken: token
-            };
+                isSmokingRoom: Boolean(room.isSmokingRoom),
+                phone: String(room.phone || ''),
+                email: String(room.email || ''),
+                roomType: 0,
+                childNum: parseInt(room.childNum) || 0,
+                childAges: room.childAges || []
+            })),
+            internalCode: b.internalCode,
+            hotelID: b.hotelID,
+            breakfast: b.breakfast,
+            roomID: b.roomID,
+            bedType: { ID: null, bed: null },
+            agentOsRef: b.agentOsRef || `HTL-${Date.now()}`,
+            userID: USER_CONFIG.userID,
+            accessToken: token
+        };
 
-            const response = await axios.post(`${BASE_URL}/Hotel/BookingAllSupplier`, payload, { httpsAgent: agent });
-            const resData = response.data;
+        // 2. Request ke Supplier
+        const response = await axios.post(`${BASE_URL}/Hotel/BookingAllSupplier`, payload, { 
+            httpsAgent: agent,
+            timeout: 30000 // Robustness: Tambahkan timeout 30 detik
+        });
+        
+        const resData = response.data;
 
-            if (resData.status === "SUCCESS") {
-                connection = await db.getConnection();
-                await connection.beginTransaction();
+        if (resData.status === "SUCCESS") {
+            connection = await db.getConnection();
+            await connection.beginTransaction();
 
-                const [bookingResult] = await connection.execute(
-                    `INSERT INTO hotel_bookings 
-                    (reservation_no, voucher_no, os_ref_no, agent_os_ref, hotel_id, hotel_name, hotel_address, 
-                    internal_code, check_in_date, check_out_date, city_id, room_id, room_name, breakfast_type, 
-                    contact_email, contact_phone, total_price, booking_status) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                    [
-                        resData.reservationNo, resData.voucherNo, resData.osRefNo, resData.agentOsRef,
-                        resData.hotelID, resData.hotelName, resData.hotelAddress, b.internalCode,
-                        resData.checkInDate, resData.checkOutDate, resData.cityID, resData.roomID,
-                        resData.roomName, resData.breakfast, b.roomRequest[0].email, b.roomRequest[0].phone,
-                        resData.totalPrice, 'Accept'
-                    ]
-                );
+            // 3. Simpan Main Booking
+            const [bookingResult] = await connection.execute(
+                `INSERT INTO hotel_bookings 
+                (reservation_no, voucher_no, os_ref_no, agent_os_ref, hotel_id, hotel_name, hotel_address, 
+                internal_code, check_in_date, check_out_date, city_id, room_id, room_name, breakfast_type, 
+                contact_email, contact_phone, total_price, booking_status) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    resData.reservationNo, resData.voucherNo, resData.osRefNo, resData.agentOsRef,
+                    resData.hotelID, resData.hotelName, resData.hotelAddress, b.internalCode,
+                    resData.checkInDate, resData.checkOutDate, resData.cityID, resData.roomID,
+                    resData.roomName, resData.breakfast, b.roomRequest[0].email, b.roomRequest[0].phone,
+                    resData.totalPrice, 'Accept'
+                ]
+            );
 
-               const newBookingId = bookingResult.insertId; // Ini ID database Anda
+            const newBookingId = bookingResult.insertId;
+            Cconsole.log(newBookingId,"id")
 
-// Tambahkan ID ini ke dalam resData sebelum dikirim ke Frontend
-resData.booking_id = newBookingId;
-
-                for (const room of b.roomRequest) {
+            // 4. Simpan Paxes (Looping yang aman)
+            for (const room of b.roomRequest) {
+                if (room.paxes) {
                     for (const pax of room.paxes) {
                         await connection.execute(
                             `INSERT INTO hotel_booking_paxes (booking_id, pax_type, title, first_name, last_name) 
@@ -176,61 +187,63 @@ resData.booking_id = newBookingId;
                             [newBookingId, pax.title, pax.firstName, pax.lastName]
                         );
                     }
-                    if (room.childNum > 0) {
-                        for (const age of room.childAges) {
-                            await connection.execute(
-                                `INSERT INTO hotel_booking_paxes (booking_id, pax_type, age) 
-                                VALUES (?, 'CHILD', ?)`,
-                                [newBookingId, age]
-                            );
-                        }
+                }
+                if (room.childNum > 0 && room.childAges) {
+                    for (const age of room.childAges) {
+                        await connection.execute(
+                            `INSERT INTO hotel_booking_paxes (booking_id, pax_type, age) 
+                            VALUES (?, 'CHILD', ?)`,
+                            [newBookingId, age]
+                        );
                     }
                 }
-
-                const expiredDate = new Date();
-                expiredDate.setHours(expiredDate.getHours() + 2);
-
-                await connection.execute(
-                    `INSERT INTO hotel_payments (booking_id, booking_code, amount, expired_date, payment_status) 
-                    VALUES (?, ?, ?, ?, 'PENDING')`,
-                    [newBookingId, resData.reservationNo, resData.totalPrice, expiredDate]
-                );
-
-                await connection.commit();
-
-                // --- EMAIL 1: KONFIRMASI BOOKING ---
-                const htmlBooking = `
-                <div style="font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #f0f0f0;">
-                    <div style="background: ${primaryColor}; padding: 20px; text-align: center; color: white;">
-                        <h2 style="margin: 0;">Booking Diterima</h2>
-                    </div>
-                    <div style="padding: 20px;">
-                        <p>Halo <b>${b.roomRequest[0].paxes[0].firstName}</b>,</p>
-                        <p>Pesanan Anda di <b>${resData.hotelName}</b> telah kami terima dengan nomor reservasi <b>${resData.reservationNo}</b>.</p>
-                        <p>Status saat ini: <span style="color: ${secondaryColor}; font-weight: bold;">Menunggu Pembayaran</span></p>
-                        <p>Silakan lanjut ke menu pembayaran di aplikasi untuk mengamankan pesanan Anda.</p>
-                    </div>
-                </div>`;
-
-                await transporter.sendMail({
-                    from: '"Travel Support" <noreply@travel.com>',
-                    to: b.roomRequest[0].email,
-                    subject: `Konfirmasi Booking - ${resData.reservationNo}`,
-                    html: htmlBooking
-                });
-
-                logger.info(`Full Data Saved for: ${resData.reservationNo}`);
             }
 
-            res.json(resData);
-        } catch (error) {
-            if (connection) await connection.rollback();
-            logger.error("Booking Error: " + error.message);
-            res.status(500).json({ status: "ERROR", respMessage: error.message });
-        } finally {
-            if (connection) connection.release();
+            // 5. Simpan Payment Record
+            const expiredDate = new Date();
+            expiredDate.setHours(expiredDate.getHours() + 2);
+
+            await connection.execute(
+                `INSERT INTO hotel_payments (booking_id, booking_code, amount, expired_date, payment_status) 
+                VALUES (?, ?, ?, ?, 'PENDING')`,
+                [newBookingId, resData.reservationNo, resData.totalPrice, expiredDate]
+            );
+
+            await connection.commit();
+
+            // 6. Kirim Email (Async - Jangan biarkan error email menggagalkan transaksi)
+            transporter.sendMail({
+                from: '"LinkU Travel" <linkutransport@gmail.com>',
+                to: b.roomRequest[0].email,
+                subject: `Konfirmasi Booking - ${resData.reservationNo}`,
+                html: generateEmailHtml(resData, b.roomRequest[0].paxes[0].firstName) // Gunakan helper function
+            }).catch(err => logger.error("Email Error: " + err.message));
+
+            // 7. FINAL RESPONSE (Pastikan booking_id terkirim paling atas)
+            return res.json({
+                status: "SUCCESS",
+                booking_id: newBookingId, // Kunci utama untuk Frontend
+                ...resData
+            });
+
+        } else {
+            // Jika supplier gagal
+            return res.status(400).json({ 
+                status: "ERROR", 
+                respMessage: resData.respMessage || "Gagal melakukan booking ke supplier." 
+            });
         }
-    },
+
+    } catch (error) {
+        if (connection) await connection.rollback();
+        logger.error("Booking Error: " + error.message);
+        res.status(500).json({ status: "ERROR", respMessage: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+},
+
+
 
     // 5. SELECT PAYMENT METHOD (LINKQU INSTRUCTION EMAIL)
     // Asumsi: Method ini dipanggil saat user memilih bank/metode bayar LinkQu di aplikasi Anda
@@ -370,10 +383,10 @@ resData.booking_id = newBookingId;
     },
 
     // 8. IMAGES
-   // Endpoint untuk Gambar Hotel / Logo
+    // Endpoint untuk Gambar Hotel / Logo
     getHotelImage: async (req, res) => {
         try {
-            const id = req.query.id; 
+            const id = req.query.id;
             if (!id) return res.status(400).send('ID is required');
 
             const response = await axios.get(`${BASE_URL}/Hotel/Image?id=${id}`, {
@@ -391,7 +404,7 @@ resData.booking_id = newBookingId;
     getRoomImage: async (req, res) => {
         try {
             // Kita ambil RoomID dari query string
-            const RoomID = req.query.RoomID; 
+            const RoomID = req.query.RoomID;
             if (!RoomID) return res.status(400).send('RoomID is required');
 
             const response = await axios.get(`${BASE_URL}/Hotel/RoomImage?RoomID=${RoomID}`, {
