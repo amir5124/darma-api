@@ -163,7 +163,10 @@ const hotelController = {
                     ]
                 );
 
-                const newBookingId = bookingResult.insertId;
+               const newBookingId = bookingResult.insertId; // Ini ID database Anda
+
+// Tambahkan ID ini ke dalam resData sebelum dikirim ke Frontend
+resData.booking_id = newBookingId;
 
                 for (const room of b.roomRequest) {
                     for (const pax of room.paxes) {

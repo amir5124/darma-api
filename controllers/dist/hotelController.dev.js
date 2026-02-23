@@ -267,7 +267,7 @@ var hotelController = {
             resData = response.data;
 
             if (!(resData.status === "SUCCESS")) {
-              _context4.next = 109;
+              _context4.next = 110;
               break;
             }
 
@@ -287,16 +287,19 @@ var hotelController = {
             _ref = _context4.sent;
             _ref2 = _slicedToArray(_ref, 1);
             bookingResult = _ref2[0];
-            newBookingId = bookingResult.insertId;
+            newBookingId = bookingResult.insertId; // Ini ID database Anda
+            // Tambahkan ID ini ke dalam resData sebelum dikirim ke Frontend
+
+            resData.booking_id = newBookingId;
             _iteratorNormalCompletion = true;
             _didIteratorError = false;
             _iteratorError = undefined;
-            _context4.prev = 25;
+            _context4.prev = 26;
             _iterator = b.roomRequest[Symbol.iterator]();
 
-          case 27:
+          case 28:
             if (_iteratorNormalCompletion = (_step = _iterator.next()).done) {
-              _context4.next = 85;
+              _context4.next = 86;
               break;
             }
 
@@ -304,172 +307,172 @@ var hotelController = {
             _iteratorNormalCompletion2 = true;
             _didIteratorError2 = false;
             _iteratorError2 = undefined;
-            _context4.prev = 32;
+            _context4.prev = 33;
             _iterator2 = room.paxes[Symbol.iterator]();
 
-          case 34:
+          case 35:
             if (_iteratorNormalCompletion2 = (_step2 = _iterator2.next()).done) {
-              _context4.next = 41;
+              _context4.next = 42;
               break;
             }
 
             pax = _step2.value;
-            _context4.next = 38;
+            _context4.next = 39;
             return regeneratorRuntime.awrap(connection.execute("INSERT INTO hotel_booking_paxes (booking_id, pax_type, title, first_name, last_name) \n                            VALUES (?, 'ADULT', ?, ?, ?)", [newBookingId, pax.title, pax.firstName, pax.lastName]));
 
-          case 38:
+          case 39:
             _iteratorNormalCompletion2 = true;
-            _context4.next = 34;
+            _context4.next = 35;
             break;
 
-          case 41:
-            _context4.next = 47;
+          case 42:
+            _context4.next = 48;
             break;
 
-          case 43:
-            _context4.prev = 43;
-            _context4.t0 = _context4["catch"](32);
+          case 44:
+            _context4.prev = 44;
+            _context4.t0 = _context4["catch"](33);
             _didIteratorError2 = true;
             _iteratorError2 = _context4.t0;
 
-          case 47:
-            _context4.prev = 47;
+          case 48:
             _context4.prev = 48;
+            _context4.prev = 49;
 
             if (!_iteratorNormalCompletion2 && _iterator2["return"] != null) {
               _iterator2["return"]();
             }
 
-          case 50:
-            _context4.prev = 50;
+          case 51:
+            _context4.prev = 51;
 
             if (!_didIteratorError2) {
-              _context4.next = 53;
+              _context4.next = 54;
               break;
             }
 
             throw _iteratorError2;
 
-          case 53:
-            return _context4.finish(50);
-
           case 54:
-            return _context4.finish(47);
+            return _context4.finish(51);
 
           case 55:
+            return _context4.finish(48);
+
+          case 56:
             if (!(room.childNum > 0)) {
-              _context4.next = 82;
+              _context4.next = 83;
               break;
             }
 
             _iteratorNormalCompletion3 = true;
             _didIteratorError3 = false;
             _iteratorError3 = undefined;
-            _context4.prev = 59;
+            _context4.prev = 60;
             _iterator3 = room.childAges[Symbol.iterator]();
 
-          case 61:
+          case 62:
             if (_iteratorNormalCompletion3 = (_step3 = _iterator3.next()).done) {
-              _context4.next = 68;
+              _context4.next = 69;
               break;
             }
 
             age = _step3.value;
-            _context4.next = 65;
+            _context4.next = 66;
             return regeneratorRuntime.awrap(connection.execute("INSERT INTO hotel_booking_paxes (booking_id, pax_type, age) \n                                VALUES (?, 'CHILD', ?)", [newBookingId, age]));
 
-          case 65:
+          case 66:
             _iteratorNormalCompletion3 = true;
-            _context4.next = 61;
+            _context4.next = 62;
             break;
 
-          case 68:
-            _context4.next = 74;
+          case 69:
+            _context4.next = 75;
             break;
 
-          case 70:
-            _context4.prev = 70;
-            _context4.t1 = _context4["catch"](59);
+          case 71:
+            _context4.prev = 71;
+            _context4.t1 = _context4["catch"](60);
             _didIteratorError3 = true;
             _iteratorError3 = _context4.t1;
 
-          case 74:
-            _context4.prev = 74;
+          case 75:
             _context4.prev = 75;
+            _context4.prev = 76;
 
             if (!_iteratorNormalCompletion3 && _iterator3["return"] != null) {
               _iterator3["return"]();
             }
 
-          case 77:
-            _context4.prev = 77;
+          case 78:
+            _context4.prev = 78;
 
             if (!_didIteratorError3) {
-              _context4.next = 80;
+              _context4.next = 81;
               break;
             }
 
             throw _iteratorError3;
 
-          case 80:
-            return _context4.finish(77);
-
           case 81:
-            return _context4.finish(74);
+            return _context4.finish(78);
 
           case 82:
+            return _context4.finish(75);
+
+          case 83:
             _iteratorNormalCompletion = true;
-            _context4.next = 27;
+            _context4.next = 28;
             break;
 
-          case 85:
-            _context4.next = 91;
+          case 86:
+            _context4.next = 92;
             break;
 
-          case 87:
-            _context4.prev = 87;
-            _context4.t2 = _context4["catch"](25);
+          case 88:
+            _context4.prev = 88;
+            _context4.t2 = _context4["catch"](26);
             _didIteratorError = true;
             _iteratorError = _context4.t2;
 
-          case 91:
-            _context4.prev = 91;
+          case 92:
             _context4.prev = 92;
+            _context4.prev = 93;
 
             if (!_iteratorNormalCompletion && _iterator["return"] != null) {
               _iterator["return"]();
             }
 
-          case 94:
-            _context4.prev = 94;
+          case 95:
+            _context4.prev = 95;
 
             if (!_didIteratorError) {
-              _context4.next = 97;
+              _context4.next = 98;
               break;
             }
 
             throw _iteratorError;
 
-          case 97:
-            return _context4.finish(94);
-
           case 98:
-            return _context4.finish(91);
+            return _context4.finish(95);
 
           case 99:
+            return _context4.finish(92);
+
+          case 100:
             expiredDate = new Date();
             expiredDate.setHours(expiredDate.getHours() + 2);
-            _context4.next = 103;
+            _context4.next = 104;
             return regeneratorRuntime.awrap(connection.execute("INSERT INTO hotel_payments (booking_id, booking_code, amount, expired_date, payment_status) \n                    VALUES (?, ?, ?, ?, 'PENDING')", [newBookingId, resData.reservationNo, resData.totalPrice, expiredDate]));
 
-          case 103:
-            _context4.next = 105;
+          case 104:
+            _context4.next = 106;
             return regeneratorRuntime.awrap(connection.commit());
 
-          case 105:
+          case 106:
             // --- EMAIL 1: KONFIRMASI BOOKING ---
             htmlBooking = "\n                <div style=\"font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #f0f0f0;\">\n                    <div style=\"background: ".concat(primaryColor, "; padding: 20px; text-align: center; color: white;\">\n                        <h2 style=\"margin: 0;\">Booking Diterima</h2>\n                    </div>\n                    <div style=\"padding: 20px;\">\n                        <p>Halo <b>").concat(b.roomRequest[0].paxes[0].firstName, "</b>,</p>\n                        <p>Pesanan Anda di <b>").concat(resData.hotelName, "</b> telah kami terima dengan nomor reservasi <b>").concat(resData.reservationNo, "</b>.</p>\n                        <p>Status saat ini: <span style=\"color: ").concat(secondaryColor, "; font-weight: bold;\">Menunggu Pembayaran</span></p>\n                        <p>Silakan lanjut ke menu pembayaran di aplikasi untuk mengamankan pesanan Anda.</p>\n                    </div>\n                </div>");
-            _context4.next = 108;
+            _context4.next = 109;
             return regeneratorRuntime.awrap(transporter.sendMail({
               from: '"Travel Support" <noreply@travel.com>',
               to: b.roomRequest[0].email,
@@ -477,44 +480,44 @@ var hotelController = {
               html: htmlBooking
             }));
 
-          case 108:
+          case 109:
             logger.info("Full Data Saved for: ".concat(resData.reservationNo));
 
-          case 109:
+          case 110:
             res.json(resData);
-            _context4.next = 119;
+            _context4.next = 120;
             break;
 
-          case 112:
-            _context4.prev = 112;
+          case 113:
+            _context4.prev = 113;
             _context4.t3 = _context4["catch"](0);
 
             if (!connection) {
-              _context4.next = 117;
+              _context4.next = 118;
               break;
             }
 
-            _context4.next = 117;
+            _context4.next = 118;
             return regeneratorRuntime.awrap(connection.rollback());
 
-          case 117:
+          case 118:
             logger.error("Booking Error: " + _context4.t3.message);
             res.status(500).json({
               status: "ERROR",
               respMessage: _context4.t3.message
             });
 
-          case 119:
-            _context4.prev = 119;
+          case 120:
+            _context4.prev = 120;
             if (connection) connection.release();
-            return _context4.finish(119);
+            return _context4.finish(120);
 
-          case 122:
+          case 123:
           case "end":
             return _context4.stop();
         }
       }
-    }, null, null, [[0, 112, 119, 122], [25, 87, 91, 99], [32, 43, 47, 55], [48,, 50, 54], [59, 70, 74, 82], [75,, 77, 81], [92,, 94, 98]]);
+    }, null, null, [[0, 113, 120, 123], [26, 88, 92, 100], [33, 44, 48, 56], [49,, 51, 55], [60, 71, 75, 83], [76,, 78, 82], [93,, 95, 99]]);
   },
   // 5. SELECT PAYMENT METHOD (LINKQU INSTRUCTION EMAIL)
   // Asumsi: Method ini dipanggil saat user memilih bank/metode bayar LinkQu di aplikasi Anda
