@@ -22,6 +22,7 @@ app.use(cors());
 app.use('/api/flights', flightRoutes);
 app.use('/api/agent', agentRoutes);
 app.use('/api/hotels', hotelRoutes);
+app.use('/api/hotel-payments', hotelPaymentRoutes);
 app.use('/api/ship', shipRoutes);
 app.use('/api/shipdlu', shpdluRoutes);
 app.use('/api/train', trainRoutes); // <-- BARU (Akses via /api/train/schedule)
