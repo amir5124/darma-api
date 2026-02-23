@@ -309,7 +309,7 @@ var hotelController = {
             _ref2 = _slicedToArray(_ref, 1);
             bookingResult = _ref2[0];
             newBookingId = bookingResult.insertId;
-            Cconsole.log(newBookingId, "id"); // 4. Simpan Paxes (Looping yang aman)
+            console.log(newBookingId, "id"); // 4. Simpan Paxes (Looping yang aman)
 
             _iteratorNormalCompletion = true;
             _didIteratorError = false;

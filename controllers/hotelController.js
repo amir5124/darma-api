@@ -175,7 +175,7 @@ const hotelController = {
             );
 
             const newBookingId = bookingResult.insertId;
-            Cconsole.log(newBookingId,"id")
+            console.log(newBookingId,"id")
 
             // 4. Simpan Paxes (Looping yang aman)
             for (const room of b.roomRequest) {
