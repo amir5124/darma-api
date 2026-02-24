@@ -21,7 +21,7 @@ var router = express.Router();
 
 var axios = require('axios');
 
-var _require = require('../helpers/darmaHelper'),
+var _require = require('../helpers/darmaSandbox'),
     BASE_URL = _require.BASE_URL,
     USER_CONFIG = _require.USER_CONFIG,
     agent = _require.agent,
@@ -30,7 +30,9 @@ var _require = require('../helpers/darmaHelper'),
 
 var puppeteer = require('puppeteer');
 
-var nodemailer = require('nodemailer'); // --- KONFIGURASI EMAIL ---
+var nodemailer = require('nodemailer');
+
+var db = require('../config/db'); // --- KONFIGURASI EMAIL ---
 
 
 var transporter = nodemailer.createTransport({

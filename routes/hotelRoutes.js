@@ -5,6 +5,7 @@ const axios = require('axios');
 const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('../helpers/darmaSandbox');
 const puppeteer = require('puppeteer');
 const nodemailer = require('nodemailer');
+const db = require('../config/db');
 // --- KONFIGURASI EMAIL ---
 const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
