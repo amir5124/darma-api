@@ -28,7 +28,9 @@ var _require = require('../helpers/darmaHelper'),
     getConsistentToken = _require.getConsistentToken,
     logger = _require.logger;
 
-var puppeteer = require('puppeteer'); // --- KONFIGURASI EMAIL ---
+var puppeteer = require('puppeteer');
+
+var nodemailer = require('nodemailer'); // --- KONFIGURASI EMAIL ---
 
 
 var transporter = nodemailer.createTransport({
