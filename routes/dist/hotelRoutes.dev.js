@@ -46,7 +46,7 @@ var transporter = nodemailer.createTransport({
 });
 
 function generateBookingPDF(data, paxes) {
-  var browser, page, paymentDate, htmlContent, pdfBuffer;
+  var browser, page, paymentDate, formatDate, htmlContent, pdfBuffer;
   return regeneratorRuntime.async(function generateBookingPDF$(_context) {
     while (1) {
       switch (_context.prev = _context.next) {
@@ -64,7 +64,7 @@ function generateBookingPDF(data, paxes) {
 
         case 5:
           page = _context.sent;
-          // Format tanggal Indonesia
+          // Format tanggal Indonesia untuk waktu pembayaran
           paymentDate = new Date().toLocaleString('id-ID', {
             weekday: 'long',
             day: 'numeric',
@@ -72,28 +72,42 @@ function generateBookingPDF(data, paxes) {
             year: 'numeric',
             hour: '2-digit',
             minute: '2-digit'
-          }); // Template HTML mirip strukur gambar Tiket.com
+          }); // Format tanggal Check-in & Check-out
 
-          htmlContent = "\n    <html>\n    <head>\n        <style>\n            body { font-family: Arial, sans-serif; color: #333; margin: 40px; }\n            .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0070BA; padding-bottom: 10px; }\n            .logo { font-size: 24px; font-weight: bold; color: #0070BA; }\n            .itinerary-id { background: #f0f0f0; padding: 5px 10px; border-radius: 5px; font-size: 12px; }\n            .section-title { font-weight: bold; border-bottom: 1px solid #ccc; margin-top: 20px; padding-bottom: 5px; }\n            .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 10px; font-size: 12px; }\n            .paid-stamp { float: right; color: #4CAF50; border: 4px solid #4CAF50; padding: 10px; border-radius: 50%; font-weight: bold; transform: rotate(-15deg); }\n            table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 12px; }\n            th { text-align: left; border-bottom: 1px solid #eee; padding: 10px; background: #fafafa; }\n            td { padding: 10px; border-bottom: 1px solid #eee; }\n            .total-box { background: #fff8e1; padding: 15px; text-align: right; margin-top: 10px; font-weight: bold; }\n        </style>\n    </head>\n    <body>\n        <div class=\"header\">\n            <div class=\"logo\">tiket<span style=\"color: #FFC107;\">\u25CF</span>com</div>\n            <div class=\"itinerary-id\">Itinerary ID: <b>".concat(data.reservationNo, "</b></div>\n        </div>\n        \n        <div class=\"paid-stamp\">PAID</div>\n\n        <div class=\"section-title\">Detail Kontak</div>\n        <div class=\"grid\">\n            <div>Nama: <br><b>").concat(paxes[0].title, " ").concat(paxes[0].firstName, " ").concat(paxes[0].lastName, "</b></div>\n            <div>Alamat Email: <br><b>").concat(data.contactEmail, "</b></div>\n            <div>Nomor Telepon: <br><b>").concat(data.contactPhone, "</b></div>\n        </div>\n\n        <div class=\"section-title\">Detail Pembayaran</div>\n        <div class=\"grid\">\n            <div>Waktu Pembayaran: <br><b>").concat(paymentDate, "</b></div>\n            <div>Metode Pembayaran: <br><b>LinkU Wallet / VA</b></div>\n        </div>\n\n        <table>\n            <thead>\n                <tr>\n                    <th>No</th>\n                    <th>Jenis Produk</th>\n                    <th>Deskripsi</th>\n                    <th>Jumlah Total</th>\n                </tr>\n            </thead>\n            <tbody>\n                <tr>\n                    <td>1</td>\n                    <td>Hotel</td>\n                    <td><b>").concat(data.hotelName, "</b><br>").concat(data.roomName, "<br>Check-in: ").concat(data.checkInDate.split('T')[0], "</td>\n                    <td>IDR ").concat(Number(data.totalPrice).toLocaleString('id-ID'), "</td>\n                </tr>\n            </tbody>\n        </table>\n\n        <div class=\"total-box\">\n            Total Pembayaran: <span style=\"color: #f57c00; font-size: 18px;\">IDR ").concat(Number(data.totalPrice).toLocaleString('id-ID'), "</span>\n        </div>\n    </body>\n    </html>");
-          _context.next = 10;
+          formatDate = function formatDate(dateStr) {
+            return new Date(dateStr).toLocaleDateString('id-ID', {
+              day: 'numeric',
+              month: 'long',
+              year: 'numeric'
+            });
+          };
+
+          htmlContent = "\n    <html>\n    <head>\n        <style>\n            @import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap');\n            body { font-family: 'Open Sans', sans-serif; color: #444; margin: 0; padding: 40px; background: #fff; }\n            \n            /* Header Section */\n            .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; }\n            .logo-area { font-size: 28px; font-weight: 800; color: #24b3ae; }\n            .logo-dot { color: #e03f7d; }\n            .itinerary-info { text-align: right; }\n            .itinerary-label { display: block; background: #24b3ae; color: white; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-bottom: 5px; }\n            .booked-by { font-size: 11px; color: #888; }\n\n            /* Paid Stamp */\n            .paid-badge { \n                float: right; width: 80px; height: 80px; border: 5px solid #4CAF50; border-radius: 50%; \n                display: flex; align-items: center; justify-content: center; color: #4CAF50; \n                font-weight: 900; font-size: 20px; transform: rotate(-20deg); opacity: 0.8;\n                margin-top: -10px; margin-right: 20px;\n            }\n\n            /* Section Styling */\n            .section-header { \n                color: #24b3ae; font-size: 16px; font-weight: 700; \n                border-bottom: 2px solid #f0f0f0; margin: 25px 0 10px 0; padding-bottom: 5px; \n            }\n            .info-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 20px; }\n            .info-item label { display: block; font-size: 11px; color: #999; text-transform: uppercase; margin-bottom: 3px; }\n            .info-item span { font-size: 13px; font-weight: 600; color: #333; }\n\n            /* Table Styling */\n            table { width: 100%; border-collapse: collapse; margin-top: 15px; }\n            th { background: #f8f8f8; color: #24b3ae; text-align: left; padding: 12px; font-size: 12px; border-bottom: 1px solid #eee; }\n            td { padding: 15px 12px; border-bottom: 1px solid #eee; font-size: 12px; vertical-align: top; }\n            .product-type { font-weight: 700; color: #e03f7d; }\n            \n            /* Footer/Total Area */\n            .summary-container { margin-top: 20px; border-top: 1px dashed #ccc; padding-top: 15px; }\n            .total-row { display: flex; justify-content: flex-end; align-items: center; padding: 5px 0; }\n            .total-label { font-size: 14px; font-weight: 600; margin-right: 20px; }\n            .total-amount { font-size: 22px; font-weight: 800; color: #e03f7d; }\n            \n            .footer-note { font-size: 10px; color: #aaa; margin-top: 40px; text-align: center; border-top: 1px solid #eee; padding-top: 10px; }\n        </style>\n    </head>\n    <body>\n        <div class=\"header\">\n            <div class=\"logo-area\">LinkU<span class=\"logo-dot\">\u25CF</span>Travel</div>\n            <div class=\"itinerary-info\">\n                <span class=\"itinerary-label\">Itinerary ID: ".concat(data.reservationNo, "</span>\n                <span class=\"booked-by\">Dipesan dan dibayarkan oleh LinkU.com</span>\n            </div>\n        </div>\n\n        <div class=\"paid-badge\">PAID</div>\n\n        <div class=\"section-header\">Detail Kontak</div>\n        <div class=\"info-grid\">\n            <div class=\"info-item\">\n                <label>Nama Pengambil</label>\n                <span>").concat(paxes[0].title, " ").concat(paxes[0].firstName, " ").concat(paxes[0].lastName, "</span>\n            </div>\n            <div class=\"info-item\">\n                <label>Alamat Email</label>\n                <span>").concat(data.contactEmail, "</span>\n            </div>\n            <div class=\"info-item\">\n                <label>Nomor Telepon</label>\n                <span>").concat(data.contactPhone, "</span>\n            </div>\n        </div>\n\n        <div class=\"section-header\">Detail Pembayaran</div>\n        <div class=\"info-grid\">\n            <div class=\"info-item\">\n                <label>Waktu Pembayaran</label>\n                <span>").concat(paymentDate, "</span>\n            </div>\n            <div class=\"info-item\">\n                <label>Metode Pembayaran</label>\n                <span>Koin Aplikasi</span>\n            </div>\n            <div class=\"info-item\">\n                <label>Status</label>\n                <span style=\"color: #4CAF50;\">Sukses</span>\n            </div>\n        </div>\n\n        <table>\n            <thead>\n                <tr>\n                    <th width=\"5%\">No</th>\n                    <th width=\"15%\">Jenis Produk</th>\n                    <th width=\"55%\">Deskripsi</th>\n                    <th width=\"25%\" style=\"text-align: right;\">Jumlah Total</th>\n                </tr>\n            </thead>\n            <tbody>\n                <tr>\n                    <td>1</td>\n                    <td class=\"product-type\">Hotel</td>\n                    <td>\n                        <div style=\"font-weight: 700; font-size: 14px; margin-bottom: 5px;\">").concat(data.hotelName, "</div>\n                        <div style=\"color: #666; margin-bottom: 10px;\">").concat(data.roomName, "</div>\n                        <div style=\"display: flex; gap: 20px;\">\n                            <div><small style=\"color:#999\">CHECK-IN</small><br><b>").concat(formatDate(data.checkInDate), "</b></div>\n                            <div><small style=\"color:#999\">DURASI</small><br><b>1 Kamar</b></div>\n                        </div>\n                    </td>\n                    <td style=\"text-align: right; font-weight: 700;\">\n                        IDR ").concat(Number(data.totalPrice).toLocaleString('id-ID'), "\n                    </td>\n                </tr>\n            </tbody>\n        </table>\n\n        <div class=\"summary-container\">\n            <div class=\"total-row\">\n                <div class=\"total-label\">Biaya Administrasi</div>\n                <div style=\"width: 150px; text-align: right; font-weight: 600; color: #4CAF50;\">GRATIS</div>\n            </div>\n            <div class=\"total-row\" style=\"margin-top: 10px;\">\n                <div class=\"total-label\" style=\"font-size: 16px;\">Total Pembayaran</div>\n                <div class=\"total-amount\" style=\"width: 180px; text-align: right;\">\n                    IDR ").concat(Number(data.totalPrice).toLocaleString('id-ID'), "\n                </div>\n            </div>\n        </div>\n\n        <div class=\"footer-note\">\n            Bukti transaksi ini sah dan dihasilkan secara otomatis oleh sistem LinkU Travel.<br>\n            Silakan hubungi Customer Care kami jika Anda memiliki pertanyaan mengenai pesanan ini.\n        </div>\n    </body>\n    </html>");
+          _context.next = 11;
           return regeneratorRuntime.awrap(page.setContent(htmlContent));
 
-        case 10:
-          _context.next = 12;
+        case 11:
+          _context.next = 13;
           return regeneratorRuntime.awrap(page.pdf({
             format: 'A4',
-            printBackground: true
+            printBackground: true,
+            margin: {
+              top: '20px',
+              bottom: '20px',
+              left: '20px',
+              right: '20px'
+            }
           }));
 
-        case 12:
+        case 13:
           pdfBuffer = _context.sent;
-          _context.next = 15;
+          _context.next = 16;
           return regeneratorRuntime.awrap(browser.close());
 
-        case 15:
+        case 16:
           return _context.abrupt("return", pdfBuffer);
 
-        case 16:
+        case 17:
         case "end":
           return _context.stop();
       }
