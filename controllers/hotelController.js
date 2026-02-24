@@ -2,7 +2,7 @@ const axios = require('axios');
 const db = require('../config/db');
 const nodemailer = require('nodemailer');
 const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('../helpers/darmaSandbox');
-
+const puppeteer = require('puppeteer');
 // --- KONFIGURASI EMAIL ---
 const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
@@ -13,6 +13,87 @@ const transporter = nodemailer.createTransport({
         pass: 'qbckptzxgdumxtdm'
     }
 });
+
+
+
+async function generateBookingPDF(data, paxes) {
+    const browser = await puppeteer.launch({ headless: "new", args: ['--no-sandbox'] });
+    const page = await browser.newPage();
+
+    // Format tanggal Indonesia
+    const paymentDate = new Date().toLocaleString('id-ID', {
+        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+
+    // Template HTML mirip strukur gambar Tiket.com
+    const htmlContent = `
+    <html>
+    <head>
+        <style>
+            body { font-family: Arial, sans-serif; color: #333; margin: 40px; }
+            .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0070BA; padding-bottom: 10px; }
+            .logo { font-size: 24px; font-weight: bold; color: #0070BA; }
+            .itinerary-id { background: #f0f0f0; padding: 5px 10px; border-radius: 5px; font-size: 12px; }
+            .section-title { font-weight: bold; border-bottom: 1px solid #ccc; margin-top: 20px; padding-bottom: 5px; }
+            .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 10px; font-size: 12px; }
+            .paid-stamp { float: right; color: #4CAF50; border: 4px solid #4CAF50; padding: 10px; border-radius: 50%; font-weight: bold; transform: rotate(-15deg); }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 12px; }
+            th { text-align: left; border-bottom: 1px solid #eee; padding: 10px; background: #fafafa; }
+            td { padding: 10px; border-bottom: 1px solid #eee; }
+            .total-box { background: #fff8e1; padding: 15px; text-align: right; margin-top: 10px; font-weight: bold; }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <div class="logo">tiket<span style="color: #FFC107;">●</span>com</div>
+            <div class="itinerary-id">Itinerary ID: <b>${data.reservationNo}</b></div>
+        </div>
+        
+        <div class="paid-stamp">PAID</div>
+
+        <div class="section-title">Detail Kontak</div>
+        <div class="grid">
+            <div>Nama: <br><b>${paxes[0].title} ${paxes[0].firstName} ${paxes[0].lastName}</b></div>
+            <div>Alamat Email: <br><b>${data.contactEmail}</b></div>
+            <div>Nomor Telepon: <br><b>${data.contactPhone}</b></div>
+        </div>
+
+        <div class="section-title">Detail Pembayaran</div>
+        <div class="grid">
+            <div>Waktu Pembayaran: <br><b>${paymentDate}</b></div>
+            <div>Metode Pembayaran: <br><b>LinkU Wallet / VA</b></div>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>No</th>
+                    <th>Jenis Produk</th>
+                    <th>Deskripsi</th>
+                    <th>Jumlah Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>1</td>
+                    <td>Hotel</td>
+                    <td><b>${data.hotelName}</b><br>${data.roomName}<br>Check-in: ${data.checkInDate.split('T')[0]}</td>
+                    <td>IDR ${Number(data.totalPrice).toLocaleString('id-ID')}</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="total-box">
+            Total Pembayaran: <span style="color: #f57c00; font-size: 18px;">IDR ${Number(data.totalPrice).toLocaleString('id-ID')}</span>
+        </div>
+    </body>
+    </html>`;
+
+    await page.setContent(htmlContent);
+    const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
+    await browser.close();
+    return pdfBuffer;
+}
 
 const primaryColor = "#24b3ae";
 const secondaryColor = "#e03f7d";
@@ -106,143 +187,147 @@ const hotelController = {
     },
 
     // 4. BOOKING (INSERT TO DB & EMAIL KONFIRMASI)
-   booking: async (req, res) => {
-    let connection;
-    try {
-        const token = await getConsistentToken();
-        const b = req.body;
+    booking: async (req, res) => {
+        let connection;
+        try {
+            const token = await getConsistentToken();
+            const b = req.body;
 
-        // 1. Validasi Input Dasar
-        if (!b.roomRequest || !b.roomRequest[0]) {
-            return res.status(400).json({ status: "ERROR", respMessage: "Data paxes tidak lengkap." });
-        }
+            // 1. Validasi Input Dasar
+            if (!b.roomRequest || !b.roomRequest[0]) {
+                return res.status(400).json({ status: "ERROR", respMessage: "Data paxes tidak lengkap." });
+            }
 
-        const payload = {
-            paxPassport: b.paxPassport || "ID",
-            countryID: b.countryID || "ID",
-            cityID: String(b.cityID),
-            checkInDate: b.checkInDate.endsWith('Z') ? b.checkInDate : b.checkInDate + 'Z',
-            checkOutDate: b.checkOutDate.endsWith('Z') ? b.checkOutDate : b.checkOutDate + 'Z',
-            roomRequest: b.roomRequest.map(room => ({
-                paxes: room.paxes.map(pax => ({
-                    title: pax.title || 'Mr.',
-                    firstName: (pax.firstName || '').trim(),
-                    lastName: (pax.lastName || '').trim()
+            const payload = {
+                // ... (payload tetap sama seperti kode Anda)
+                paxPassport: b.paxPassport || "ID",
+                countryID: b.countryID || "ID",
+                cityID: String(b.cityID),
+                checkInDate: b.checkInDate.endsWith('Z') ? b.checkInDate : b.checkInDate + 'Z',
+                checkOutDate: b.checkOutDate.endsWith('Z') ? b.checkOutDate : b.checkOutDate + 'Z',
+                roomRequest: b.roomRequest.map(room => ({
+                    paxes: room.paxes.map(pax => ({
+                        title: pax.title || 'Mr.',
+                        firstName: (pax.firstName || '').trim(),
+                        lastName: (pax.lastName || '').trim()
+                    })),
+                    isSmokingRoom: Boolean(room.isSmokingRoom),
+                    phone: String(room.phone || ''),
+                    email: String(room.email || ''),
+                    roomType: 0,
+                    childNum: parseInt(room.childNum) || 0,
+                    childAges: room.childAges || []
                 })),
-                isSmokingRoom: Boolean(room.isSmokingRoom),
-                phone: String(room.phone || ''),
-                email: String(room.email || ''),
-                roomType: 0,
-                childNum: parseInt(room.childNum) || 0,
-                childAges: room.childAges || []
-            })),
-            internalCode: b.internalCode,
-            hotelID: b.hotelID,
-            breakfast: b.breakfast,
-            roomID: b.roomID,
-            bedType: { ID: null, bed: null },
-            agentOsRef: b.agentOsRef || `HTL-${Date.now()}`,
-            userID: USER_CONFIG.userID,
-            accessToken: token
-        };
+                internalCode: b.internalCode,
+                hotelID: b.hotelID,
+                breakfast: b.breakfast,
+                roomID: b.roomID,
+                bedType: { ID: null, bed: null },
+                agentOsRef: b.agentOsRef || `HTL-${Date.now()}`,
+                userID: USER_CONFIG.userID,
+                accessToken: token
+            };
 
-        // 2. Request ke Supplier
-        const response = await axios.post(`${BASE_URL}/Hotel/BookingAllSupplier`, payload, { 
-            httpsAgent: agent,
-            timeout: 30000 // Robustness: Tambahkan timeout 30 detik
-        });
-        
-        const resData = response.data;
+            const response = await axios.post(`${BASE_URL}/Hotel/BookingAllSupplier`, payload, {
+                httpsAgent: agent,
+                timeout: 30000
+            });
 
-        if (resData.status === "SUCCESS") {
-            connection = await db.getConnection();
-            await connection.beginTransaction();
+            const resData = response.data;
 
-            // 3. Simpan Main Booking
-            const [bookingResult] = await connection.execute(
-                `INSERT INTO hotel_bookings 
+            if (resData.status === "SUCCESS") {
+                connection = await db.getConnection();
+                await connection.beginTransaction();
+
+                // 3. Simpan Main Booking
+                const [bookingResult] = await connection.execute(
+                    `INSERT INTO hotel_bookings 
                 (reservation_no, voucher_no, os_ref_no, agent_os_ref, hotel_id, hotel_name, hotel_address, 
                 internal_code, check_in_date, check_out_date, city_id, room_id, room_name, breakfast_type, 
                 contact_email, contact_phone, total_price, booking_status) 
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [
-                    resData.reservationNo, resData.voucherNo, resData.osRefNo, resData.agentOsRef,
-                    resData.hotelID, resData.hotelName, resData.hotelAddress, b.internalCode,
-                    resData.checkInDate, resData.checkOutDate, resData.cityID, resData.roomID,
-                    resData.roomName, resData.breakfast, b.roomRequest[0].email, b.roomRequest[0].phone,
-                    resData.totalPrice, 'Accept'
-                ]
-            );
+                    [
+                        resData.reservationNo, resData.voucherNo, resData.osRefNo, resData.agentOsRef,
+                        resData.hotelID, resData.hotelName, resData.hotelAddress, b.internalCode,
+                        resData.checkInDate, resData.checkOutDate, resData.cityID, resData.roomID,
+                        resData.roomName, resData.breakfast, b.roomRequest[0].email, b.roomRequest[0].phone,
+                        resData.totalPrice, 'Accept'
+                    ]
+                );
 
-            const newBookingId = bookingResult.insertId;
-            console.log(newBookingId,"id")
+                const newBookingId = bookingResult.insertId;
 
-            // 4. Simpan Paxes (Looping yang aman)
-            for (const room of b.roomRequest) {
-                if (room.paxes) {
+                // 4. Simpan Paxes
+                for (const room of b.roomRequest) {
                     for (const pax of room.paxes) {
                         await connection.execute(
                             `INSERT INTO hotel_booking_paxes (booking_id, pax_type, title, first_name, last_name) 
-                            VALUES (?, 'ADULT', ?, ?, ?)`,
+                        VALUES (?, 'ADULT', ?, ?, ?)`,
                             [newBookingId, pax.title, pax.firstName, pax.lastName]
                         );
                     }
                 }
-                if (room.childNum > 0 && room.childAges) {
-                    for (const age of room.childAges) {
-                        await connection.execute(
-                            `INSERT INTO hotel_booking_paxes (booking_id, pax_type, age) 
-                            VALUES (?, 'CHILD', ?)`,
-                            [newBookingId, age]
-                        );
+
+                await connection.commit();
+
+                // 5. GENERATE PDF & SEND EMAIL (Puppeteer + Nodemailer)
+                // Menyiapkan data untuk PDF
+                const pdfData = {
+                    reservationNo: resData.reservationNo,
+                    hotelName: resData.hotelName,
+                    roomName: resData.roomName,
+                    totalPrice: resData.totalPrice,
+                    contactEmail: b.roomRequest[0].email,
+                    contactPhone: b.roomRequest[0].phone,
+                    checkInDate: resData.checkInDate
+                };
+
+                // Menjalankan proses email secara async agar respons API cepat
+                (async () => {
+                    try {
+                        const pdfBuffer = await generateBookingPDF(pdfData, b.roomRequest[0].paxes);
+
+                        await transporter.sendMail({
+                            from: '"LinkU Travel" <linkutransport@gmail.com>',
+                            to: b.roomRequest[0].email,
+                            subject: `Bukti Transaksi - ${resData.reservationNo}`,
+                            html: `<p>Halo ${b.roomRequest[0].paxes[0].firstName},</p>
+                               <p>Terima kasih telah melakukan pemesanan. Terlampir adalah bukti transaksi Anda.</p>`,
+                            attachments: [
+                                {
+                                    filename: `E-Voucher-${resData.reservationNo}.pdf`,
+                                    content: pdfBuffer,
+                                    contentType: 'application/pdf'
+                                }
+                            ]
+                        });
+                        console.log("Email PDF Berhasil Dikirim ke: " + b.roomRequest[0].email);
+                    } catch (err) {
+                        console.error("Gagal Kirim PDF Email: ", err);
                     }
-                }
+                })();
+
+                // 6. FINAL RESPONSE
+                return res.json({
+                    status: "SUCCESS",
+                    booking_id: newBookingId,
+                    ...resData
+                });
+
+            } else {
+                return res.status(400).json({
+                    status: "ERROR",
+                    respMessage: resData.respMessage || "Gagal melakukan booking ke supplier."
+                });
             }
 
-            // 5. Simpan Payment Record
-            const expiredDate = new Date();
-            expiredDate.setHours(expiredDate.getHours() + 2);
-
-            await connection.execute(
-                `INSERT INTO hotel_payments (booking_id, booking_code, amount, expired_date, payment_status) 
-                VALUES (?, ?, ?, ?, 'PENDING')`,
-                [newBookingId, resData.reservationNo, resData.totalPrice, expiredDate]
-            );
-
-            await connection.commit();
-
-            // 6. Kirim Email (Async - Jangan biarkan error email menggagalkan transaksi)
-            transporter.sendMail({
-                from: '"LinkU Travel" <linkutransport@gmail.com>',
-                to: b.roomRequest[0].email,
-                subject: `Konfirmasi Booking - ${resData.reservationNo}`,
-                html: generateEmailHtml(resData, b.roomRequest[0].paxes[0].firstName) // Gunakan helper function
-            }).catch(err => logger.error("Email Error: " + err.message));
-
-            // 7. FINAL RESPONSE (Pastikan booking_id terkirim paling atas)
-            return res.json({
-                status: "SUCCESS",
-                booking_id: newBookingId, // Kunci utama untuk Frontend
-                ...resData
-            });
-
-        } else {
-            // Jika supplier gagal
-            return res.status(400).json({ 
-                status: "ERROR", 
-                respMessage: resData.respMessage || "Gagal melakukan booking ke supplier." 
-            });
+        } catch (error) {
+            if (connection) await connection.rollback();
+            res.status(500).json({ status: "ERROR", respMessage: error.message });
+        } finally {
+            if (connection) connection.release();
         }
-
-    } catch (error) {
-        if (connection) await connection.rollback();
-        logger.error("Booking Error: " + error.message);
-        res.status(500).json({ status: "ERROR", respMessage: error.message });
-    } finally {
-        if (connection) connection.release();
-    }
-},
-
+    },
 
 
     // 5. SELECT PAYMENT METHOD (LINKQU INSTRUCTION EMAIL)
