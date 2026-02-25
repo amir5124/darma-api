@@ -83,13 +83,22 @@ async function generateBookingPDF(data, paxes) {
         </style>
     </head>
     <body>
-        <div class="header">
-            <div class="logo-area">LinkU<span class="logo-dot">●</span>Travel</div>
-            <div class="itinerary-info">
-                <span class="itinerary-label">Itinerary ID: ${data.reservationNo}</span>
-                <span class="booked-by">Dipesan dan dibayarkan oleh LinkU.com</span>
-            </div>
+      <div class="header">
+    <div class="logo-area">
+        <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877917/WhatsApp_Image_2026-01-20_at_09.45.43-removebg-preview_lqkgrw.png" 
+             height="50" 
+             style="margin-bottom: 10px; display: block;">
+        
+        <div style="font-size: 12px; color: #555; line-height: 1.5;">
+            <div class="powered-by">Powered by Darmawisata Indonesia</div>
+            <div class="booked-by-new">Dipesan dan dibayar oleh Darmawisata Indonesia</div>
         </div>
+    </div>
+
+    <div class="itinerary-info">
+        <span class="itinerary-label">Itinerary ID: ${data.reservationNo}</span>
+    </div>
+</div>
 
         <div class="paid-badge">PAID</div>
 
