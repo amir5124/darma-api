@@ -183,8 +183,8 @@ async function generateBookingPDF(data, paxes) {
     </html>`;
 
     await page.setContent(htmlContent);
-    const pdfBuffer = await page.pdf({ 
-        format: 'A4', 
+    const pdfBuffer = await page.pdf({
+        format: 'A4',
         printBackground: true,
         margin: { top: '20px', bottom: '20px', left: '20px', right: '20px' }
     });
@@ -197,7 +197,7 @@ router.post('/search', async (req, res) => {
     try {
         const token = await getConsistentToken();
         const b = req.body;
-        
+
         // Payload disesuaikan persis dengan contoh request Anda
         const payload = {
             paxPassport: b.paxPassport || "ID",
@@ -216,17 +216,56 @@ router.post('/search', async (req, res) => {
         };
 
         logger.debug("REQ_HOTEL_SEARCH5", payload);
-        
+
         // Endpoint diganti menjadi Search5 sesuai instruksi
-        const response = await axios.post(`${BASE_URL}/Hotel/Search5`, payload, { 
+        const response = await axios.post(`${BASE_URL}/Hotel/Search5`, payload, {
             httpsAgent: agent,
             headers: { 'Content-Type': 'application/json' }
         });
-        
+
         logger.debug("RES_HOTEL_SEARCH5", response.data);
         res.json(response.data);
     } catch (error) {
         logger.error("Hotel Search5 Error: " + error.message);
+        res.status(500).json({ status: "ERROR", respMessage: error.message });
+    }
+});
+
+// POST /api/hotels/search-by-name
+router.post('/search-by-name', async (req, res) => {
+    try {
+        const token = await getConsistentToken();
+        const { hotelName } = req.body;
+
+        if (!hotelName || hotelName.trim().length < 2) {
+            return res.status(400).json({ 
+                status: "ERROR", 
+                respMessage: "hotelName minimal 2 karakter." 
+            });
+        }
+
+        const payload = {
+            hotelNameFilter: hotelName.trim(),
+            userID: USER_CONFIG.userID,
+            accessToken: token
+        };
+
+        logger.debug("REQ_HOTEL_SEARCH_BY_NAME", JSON.stringify(payload));
+
+        const response = await axios.post(`${BASE_URL}/Hotel/HotelList5`, payload, {
+            httpsAgent: agent,
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 30000
+        });
+
+        const resData = response.data;
+        logger.debug("RES_HOTEL_SEARCH_BY_NAME", JSON.stringify(resData));
+
+        // Kembalikan raw response dulu agar kita bisa lihat strukturnya
+        return res.json(resData);
+
+    } catch (error) {
+        logger.error("Search By Name Error: " + error.message);
         res.status(500).json({ status: "ERROR", respMessage: error.message });
     }
 });
@@ -236,7 +275,7 @@ router.post('/available-rooms', async (req, res) => {
     try {
         const token = await getConsistentToken();
         const b = req.body;
-        
+
         const payload = {
             hotelID: b.hotelID,
             paxPassport: b.paxPassport || "ID",
@@ -256,13 +295,13 @@ router.post('/available-rooms', async (req, res) => {
         };
 
         logger.debug("REQ_HOTEL_ROOMS_5", payload);
-        
+
         // Perhatikan URL: Gunakan /Hotel/AvailableRoom5 jika mengikuti standar Search5
-        const response = await axios.post(`${BASE_URL}/Hotel/AvailableRooms5`, payload, { 
+        const response = await axios.post(`${BASE_URL}/Hotel/AvailableRooms5`, payload, {
             httpsAgent: agent,
             headers: { 'Content-Type': 'application/json' }
         });
-        
+
         logger.debug("RES_HOTEL_ROOMS_5", response.data);
 
         res.json(response.data);
@@ -329,13 +368,15 @@ router.get('/room-image', async (req, res) => {
     }
 });
 
-// 4. HOTEL BOOKING ALL SUPPLIER
-// 4. HOTEL BOOKING ALL SUPPLIER
+
 router.post('/booking', async (req, res) => {
     let connection;
     try {
         const token = await getConsistentToken();
         const b = req.body;
+
+        // ✅ TAMBAHAN: Ambil username dari request body
+        const username = b.username || "guest";
 
         // 1. Konstruksi Payload untuk Supplier
         const payload = {
@@ -364,7 +405,7 @@ router.post('/booking', async (req, res) => {
             hotelID: b.hotelID,
             breakfast: b.breakfast,
             roomID: b.roomID,
-            bedType: { ID: "", bed: "" }, // Gunakan string kosong untuk menghindari error null
+            bedType: { ID: "", bed: "" },
             agentOsRef: b.agentOsRef || `LC-${Date.now()}`,
             userID: USER_CONFIG.userID,
             accessToken: token
@@ -372,21 +413,20 @@ router.post('/booking', async (req, res) => {
 
         // 2. Kirim ke Supplier
         logger.debug("REQ_HOTEL_BOOKING_FINAL", JSON.stringify(payload));
-        const response = await axios.post(`${BASE_URL}/Hotel/BookingAllSupplier`, payload, { 
+        const response = await axios.post(`${BASE_URL}/Hotel/BookingAllSupplier`, payload, {
             httpsAgent: agent,
             headers: { 'Content-Type': 'application/json' },
-            timeout: 60000 // Timeout lebih lama untuk booking
+            timeout: 60000
         });
-        
+
         const resData = response.data;
         logger.debug("RES_HOTEL_BOOKING_FINAL", JSON.stringify(resData));
 
-        // 3. Cek Status (Success, Accept, atau Processed)
+        // 3. Cek Status
         const isProcessed = resData.status === "ERROR" && resData.respMessage && resData.respMessage.includes("PROCESSED");
 
         if (resData.status === "SUCCESS" || resData.bookingStatus === "Accept" || isProcessed) {
-            
-            // Handle jika status PROCESSED (Ubah ke sukses agar bisa simpan DB)
+
             if (isProcessed) {
                 resData.status = "SUCCESS";
                 resData.reservationNo = resData.reservationNo || "PROCESSED-" + Date.now();
@@ -396,25 +436,26 @@ router.post('/booking', async (req, res) => {
             connection = await db.getConnection();
             await connection.beginTransaction();
 
-            // 4. Simpan ke Database (hotel_bookings)
+            // 4. Simpan ke Database — ✅ tambahkan kolom `username`
             const [bookingResult] = await connection.execute(
                 `INSERT INTO hotel_bookings 
                 (reservation_no, voucher_no, os_ref_no, agent_os_ref, hotel_id, hotel_name, hotel_address, 
                 internal_code, check_in_date, check_out_date, city_id, room_id, room_name, breakfast_type, 
-                contact_email, contact_phone, total_price, booking_status) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                contact_email, contact_phone, total_price, booking_status, username) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     resData.reservationNo, resData.voucherNo, resData.osRefNo, payload.agentOsRef,
-                    resData.hotelID || b.hotelID, resData.hotelName || "Hotel", resData.hotelAddress || "", 
+                    resData.hotelID || b.hotelID, resData.hotelName || "Hotel", resData.hotelAddress || "",
                     b.internalCode, resData.checkInDate, resData.checkOutDate, b.cityID, b.roomID,
                     resData.roomName || b.roomName, b.breakfast, b.roomRequest[0].email, b.roomRequest[0].phone,
-                    resData.totalPrice || 0, 'Accept'
+                    resData.totalPrice || 0, 'Accept',
+                    username  // ✅ TAMBAHAN
                 ]
             );
 
             const newBookingId = bookingResult.insertId;
 
-            // 5. Simpan Tamu (hotel_booking_paxes)
+            // 5. Simpan Tamu
             for (const room of b.roomRequest) {
                 for (const pax of room.paxes) {
                     await connection.execute(
@@ -427,7 +468,7 @@ router.post('/booking', async (req, res) => {
 
             await connection.commit();
 
-            // 6. Jalankan Worker PDF & Email (Async agar response cepat)
+            // 6. Worker PDF & Email (Async)
             (async () => {
                 try {
                     const pdfData = {
@@ -459,18 +500,18 @@ router.post('/booking', async (req, res) => {
                 }
             })();
 
-            // 7. Kirim Response Sukses ke Frontend
+            // 7. Response Sukses
             return res.json({
                 status: "SUCCESS",
                 booking_id: newBookingId,
+                username: username,  // ✅ Opsional: kembalikan ke frontend jika dibutuhkan
                 ...resData
             });
 
         } else {
-            // Jika benar-benar gagal dari supplier
-            return res.status(400).json({ 
-                status: "ERROR", 
-                respMessage: resData.respMessage || "Gagal melakukan booking." 
+            return res.status(400).json({
+                status: "ERROR",
+                respMessage: resData.respMessage || "Gagal melakukan booking."
             });
         }
 
@@ -482,7 +523,6 @@ router.post('/booking', async (req, res) => {
         if (connection) connection.release();
     }
 });
-
 // 5. HOTEL BOOKING DETAIL
 router.post('/booking-detail', async (req, res) => {
     try {
