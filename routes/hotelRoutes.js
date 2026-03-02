@@ -388,21 +388,19 @@ router.post('/booking-detail', async (req, res) => {
 
         connection = await db.getConnection();
         
-        // 1. Cari data di DB lokal berdasarkan nomor reservasi (bisa PRC- atau nomor asli)
+        // 1. Cari data di DB lokal
         const [localRows] = await connection.execute(
             "SELECT * FROM hotel_bookings WHERE reservation_no = ?",
             [b.reservationNo]
         );
 
         if (localRows.length === 0) {
-            return res.status(404).json({ status: "ERROR", respMessage: "Booking tidak ditemukan di database lokal." });
+            return res.status(404).json({ status: "ERROR", respMessage: "Booking tidak ditemukan." });
         }
 
         const localData = localRows[0];
 
         // 2. Konstruksi Payload untuk Supplier
-        // Jika di DB lokal masih "PRC-", kirim reservationNo KOSONG ke supplier
-        // Supplier akan mengenali booking melalui osRefNo
         const payload = {
             reservationNo: (localData.reservation_no.startsWith("PRC-")) ? "" : localData.reservation_no,
             osRefNo: String(localData.os_ref_no),
@@ -411,27 +409,23 @@ router.post('/booking-detail', async (req, res) => {
             accessToken: token
         };
 
-        logger.debug("CHECK_DETAIL_PAYLOAD: " + JSON.stringify(payload));
-
         const response = await axios.post(`${BASE_URL}/Hotel/BookingDetail`, payload, { httpsAgent: agent });
         const resData = response.data;
 
-        // 3. LOGIKA UPDATE: Jika status di Supplier sudah 'Accept'
+        // 3. LOGIKA UPDATE & EMAIL
         if (resData.status === "SUCCESS" && resData.bookingDetail) {
             const detail = resData.bookingDetail;
             const cleanStatus = (detail.bookingStatus || "").trim();
 
-            // Jika status sekarang 'Accept' dan sebelumnya di lokal masih 'Processed' (atau nomor masih PRC-)
             if (cleanStatus === "Accept") {
-                
-                // Ambil data paxes untuk generate PDF
+                // Ambil data paxes untuk PDF
                 const [paxes] = await connection.execute(
                     "SELECT title, first_name as firstName, last_name as lastName FROM hotel_booking_paxes WHERE booking_id = ?",
                     [localData.id]
                 );
 
                 const pdfData = {
-                    reservationNo: detail.reservationNo, // Nomor ASLI (DI2026...)
+                    reservationNo: detail.reservationNo,
                     hotelName: detail.hotelName || localData.hotel_name,
                     roomName: detail.roomName || localData.room_name,
                     totalPrice: detail.totalPrice || localData.total_price,
@@ -440,24 +434,29 @@ router.post('/booking-detail', async (req, res) => {
                     checkInDate: detail.checkInDate || localData.check_in_date
                 };
 
-                // Generate & Kirim Email (Hanya dilakukan saat transisi dari Processed ke Accept)
-                if (localData.booking_status !== 'Accept') {
+                // KONDISI KIRIM EMAIL: 
+                // Jika transisi status (dari Processed ke Accept) ATAU Klik Kirim Ulang (forceResend)
+                const isTransition = (localData.booking_status !== 'Accept');
+                const isForceResend = (b.forceResend === true);
+
+                if (isTransition || isForceResend) {
                     try {
                         const pdfBuffer = await generateBookingPDF(pdfData, paxes);
                         await transporter.sendMail({
                             from: '"LinkU Travel" <linkutransport@gmail.com>',
                             to: localData.contact_email,
-                            subject: `E-Tiket Hotel Berhasil - ${detail.reservationNo}`,
-                            html: `<p>Pesanan Anda ${detail.reservationNo} telah berhasil dikonfirmasi.</p>`,
+                            subject: `E-Tiket Hotel - ${detail.reservationNo}`,
+                            html: `<p>Berikut adalah e-tiket untuk pesanan hotel Anda di <b>${pdfData.hotelName}</b>.</p>`,
                             attachments: [{ filename: `E-Tiket-${detail.reservationNo}.pdf`, content: pdfBuffer }]
                         });
-                        logger.info(`Email Update Accept Terkirim: ${detail.reservationNo}`);
+                        logger.info(`Email Terkirim (${isForceResend ? 'Resend' : 'Update'}): ${detail.reservationNo}`);
                     } catch (mailErr) {
-                        logger.error("Gagal kirim email update: " + mailErr.message);
+                        logger.error("Gagal kirim email di detail: " + mailErr.message);
                     }
                 }
 
-                // UPDATE DATABASE: Timpa nomor PRC- dengan nomor ASLI dari supplier
+                // 4. Update Database
+                // Menggunakan updated_at = NOW() (Pastikan kolom updated_at sudah ada di DB)
                 await connection.execute(
                     `UPDATE hotel_bookings SET 
                         reservation_no = ?, 
@@ -468,7 +467,6 @@ router.post('/booking-detail', async (req, res) => {
                     [detail.reservationNo, detail.voucherNo, localData.id]
                 );
 
-                // Tambahkan flag agar frontend tahu ada perubahan nomor reservasi
                 resData.updatedToAccept = true;
                 resData.newReservationNo = detail.reservationNo;
             }
@@ -483,7 +481,6 @@ router.post('/booking-detail', async (req, res) => {
     }
 });
 
-
 router.post('/booking', async (req, res) => {
     let connection;
     try {
@@ -491,7 +488,6 @@ router.post('/booking', async (req, res) => {
         const b = req.body;
         const username = b.username || "guest";
 
-        // 1. Konstruksi Payload dengan Proteksi Anti-NULL
         const payload = {
             paxPassport: b.paxPassport || "ID",
             countryID: b.countryID || "ID",
@@ -499,7 +495,6 @@ router.post('/booking', async (req, res) => {
             checkInDate: b.checkInDate.endsWith('Z') ? b.checkInDate : b.checkInDate + 'Z',
             checkOutDate: b.checkOutDate.endsWith('Z') ? b.checkOutDate : b.checkOutDate + 'Z',
             roomRequest: b.roomRequest.map(room => ({
-                // Proteksi: Jika paxes kosong, isi dengan data default agar tidak 'Wrong Format'
                 paxes: (room.paxes && room.paxes.length > 0) ? room.paxes.map(pax => ({
                     title: pax.title || 'Mr.',
                     firstName: (pax.firstName || 'Guest').trim(),
@@ -528,15 +523,12 @@ router.post('/booking', async (req, res) => {
             accessToken: token
         };
 
-        // 2. Hit Supplier
         const response = await axios.post(`${BASE_URL}/Hotel/BookingAllSupplier`, payload, {
             headers: { 'Content-Type': 'application/json' },
             timeout: 60000
         });
 
         const resData = response.data;
-        
-        // 3. Deteksi Status PROCESSED (Bukan Gagal, tapi Menunggu)
         const msg = (resData.respMessage || "").toUpperCase();
         const isProcessed = (resData.status === "FAILED" || resData.status === "ERROR") && msg.includes("PROCESSED");
         const isAccepted = resData.bookingStatus && resData.bookingStatus.trim() === "Accept";
@@ -545,7 +537,6 @@ router.post('/booking', async (req, res) => {
             let currentStatus = 'Accept';
             if (isProcessed) {
                 currentStatus = 'Processed';
-                // Berikan nomor dummy sementara jika supplier tidak mengirim nomor reservasi saat diproses
                 resData.reservationNo = resData.reservationNo || "PRC-" + Date.now();
                 resData.voucherNo = resData.voucherNo || resData.reservationNo;
             }
@@ -553,7 +544,6 @@ router.post('/booking', async (req, res) => {
             connection = await db.getConnection();
             await connection.beginTransaction();
 
-            // 4. Simpan Header Booking
             const [bookingResult] = await connection.execute(
                 `INSERT INTO hotel_bookings 
                 (reservation_no, voucher_no, os_ref_no, agent_os_ref, hotel_id, hotel_name, hotel_address, 
@@ -572,7 +562,6 @@ router.post('/booking', async (req, res) => {
                 ]
             );
 
-            // 5. Simpan Data Tamu
             const newBookingId = bookingResult.insertId;
             for (const room of b.roomRequest) {
                 for (const pax of room.paxes) {
@@ -586,6 +575,40 @@ router.post('/booking', async (req, res) => {
 
             await connection.commit();
 
+            // WORKER EMAIL (Hanya jika langsung Accept)
+            if (currentStatus === 'Accept') {
+                (async () => {
+                    try {
+                        const [paxesForPdf] = await db.execute(
+                            "SELECT title, first_name as firstName, last_name as lastName FROM hotel_booking_paxes WHERE booking_id = ?",
+                            [newBookingId]
+                        );
+
+                        const pdfData = {
+                            reservationNo: resData.reservationNo,
+                            hotelName: resData.hotelName || b.hotelName || "Hotel",
+                            roomName: resData.roomName || b.roomName || "Room",
+                            totalPrice: resData.totalPrice || 0,
+                            contactEmail: b.roomRequest[0].email,
+                            contactPhone: b.roomRequest[0].phone,
+                            checkInDate: resData.checkInDate || b.checkInDate
+                        };
+
+                        const pdfBuffer = await generateBookingPDF(pdfData, paxesForPdf);
+
+                        await transporter.sendMail({
+                            from: '"LinkU Travel" <linkutransport@gmail.com>',
+                            to: b.roomRequest[0].email,
+                            subject: `E-Tiket Hotel - ${resData.reservationNo}`,
+                            html: `<p>Booking Anda berhasil dikonfirmasi. Terlampir adalah e-tiket hotel Anda.</p>`,
+                            attachments: [{ filename: `E-Tiket-${resData.reservationNo}.pdf`, content: pdfBuffer }]
+                        });
+                    } catch (err) {
+                        logger.error("Background Mail Error: " + err.message);
+                    }
+                })();
+            }
+
             return res.json({
                 status: "SUCCESS",
                 booking_id: newBookingId,
@@ -594,10 +617,7 @@ router.post('/booking', async (req, res) => {
             });
 
         } else {
-            return res.status(400).json({
-                status: "ERROR",
-                respMessage: resData.respMessage || "Kamar sudah tidak tersedia."
-            });
+            return res.status(400).json({ status: "ERROR", respMessage: resData.respMessage || "Kamar tidak tersedia." });
         }
     } catch (error) {
         if (connection) await connection.rollback();
