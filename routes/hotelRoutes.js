@@ -28,177 +28,174 @@ async function generateBookingPDF(data, paxes) {
         });
         const page = await browser.newPage();
 
-        // 1. Perbaikan Pembulatan Harga
+        // 1. Pembulatan Harga
         const totalHargaFisik = Math.ceil(Number(data.totalPrice || 0));
         const totalFormatted = totalHargaFisik.toLocaleString('id-ID');
 
-        // 2. Format Tanggal Indonesia untuk Waktu Pembayaran
-        const paymentDate = new Date().toLocaleString('id-ID', {
-            weekday: 'long',
-            day: 'numeric',
+        // 2. Format Tanggal Transaksi (Tanggal Pembelian)
+        const paymentDate = new Date().toLocaleDateString('id-ID', {
+            day: '2-digit',
             month: 'long',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
+            year: 'numeric'
         });
 
-        // 3. Helper Format Tanggal
-        const formatDate = (dateStr) => {
+        // 3. Helper Format Tanggal (Check-in/Out)
+        const formatDateIndo = (dateStr) => {
             if (!dateStr) return "-";
             return new Date(dateStr).toLocaleDateString('id-ID', {
-                day: 'numeric',
+                day: '2-digit',
                 month: 'long',
                 year: 'numeric'
             });
         };
 
-        // 4. Hitung Durasi Malam Dinamis
+        // 4. Hitung Durasi Malam
         const checkIn = new Date(data.checkInDate);
         const checkOut = new Date(data.checkOutDate);
         const diffTime = Math.abs(checkOut - checkIn);
         const nights = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
 
-        // 5. Penanganan Daftar Tamu Dinamis (Mapping dari paxes)
-        const guestListHtml = paxes && paxes.length > 0
-            ? paxes.map((p, i) => `${i + 1}. ${p.title || ''} ${p.firstName || ''} ${p.lastName || ''}`).join('<br>')
+        // 5. Daftar Tamu
+        const guestNames = paxes && paxes.length > 0
+            ? paxes.map((p) => `${p.title || ''} ${p.firstName || ''} ${p.lastName || ''}`).join(', ')
             : "Guest";
-
-        const noTelp = data.contactPhone && data.contactPhone !== "undefined" ? data.contactPhone : "-";
 
         const htmlContent = `
         <html>
         <head>
             <style>
-                @import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap');
-                body { font-family: 'Open Sans', sans-serif; color: #444; margin: 0; padding: 40px; background: #fff; }
+                @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+                body { font-family: 'Inter', sans-serif; color: #334155; margin: 0; padding: 30px; background: #fff; line-height: 1.4; }
                 
-                .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; }
-                .itinerary-info { text-align: right; }
-                .itinerary-label { display: block; background: #24b3ae; color: white; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-bottom: 5px; }
+                .header { display: flex; justify-content: space-between; margin-bottom: 20px; border-bottom: 4px solid #24b3ae; padding-bottom: 15px; }
+                .hotel-title { font-size: 18px; font-weight: 800; color: #0f172a; margin-bottom: 4px; }
+                .hotel-address { font-size: 11px; color: #64748b; max-width: 300px; }
+                
+                .voucher-title { text-align: center; font-size: 20px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; margin: 20px 0; color: #0f172a; }
 
-                .paid-badge { 
-                    float: right; width: 80px; height: 80px; border: 5px solid #4CAF50; border-radius: 50%; 
-                    display: flex; align-items: center; justify-content: center; color: #4CAF50; 
-                    font-weight: 900; font-size: 20px; transform: rotate(-20deg); opacity: 0.8;
-                    margin-top: -10px; margin-right: 20px;
+                .top-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-bottom: 30px; font-size: 12px; }
+                .info-row { display: flex; margin-bottom: 5px; }
+                .info-row .label { width: 120px; color: #64748b; }
+                .info-row .value { font-weight: 600; color: #1e293b; }
+
+                .dates-container { 
+                    display: flex; justify-content: space-around; background: #f8fafc; 
+                    border: 1px solid #e2e8f0; border-radius: 12px; padding: 15px; margin-bottom: 30px;
+                }
+                .date-box { text-align: center; }
+                .date-box .label { font-size: 10px; text-transform: uppercase; color: #64748b; letter-spacing: 1px; margin-bottom: 5px; }
+                .date-box .value { font-size: 14px; font-weight: 700; color: #24b3ae; }
+
+                .section-title { 
+                    font-size: 13px; font-weight: 800; text-transform: uppercase; 
+                    background: #f1f5f9; padding: 8px 12px; border-radius: 6px; margin-bottom: 15px; color: #475569;
                 }
 
-                .section-header { 
-                    color: #24b3ae; font-size: 16px; font-weight: 700; 
-                    border-bottom: 2px solid #f0f0f0; margin: 25px 0 10px 0; padding-bottom: 5px; 
+                .details-grid { display: grid; grid-template-columns: 1fr; gap: 10px; padding: 0 12px; margin-bottom: 30px; }
+                .detail-item { display: flex; font-size: 12px; border-bottom: 1px solid #f1f5f9; padding-bottom: 8px; }
+                .detail-item .label { width: 180px; color: #64748b; }
+                .detail-item .value { flex: 1; font-weight: 600; color: #1e293b; }
+                
+                .special-request-box { 
+                    background: #fff9f0; border-left: 4px solid #f59e0b; padding: 10px 15px; 
+                    font-size: 12px; margin-top: 10px; border-radius: 0 8px 8px 0;
                 }
-                .info-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 20px; }
-                .info-item label { display: block; font-size: 11px; color: #999; text-transform: uppercase; margin-bottom: 3px; }
-                .info-item span { font-size: 13px; font-weight: 600; color: #333; }
 
-                table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-                th { background: #f8f8f8; color: #24b3ae; text-align: left; padding: 12px; font-size: 12px; border-bottom: 1px solid #eee; }
-                td { padding: 15px 12px; border-bottom: 1px solid #eee; font-size: 12px; vertical-align: top; }
-                .product-type { font-weight: 700; color: #e03f7d; }
-                
-                .summary-container { margin-top: 20px; border-top: 1px dashed #ccc; padding-top: 15px; }
-                .total-row { display: flex; justify-content: flex-end; align-items: center; padding: 5px 0; }
-                .total-label { font-size: 14px; font-weight: 600; margin-right: 20px; }
-                .total-amount { font-size: 22px; font-weight: 800; color: #e03f7d; }
-                
-                .footer-note { font-size: 10px; color: #aaa; margin-top: 40px; text-align: center; border-top: 1px solid #eee; padding-top: 10px; }
+                .paid-stamp { 
+                    position: absolute; top: 150px; right: 50px; border: 4px solid #22c55e; 
+                    color: #22c55e; padding: 10px 20px; font-size: 30px; font-weight: 900; 
+                    border-radius: 12px; transform: rotate(-15deg); opacity: 0.2;
+                }
+
+                .footer { margin-top: 50px; border-top: 1px solid #e2e8f0; padding-top: 20px; text-align: center; font-size: 10px; color: #94a3b8; }
             </style>
         </head>
         <body>
-          <div class="header">
-            <div class="logo-area">
-                <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877917/WhatsApp_Image_2026-01-20_at_09.45.43-removebg-preview_lqkgrw.png" 
-                     height="50" style="margin-bottom: 10px; display: block;">
-                <div style="font-size: 12px; color: #555; line-height: 1.5;">
-                    <div>Powered by Darmawisata Indonesia</div>
-                    <div>Dipesan dan dibayar oleh Darmawisata Indonesia</div>
+            <div class="paid-stamp">PAID</div>
+
+            <div class="header">
+                <div class="logo-area">
+                    <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877917/WhatsApp_Image_2026-01-20_at_09.45.43-removebg-preview_lqkgrw.png" height="50">
+                </div>
+                <div class="hotel-info" style="text-align: right;">
+                    <div class="hotel-title">${data.hotelName}</div>
+                    <div class="hotel-address">${data.hotelAddress || 'Alamat hotel tersedia di sistem'}</div>
                 </div>
             </div>
-            <div class="itinerary-info">
-                <span class="itinerary-label">Itinerary ID: ${data.reservationNo}</span>
+
+            <div class="voucher-title">Voucher Reservasi Hotel</div>
+
+            <div class="top-info-grid">
+                <div>
+                    <div class="info-row"><div class="label">Voucher No.</div><div class="value">: ${data.voucherNo || data.reservationNo}</div></div>
+                    <div class="info-row"><div class="label">Tgl Pembelian</div><div class="value">: ${paymentDate}</div></div>
+                </div>
+                <div style="text-align: right;">
+                    <div class="info-row" style="justify-content: flex-end;"><div class="label">File No.</div><div class="value">: ${data.reservationNo}</div></div>
+                    <div class="info-row" style="justify-content: flex-end;"><div class="label">O/S Ref.</div><div class="value">: ${data.osRefNo || '-'}</div></div>
+                </div>
             </div>
-          </div>
 
-          <div class="paid-badge">PAID</div>
+            <div class="dates-container">
+                <div class="date-box">
+                    <div class="label">Tanggal Check-In</div>
+                    <div class="value">${formatDateIndo(data.checkInDate)}</div>
+                </div>
+                <div style="color: #cbd5e1; font-size: 24px;">|</div>
+                <div class="date-box">
+                    <div class="label">Tanggal Check-Out</div>
+                    <div class="value">${formatDateIndo(data.checkOutDate)}</div>
+                </div>
+            </div>
 
-          <div class="section-header">Detail Kontak</div>
-          <div class="info-grid">
-              <div class="info-item">
-                  <label>Daftar Tamu</label>
-                  <span style="font-size: 12px;">${guestListHtml}</span>
-              </div>
-              <div class="info-item">
-                  <label>Alamat Email</label>
-                  <span>${data.contactEmail || '-'}</span>
-              </div>
-              <div class="info-item">
-                  <label>Nomor Telepon</label>
-                  <span>${noTelp}</span>
-              </div>
-          </div>
+            <div class="section-title">Reservation Details</div>
+            <div class="details-grid">
+                <div class="detail-item">
+                    <div class="label">Nama Tamu / Grup</div>
+                    <div class="value">: ${guestNames}</div>
+                </div>
+                <div class="detail-item">
+                    <div class="label">Total Kamar</div>
+                    <div class="value">: 1 Kamar</div>
+                </div>
+                <div class="detail-item">
+                    <div class="label">Tipe Kamar</div>
+                    <div class="value">: ${data.roomName}</div>
+                </div>
+                <div class="detail-item">
+                    <div class="label">Meals</div>
+                    <div class="value">: ${data.breakfastType || data.breakfast || 'Sesuai Kebijakan Hotel'}</div>
+                </div>
+                <div class="detail-item">
+                    <div class="label">Total Pax</div>
+                    <div class="value">: ${paxes.length} Tamu</div>
+                </div>
+                <div class="detail-item">
+                    <div class="label">Jumlah Malam</div>
+                    <div class="value">: ${nights} Malam</div>
+                </div>
+                <div class="detail-item" style="border:none;">
+                    <div class="label">Special Request</div>
+                    <div class="value">: 
+                        <div class="special-request-box">
+                            ${data.specialRequests && data.specialRequests !== "" ? data.specialRequests : "Tidak ada permintaan khusus"}
+                        </div>
+                    </div>
+                </div>
+            </div>
 
-          <div class="section-header">Detail Pembayaran</div>
-          <div class="info-grid">
-              <div class="info-item">
-                  <label>Waktu Pembayaran</label>
-                  <span>${paymentDate}</span>
-              </div>
-              <div class="info-item">
-                  <label>Metode Pembayaran</label>
-                  <span>Koin Aplikasi</span>
-              </div>
-              <div class="info-item">
-                  <label>Status</label>
-                  <span style="color: #4CAF50;">Sukses</span>
-              </div>
-          </div>
+            <div class="section-title">Pembayaran</div>
+            <div style="font-size: 11px; color: #475569; padding: 0 12px;">
+                Voucher Berlaku Untuk Layanan yang Tertera di Atas. Tambahan Layanan Harus Berdasarkan Permintaan.<br>
+                <b>Status: LUNAS (Paid via Koin Aplikasi) - IDR ${totalFormatted}</b>
+            </div>
 
-          <table>
-              <thead>
-                  <tr>
-                      <th width="5%">No</th>
-                      <th width="15%">Jenis Produk</th>
-                      <th width="55%">Deskripsi</th>
-                      <th width="25%" style="text-align: right;">Jumlah Total</th>
-                  </tr>
-              </thead>
-              <tbody>
-                  <tr>
-                      <td>1</td>
-                      <td class="product-type">Hotel</td>
-                      <td>
-                          <div style="font-weight: 700; font-size: 14px; margin-bottom: 5px;">${data.hotelName}</div>
-                          <div style="color: #666; margin-bottom: 10px;">${data.roomName}</div>
-                          <div style="display: flex; gap: 20px;">
-                              <div><small style="color:#999">CHECK-IN</small><br><b>${formatDate(data.checkInDate)}</b></div>
-                              <div><small style="color:#999">CHECK-OUT</small><br><b>${formatDate(data.checkOutDate)}</b></div>
-                              <div><small style="color:#999">DURASI</small><br><b>${nights} Malam</b></div>
-                          </div>
-                      </td>
-                      <td style="text-align: right; font-weight: 700;">
-                           IDR ${totalFormatted}
-                      </td>
-                  </tr>
-              </tbody>
-          </table>
-
-          <div class="summary-container">
-              <div class="total-row">
-                  <div class="total-label">Biaya Administrasi</div>
-                  <div style="width: 150px; text-align: right; font-weight: 600; color: #4CAF50;">GRATIS</div>
-              </div>
-              <div class="total-row" style="margin-top: 10px;">
-                  <div class="total-label" style="font-size: 16px;">Total Pembayaran</div>
-                  <div class="total-amount" style="width: 180px; text-align: right;">
-                      IDR ${totalFormatted}
-                  </div>
-              </div>
-          </div>
-
-          <div class="footer-note">
-              Bukti transaksi ini sah dan dihasilkan secara otomatis oleh sistem LinkU Travel.<br>
-              Silakan hubungi Customer Care kami jika Anda memiliki pertanyaan mengenai pesanan ini.
-          </div>
+            <div class="footer">
+                1. Voucher hanya berlaku saat tanggal menginap.<br>
+                2. Mohon hubungi kami bila melakukan perubahan reservasi.<br>
+                3. Permintaan khusus tergantung dari ketersediaan layanan hotel pada saat check-in.<br><br>
+                <strong>LinkU Travel</strong>
+            </div>
         </body>
         </html>`;
 
@@ -206,7 +203,7 @@ async function generateBookingPDF(data, paxes) {
         const pdfBuffer = await page.pdf({
             format: 'A4',
             printBackground: true,
-            margin: { top: '20px', bottom: '20px', left: '20px', right: '20px' }
+            margin: { top: '0px', bottom: '0px', left: '0px', right: '0px' }
         });
         
         return pdfBuffer;
@@ -504,6 +501,7 @@ router.post('/booking', async (req, res) => {
         const b = req.body;
         const username = b.username || "guest";
 
+        // Pastikan format payload sesuai dokumentasi API Supplier
         const payload = {
             paxPassport: b.paxPassport || "ID",
             countryID: b.countryID || "ID",
@@ -520,7 +518,7 @@ router.post('/booking', async (req, res) => {
                 phone: String(room.phone || '08123456789'),
                 email: String(room.email || 'guest@mail.com'),
                 specialRequestArray: room.specialRequestArray || [], 
-                requestDescription: room.requestDescription || "", 
+                requestDescription: room.requestDescription || "", // Pastikan string kosong jika null
                 roomType: 0,
                 isRequestChildBed: false,
                 childNum: parseInt(room.childNum) || 0,
@@ -560,12 +558,13 @@ router.post('/booking', async (req, res) => {
             connection = await db.getConnection();
             await connection.beginTransaction();
 
+            // INSERT ke database termasuk kolom special_requests
             const [bookingResult] = await connection.execute(
                 `INSERT INTO hotel_bookings 
                 (reservation_no, voucher_no, os_ref_no, agent_os_ref, hotel_id, hotel_name, hotel_address, 
                 internal_code, check_in_date, check_out_date, city_id, room_id, room_name, breakfast_type, 
-                contact_email, contact_phone, total_price, booking_status, username) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                contact_email, contact_phone, total_price, booking_status, username, special_requests) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     resData.reservationNo, resData.voucherNo, resData.osRefNo, payload.agentOsRef,
                     String(resData.hotelID || b.hotelID), resData.hotelName || b.hotelName || "Hotel",
@@ -574,7 +573,8 @@ router.post('/booking', async (req, res) => {
                     resData.checkOutDate || b.checkOutDate.replace('Z', ''),
                     String(b.cityID), String(b.roomID), resData.roomName || b.roomName || "",
                     b.breakfast || "", b.roomRequest[0].email, b.roomRequest[0].phone,
-                    parseFloat(resData.totalPrice || 0), currentStatus, username
+                    parseFloat(resData.totalPrice || 0), currentStatus, username,
+                    payload.roomRequest[0].requestDescription // Simpan Special Request ke DB
                 ]
             );
 
@@ -591,7 +591,7 @@ router.post('/booking', async (req, res) => {
 
             await connection.commit();
 
-            // WORKER EMAIL (Hanya jika langsung Accept)
+            // WORKER EMAIL
             if (currentStatus === 'Accept') {
                 (async () => {
                     try {
@@ -607,7 +607,9 @@ router.post('/booking', async (req, res) => {
                             totalPrice: resData.totalPrice || 0,
                             contactEmail: b.roomRequest[0].email,
                             contactPhone: b.roomRequest[0].phone,
-                            checkInDate: resData.checkInDate || b.checkInDate
+                            checkInDate: resData.checkInDate || b.checkInDate,
+                            checkOutDate: resData.checkOutDate || b.checkOutDate,
+                            specialRequests: payload.roomRequest[0].requestDescription || "-"
                         };
 
                         const pdfBuffer = await generateBookingPDF(pdfData, paxesForPdf);
@@ -620,7 +622,7 @@ router.post('/booking', async (req, res) => {
                             attachments: [{ filename: `E-Tiket-${resData.reservationNo}.pdf`, content: pdfBuffer }]
                         });
                     } catch (err) {
-                        logger.error("Background Mail Error: " + err.message);
+                        console.error("Background Mail Error: " + err.message);
                     }
                 })();
             }

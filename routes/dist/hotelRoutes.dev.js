@@ -46,7 +46,7 @@ var transporter = nodemailer.createTransport({
 });
 
 function generateBookingPDF(data, paxes) {
-  var browser, page, totalHargaFisik, totalFormatted, paymentDate, formatDate, checkIn, checkOut, diffTime, nights, guestListHtml, noTelp, htmlContent, pdfBuffer;
+  var browser, page, totalHargaFisik, totalFormatted, paymentDate, formatDateIndo, checkIn, checkOut, diffTime, nights, guestNames, htmlContent, pdfBuffer;
   return regeneratorRuntime.async(function generateBookingPDF$(_context) {
     while (1) {
       switch (_context.prev = _context.next) {
@@ -65,85 +65,81 @@ function generateBookingPDF(data, paxes) {
 
         case 6:
           page = _context.sent;
-          // 1. Perbaikan Pembulatan Harga
+          // 1. Pembulatan Harga
           totalHargaFisik = Math.ceil(Number(data.totalPrice || 0));
-          totalFormatted = totalHargaFisik.toLocaleString('id-ID'); // 2. Format Tanggal Indonesia untuk Waktu Pembayaran
+          totalFormatted = totalHargaFisik.toLocaleString('id-ID'); // 2. Format Tanggal Transaksi (Tanggal Pembelian)
 
-          paymentDate = new Date().toLocaleString('id-ID', {
-            weekday: 'long',
-            day: 'numeric',
+          paymentDate = new Date().toLocaleDateString('id-ID', {
+            day: '2-digit',
             month: 'long',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-          }); // 3. Helper Format Tanggal
+            year: 'numeric'
+          }); // 3. Helper Format Tanggal (Check-in/Out)
 
-          formatDate = function formatDate(dateStr) {
+          formatDateIndo = function formatDateIndo(dateStr) {
             if (!dateStr) return "-";
             return new Date(dateStr).toLocaleDateString('id-ID', {
-              day: 'numeric',
+              day: '2-digit',
               month: 'long',
               year: 'numeric'
             });
-          }; // 4. Hitung Durasi Malam Dinamis
+          }; // 4. Hitung Durasi Malam
 
 
           checkIn = new Date(data.checkInDate);
           checkOut = new Date(data.checkOutDate);
           diffTime = Math.abs(checkOut - checkIn);
-          nights = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1; // 5. Penanganan Daftar Tamu Dinamis (Mapping dari paxes)
+          nights = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1; // 5. Daftar Tamu
 
-          guestListHtml = paxes && paxes.length > 0 ? paxes.map(function (p, i) {
-            return "".concat(i + 1, ". ").concat(p.title || '', " ").concat(p.firstName || '', " ").concat(p.lastName || '');
-          }).join('<br>') : "Guest";
-          noTelp = data.contactPhone && data.contactPhone !== "undefined" ? data.contactPhone : "-";
-          htmlContent = "\n        <html>\n        <head>\n            <style>\n                @import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap');\n                body { font-family: 'Open Sans', sans-serif; color: #444; margin: 0; padding: 40px; background: #fff; }\n                \n                .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; }\n                .itinerary-info { text-align: right; }\n                .itinerary-label { display: block; background: #24b3ae; color: white; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-bottom: 5px; }\n\n                .paid-badge { \n                    float: right; width: 80px; height: 80px; border: 5px solid #4CAF50; border-radius: 50%; \n                    display: flex; align-items: center; justify-content: center; color: #4CAF50; \n                    font-weight: 900; font-size: 20px; transform: rotate(-20deg); opacity: 0.8;\n                    margin-top: -10px; margin-right: 20px;\n                }\n\n                .section-header { \n                    color: #24b3ae; font-size: 16px; font-weight: 700; \n                    border-bottom: 2px solid #f0f0f0; margin: 25px 0 10px 0; padding-bottom: 5px; \n                }\n                .info-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 20px; }\n                .info-item label { display: block; font-size: 11px; color: #999; text-transform: uppercase; margin-bottom: 3px; }\n                .info-item span { font-size: 13px; font-weight: 600; color: #333; }\n\n                table { width: 100%; border-collapse: collapse; margin-top: 15px; }\n                th { background: #f8f8f8; color: #24b3ae; text-align: left; padding: 12px; font-size: 12px; border-bottom: 1px solid #eee; }\n                td { padding: 15px 12px; border-bottom: 1px solid #eee; font-size: 12px; vertical-align: top; }\n                .product-type { font-weight: 700; color: #e03f7d; }\n                \n                .summary-container { margin-top: 20px; border-top: 1px dashed #ccc; padding-top: 15px; }\n                .total-row { display: flex; justify-content: flex-end; align-items: center; padding: 5px 0; }\n                .total-label { font-size: 14px; font-weight: 600; margin-right: 20px; }\n                .total-amount { font-size: 22px; font-weight: 800; color: #e03f7d; }\n                \n                .footer-note { font-size: 10px; color: #aaa; margin-top: 40px; text-align: center; border-top: 1px solid #eee; padding-top: 10px; }\n            </style>\n        </head>\n        <body>\n          <div class=\"header\">\n            <div class=\"logo-area\">\n                <img src=\"https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877917/WhatsApp_Image_2026-01-20_at_09.45.43-removebg-preview_lqkgrw.png\" \n                     height=\"50\" style=\"margin-bottom: 10px; display: block;\">\n                <div style=\"font-size: 12px; color: #555; line-height: 1.5;\">\n                    <div>Powered by Darmawisata Indonesia</div>\n                    <div>Dipesan dan dibayar oleh Darmawisata Indonesia</div>\n                </div>\n            </div>\n            <div class=\"itinerary-info\">\n                <span class=\"itinerary-label\">Itinerary ID: ".concat(data.reservationNo, "</span>\n            </div>\n          </div>\n\n          <div class=\"paid-badge\">PAID</div>\n\n          <div class=\"section-header\">Detail Kontak</div>\n          <div class=\"info-grid\">\n              <div class=\"info-item\">\n                  <label>Daftar Tamu</label>\n                  <span style=\"font-size: 12px;\">").concat(guestListHtml, "</span>\n              </div>\n              <div class=\"info-item\">\n                  <label>Alamat Email</label>\n                  <span>").concat(data.contactEmail || '-', "</span>\n              </div>\n              <div class=\"info-item\">\n                  <label>Nomor Telepon</label>\n                  <span>").concat(noTelp, "</span>\n              </div>\n          </div>\n\n          <div class=\"section-header\">Detail Pembayaran</div>\n          <div class=\"info-grid\">\n              <div class=\"info-item\">\n                  <label>Waktu Pembayaran</label>\n                  <span>").concat(paymentDate, "</span>\n              </div>\n              <div class=\"info-item\">\n                  <label>Metode Pembayaran</label>\n                  <span>Koin Aplikasi</span>\n              </div>\n              <div class=\"info-item\">\n                  <label>Status</label>\n                  <span style=\"color: #4CAF50;\">Sukses</span>\n              </div>\n          </div>\n\n          <table>\n              <thead>\n                  <tr>\n                      <th width=\"5%\">No</th>\n                      <th width=\"15%\">Jenis Produk</th>\n                      <th width=\"55%\">Deskripsi</th>\n                      <th width=\"25%\" style=\"text-align: right;\">Jumlah Total</th>\n                  </tr>\n              </thead>\n              <tbody>\n                  <tr>\n                      <td>1</td>\n                      <td class=\"product-type\">Hotel</td>\n                      <td>\n                          <div style=\"font-weight: 700; font-size: 14px; margin-bottom: 5px;\">").concat(data.hotelName, "</div>\n                          <div style=\"color: #666; margin-bottom: 10px;\">").concat(data.roomName, "</div>\n                          <div style=\"display: flex; gap: 20px;\">\n                              <div><small style=\"color:#999\">CHECK-IN</small><br><b>").concat(formatDate(data.checkInDate), "</b></div>\n                              <div><small style=\"color:#999\">CHECK-OUT</small><br><b>").concat(formatDate(data.checkOutDate), "</b></div>\n                              <div><small style=\"color:#999\">DURASI</small><br><b>").concat(nights, " Malam</b></div>\n                          </div>\n                      </td>\n                      <td style=\"text-align: right; font-weight: 700;\">\n                           IDR ").concat(totalFormatted, "\n                      </td>\n                  </tr>\n              </tbody>\n          </table>\n\n          <div class=\"summary-container\">\n              <div class=\"total-row\">\n                  <div class=\"total-label\">Biaya Administrasi</div>\n                  <div style=\"width: 150px; text-align: right; font-weight: 600; color: #4CAF50;\">GRATIS</div>\n              </div>\n              <div class=\"total-row\" style=\"margin-top: 10px;\">\n                  <div class=\"total-label\" style=\"font-size: 16px;\">Total Pembayaran</div>\n                  <div class=\"total-amount\" style=\"width: 180px; text-align: right;\">\n                      IDR ").concat(totalFormatted, "\n                  </div>\n              </div>\n          </div>\n\n          <div class=\"footer-note\">\n              Bukti transaksi ini sah dan dihasilkan secara otomatis oleh sistem LinkU Travel.<br>\n              Silakan hubungi Customer Care kami jika Anda memiliki pertanyaan mengenai pesanan ini.\n          </div>\n        </body>\n        </html>");
-          _context.next = 20;
+          guestNames = paxes && paxes.length > 0 ? paxes.map(function (p) {
+            return "".concat(p.title || '', " ").concat(p.firstName || '', " ").concat(p.lastName || '');
+          }).join(', ') : "Guest";
+          htmlContent = "\n        <html>\n        <head>\n            <style>\n                @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');\n                body { font-family: 'Inter', sans-serif; color: #334155; margin: 0; padding: 30px; background: #fff; line-height: 1.4; }\n                \n                .header { display: flex; justify-content: space-between; margin-bottom: 20px; border-bottom: 4px solid #24b3ae; padding-bottom: 15px; }\n                .hotel-title { font-size: 18px; font-weight: 800; color: #0f172a; margin-bottom: 4px; }\n                .hotel-address { font-size: 11px; color: #64748b; max-width: 300px; }\n                \n                .voucher-title { text-align: center; font-size: 20px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; margin: 20px 0; color: #0f172a; }\n\n                .top-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-bottom: 30px; font-size: 12px; }\n                .info-row { display: flex; margin-bottom: 5px; }\n                .info-row .label { width: 120px; color: #64748b; }\n                .info-row .value { font-weight: 600; color: #1e293b; }\n\n                .dates-container { \n                    display: flex; justify-content: space-around; background: #f8fafc; \n                    border: 1px solid #e2e8f0; border-radius: 12px; padding: 15px; margin-bottom: 30px;\n                }\n                .date-box { text-align: center; }\n                .date-box .label { font-size: 10px; text-transform: uppercase; color: #64748b; letter-spacing: 1px; margin-bottom: 5px; }\n                .date-box .value { font-size: 14px; font-weight: 700; color: #24b3ae; }\n\n                .section-title { \n                    font-size: 13px; font-weight: 800; text-transform: uppercase; \n                    background: #f1f5f9; padding: 8px 12px; border-radius: 6px; margin-bottom: 15px; color: #475569;\n                }\n\n                .details-grid { display: grid; grid-template-columns: 1fr; gap: 10px; padding: 0 12px; margin-bottom: 30px; }\n                .detail-item { display: flex; font-size: 12px; border-bottom: 1px solid #f1f5f9; padding-bottom: 8px; }\n                .detail-item .label { width: 180px; color: #64748b; }\n                .detail-item .value { flex: 1; font-weight: 600; color: #1e293b; }\n                \n                .special-request-box { \n                    background: #fff9f0; border-left: 4px solid #f59e0b; padding: 10px 15px; \n                    font-size: 12px; margin-top: 10px; border-radius: 0 8px 8px 0;\n                }\n\n                .paid-stamp { \n                    position: absolute; top: 150px; right: 50px; border: 4px solid #22c55e; \n                    color: #22c55e; padding: 10px 20px; font-size: 30px; font-weight: 900; \n                    border-radius: 12px; transform: rotate(-15deg); opacity: 0.2;\n                }\n\n                .footer { margin-top: 50px; border-top: 1px solid #e2e8f0; padding-top: 20px; text-align: center; font-size: 10px; color: #94a3b8; }\n            </style>\n        </head>\n        <body>\n            <div class=\"paid-stamp\">PAID</div>\n\n            <div class=\"header\">\n                <div class=\"logo-area\">\n                    <img src=\"https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877917/WhatsApp_Image_2026-01-20_at_09.45.43-removebg-preview_lqkgrw.png\" height=\"50\">\n                </div>\n                <div class=\"hotel-info\" style=\"text-align: right;\">\n                    <div class=\"hotel-title\">".concat(data.hotelName, "</div>\n                    <div class=\"hotel-address\">").concat(data.hotelAddress || 'Alamat hotel tersedia di sistem', "</div>\n                </div>\n            </div>\n\n            <div class=\"voucher-title\">Voucher Reservasi Hotel</div>\n\n            <div class=\"top-info-grid\">\n                <div>\n                    <div class=\"info-row\"><div class=\"label\">Voucher No.</div><div class=\"value\">: ").concat(data.voucherNo || data.reservationNo, "</div></div>\n                    <div class=\"info-row\"><div class=\"label\">Tgl Pembelian</div><div class=\"value\">: ").concat(paymentDate, "</div></div>\n                </div>\n                <div style=\"text-align: right;\">\n                    <div class=\"info-row\" style=\"justify-content: flex-end;\"><div class=\"label\">File No.</div><div class=\"value\">: ").concat(data.reservationNo, "</div></div>\n                    <div class=\"info-row\" style=\"justify-content: flex-end;\"><div class=\"label\">O/S Ref.</div><div class=\"value\">: ").concat(data.osRefNo || '-', "</div></div>\n                </div>\n            </div>\n\n            <div class=\"dates-container\">\n                <div class=\"date-box\">\n                    <div class=\"label\">Tanggal Check-In</div>\n                    <div class=\"value\">").concat(formatDateIndo(data.checkInDate), "</div>\n                </div>\n                <div style=\"color: #cbd5e1; font-size: 24px;\">|</div>\n                <div class=\"date-box\">\n                    <div class=\"label\">Tanggal Check-Out</div>\n                    <div class=\"value\">").concat(formatDateIndo(data.checkOutDate), "</div>\n                </div>\n            </div>\n\n            <div class=\"section-title\">Reservation Details</div>\n            <div class=\"details-grid\">\n                <div class=\"detail-item\">\n                    <div class=\"label\">Nama Tamu / Grup</div>\n                    <div class=\"value\">: ").concat(guestNames, "</div>\n                </div>\n                <div class=\"detail-item\">\n                    <div class=\"label\">Total Kamar</div>\n                    <div class=\"value\">: 1 Kamar</div>\n                </div>\n                <div class=\"detail-item\">\n                    <div class=\"label\">Tipe Kamar</div>\n                    <div class=\"value\">: ").concat(data.roomName, "</div>\n                </div>\n                <div class=\"detail-item\">\n                    <div class=\"label\">Meals</div>\n                    <div class=\"value\">: ").concat(data.breakfastType || data.breakfast || 'Sesuai Kebijakan Hotel', "</div>\n                </div>\n                <div class=\"detail-item\">\n                    <div class=\"label\">Total Pax</div>\n                    <div class=\"value\">: ").concat(paxes.length, " Tamu</div>\n                </div>\n                <div class=\"detail-item\">\n                    <div class=\"label\">Jumlah Malam</div>\n                    <div class=\"value\">: ").concat(nights, " Malam</div>\n                </div>\n                <div class=\"detail-item\" style=\"border:none;\">\n                    <div class=\"label\">Special Request</div>\n                    <div class=\"value\">: \n                        <div class=\"special-request-box\">\n                            ").concat(data.specialRequests && data.specialRequests !== "" ? data.specialRequests : "Tidak ada permintaan khusus", "\n                        </div>\n                    </div>\n                </div>\n            </div>\n\n            <div class=\"section-title\">Pembayaran</div>\n            <div style=\"font-size: 11px; color: #475569; padding: 0 12px;\">\n                Voucher Berlaku Untuk Layanan yang Tertera di Atas. Tambahan Layanan Harus Berdasarkan Permintaan.<br>\n                <b>Status: LUNAS (Paid via Koin Aplikasi) - IDR ").concat(totalFormatted, "</b>\n            </div>\n\n            <div class=\"footer\">\n                1. Voucher hanya berlaku saat tanggal menginap.<br>\n                2. Mohon hubungi kami bila melakukan perubahan reservasi.<br>\n                3. Permintaan khusus tergantung dari ketersediaan layanan hotel pada saat check-in.<br><br>\n                <strong>LinkU Travel</strong>\n            </div>\n        </body>\n        </html>");
+          _context.next = 19;
           return regeneratorRuntime.awrap(page.setContent(htmlContent));
 
-        case 20:
-          _context.next = 22;
+        case 19:
+          _context.next = 21;
           return regeneratorRuntime.awrap(page.pdf({
             format: 'A4',
             printBackground: true,
             margin: {
-              top: '20px',
-              bottom: '20px',
-              left: '20px',
-              right: '20px'
+              top: '0px',
+              bottom: '0px',
+              left: '0px',
+              right: '0px'
             }
           }));
 
-        case 22:
+        case 21:
           pdfBuffer = _context.sent;
           return _context.abrupt("return", pdfBuffer);
 
-        case 26:
-          _context.prev = 26;
+        case 25:
+          _context.prev = 25;
           _context.t0 = _context["catch"](0);
           console.error("Error generating PDF:", _context.t0);
           throw _context.t0;
 
-        case 30:
-          _context.prev = 30;
+        case 29:
+          _context.prev = 29;
 
           if (!browser) {
-            _context.next = 34;
+            _context.next = 33;
             break;
           }
 
-          _context.next = 34;
+          _context.next = 33;
           return regeneratorRuntime.awrap(browser.close());
 
-        case 34:
-          return _context.finish(30);
+        case 33:
+          return _context.finish(29);
 
-        case 35:
+        case 34:
         case "end":
           return _context.stop();
       }
     }
-  }, null, null, [[0, 26, 30, 35]]);
+  }, null, null, [[0, 25, 29, 34]]);
 } // 1. HOTEL SEARCH
 
 
@@ -642,7 +638,8 @@ router.post('/booking', function _callee9(req, res) {
         case 3:
           token = _context10.sent;
           b = req.body;
-          username = b.username || "guest";
+          username = b.username || "guest"; // Pastikan format payload sesuai dokumentasi API Supplier
+
           payload = {
             paxPassport: b.paxPassport || "ID",
             countryID: b.countryID || "ID",
@@ -667,6 +664,7 @@ router.post('/booking', function _callee9(req, res) {
                 email: String(room.email || 'guest@mail.com'),
                 specialRequestArray: room.specialRequestArray || [],
                 requestDescription: room.requestDescription || "",
+                // Pastikan string kosong jika null
                 roomType: 0,
                 isRequestChildBed: false,
                 childNum: parseInt(room.childNum) || 0,
@@ -723,7 +721,8 @@ router.post('/booking', function _callee9(req, res) {
 
         case 22:
           _context10.next = 24;
-          return regeneratorRuntime.awrap(connection.execute("INSERT INTO hotel_bookings \n                (reservation_no, voucher_no, os_ref_no, agent_os_ref, hotel_id, hotel_name, hotel_address, \n                internal_code, check_in_date, check_out_date, city_id, room_id, room_name, breakfast_type, \n                contact_email, contact_phone, total_price, booking_status, username) \n                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [resData.reservationNo, resData.voucherNo, resData.osRefNo, payload.agentOsRef, String(resData.hotelID || b.hotelID), resData.hotelName || b.hotelName || "Hotel", resData.hotelAddress || "", b.internalCode, resData.checkInDate || b.checkInDate.replace('Z', ''), resData.checkOutDate || b.checkOutDate.replace('Z', ''), String(b.cityID), String(b.roomID), resData.roomName || b.roomName || "", b.breakfast || "", b.roomRequest[0].email, b.roomRequest[0].phone, parseFloat(resData.totalPrice || 0), currentStatus, username]));
+          return regeneratorRuntime.awrap(connection.execute("INSERT INTO hotel_bookings \n                (reservation_no, voucher_no, os_ref_no, agent_os_ref, hotel_id, hotel_name, hotel_address, \n                internal_code, check_in_date, check_out_date, city_id, room_id, room_name, breakfast_type, \n                contact_email, contact_phone, total_price, booking_status, username, special_requests) \n                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [resData.reservationNo, resData.voucherNo, resData.osRefNo, payload.agentOsRef, String(resData.hotelID || b.hotelID), resData.hotelName || b.hotelName || "Hotel", resData.hotelAddress || "", b.internalCode, resData.checkInDate || b.checkInDate.replace('Z', ''), resData.checkOutDate || b.checkOutDate.replace('Z', ''), String(b.cityID), String(b.roomID), resData.roomName || b.roomName || "", b.breakfast || "", b.roomRequest[0].email, b.roomRequest[0].phone, parseFloat(resData.totalPrice || 0), currentStatus, username, payload.roomRequest[0].requestDescription // Simpan Special Request ke DB
+          ]));
 
         case 24:
           _ref5 = _context10.sent;
@@ -842,7 +841,7 @@ router.post('/booking', function _callee9(req, res) {
           return regeneratorRuntime.awrap(connection.commit());
 
         case 80:
-          // WORKER EMAIL (Hanya jika langsung Accept)
+          // WORKER EMAIL
           if (currentStatus === 'Accept') {
             (function _callee8() {
               var _ref7, _ref8, paxesForPdf, pdfData, pdfBuffer;
@@ -866,7 +865,9 @@ router.post('/booking', function _callee9(req, res) {
                         totalPrice: resData.totalPrice || 0,
                         contactEmail: b.roomRequest[0].email,
                         contactPhone: b.roomRequest[0].phone,
-                        checkInDate: resData.checkInDate || b.checkInDate
+                        checkInDate: resData.checkInDate || b.checkInDate,
+                        checkOutDate: resData.checkOutDate || b.checkOutDate,
+                        specialRequests: payload.roomRequest[0].requestDescription || "-"
                       };
                       _context9.next = 9;
                       return regeneratorRuntime.awrap(generateBookingPDF(pdfData, paxesForPdf));
@@ -892,7 +893,7 @@ router.post('/booking', function _callee9(req, res) {
                     case 14:
                       _context9.prev = 14;
                       _context9.t0 = _context9["catch"](0);
-                      logger.error("Background Mail Error: " + _context9.t0.message);
+                      console.error("Background Mail Error: " + _context9.t0.message);
 
                     case 17:
                     case "end":
