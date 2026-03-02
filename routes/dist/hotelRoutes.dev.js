@@ -505,8 +505,7 @@ router.post('/booking-detail', function _callee7(req, res) {
           }));
 
         case 15:
-          localData = localRows[0]; // 2. Konstruksi Payload untuk Supplier
-
+          localData = localRows[0];
           payload = {
             reservationNo: localData.reservation_no.startsWith("PRC-") ? "" : localData.reservation_no,
             osRefNo: String(localData.os_ref_no),
@@ -521,7 +520,7 @@ router.post('/booking-detail', function _callee7(req, res) {
 
         case 19:
           response = _context8.sent;
-          resData = response.data; // 3. LOGIKA UPDATE & EMAIL
+          resData = response.data;
 
           if (!(resData.status === "SUCCESS" && resData.bookingDetail)) {
             _context8.next = 50;
@@ -543,17 +542,21 @@ router.post('/booking-detail', function _callee7(req, res) {
           _ref3 = _context8.sent;
           _ref4 = _slicedToArray(_ref3, 1);
           paxes = _ref4[0];
+          // PERBAIKAN DI SINI: Lengkapi properti untuk PDF
           pdfData = {
             reservationNo: detail.reservationNo,
+            osRefNo: detail.osRefNo || localData.os_ref_no,
             hotelName: detail.hotelName || localData.hotel_name,
+            hotelAddress: detail.hotelAddress || localData.hotel_address,
             roomName: detail.roomName || localData.room_name,
             totalPrice: detail.totalPrice || localData.total_price,
             contactEmail: localData.contact_email,
             contactPhone: localData.contact_phone,
-            checkInDate: detail.checkInDate || localData.check_in_date
-          }; // KONDISI KIRIM EMAIL: 
-          // Jika transisi status (dari Processed ke Accept) ATAU Klik Kirim Ulang (forceResend)
-
+            checkInDate: detail.checkInDate || localData.check_in_date,
+            checkOutDate: detail.checkOutDate || localData.check_out_date,
+            specialRequests: localData.special_requests || "-",
+            breakfastType: detail.breakfast || localData.breakfast_type
+          };
           isTransition = localData.booking_status !== 'Accept';
           isForceResend = b.forceResend === true;
 
@@ -638,8 +641,7 @@ router.post('/booking', function _callee9(req, res) {
         case 3:
           token = _context10.sent;
           b = req.body;
-          username = b.username || "guest"; // Pastikan format payload sesuai dokumentasi API Supplier
-
+          username = b.username || "guest";
           payload = {
             paxPassport: b.paxPassport || "ID",
             countryID: b.countryID || "ID",
@@ -664,7 +666,6 @@ router.post('/booking', function _callee9(req, res) {
                 email: String(room.email || 'guest@mail.com'),
                 specialRequestArray: room.specialRequestArray || [],
                 requestDescription: room.requestDescription || "",
-                // Pastikan string kosong jika null
                 roomType: 0,
                 isRequestChildBed: false,
                 childNum: parseInt(room.childNum) || 0,
@@ -721,8 +722,7 @@ router.post('/booking', function _callee9(req, res) {
 
         case 22:
           _context10.next = 24;
-          return regeneratorRuntime.awrap(connection.execute("INSERT INTO hotel_bookings \n                (reservation_no, voucher_no, os_ref_no, agent_os_ref, hotel_id, hotel_name, hotel_address, \n                internal_code, check_in_date, check_out_date, city_id, room_id, room_name, breakfast_type, \n                contact_email, contact_phone, total_price, booking_status, username, special_requests) \n                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [resData.reservationNo, resData.voucherNo, resData.osRefNo, payload.agentOsRef, String(resData.hotelID || b.hotelID), resData.hotelName || b.hotelName || "Hotel", resData.hotelAddress || "", b.internalCode, resData.checkInDate || b.checkInDate.replace('Z', ''), resData.checkOutDate || b.checkOutDate.replace('Z', ''), String(b.cityID), String(b.roomID), resData.roomName || b.roomName || "", b.breakfast || "", b.roomRequest[0].email, b.roomRequest[0].phone, parseFloat(resData.totalPrice || 0), currentStatus, username, payload.roomRequest[0].requestDescription // Simpan Special Request ke DB
-          ]));
+          return regeneratorRuntime.awrap(connection.execute("INSERT INTO hotel_bookings \n                (reservation_no, voucher_no, os_ref_no, agent_os_ref, hotel_id, hotel_name, hotel_address, \n                internal_code, check_in_date, check_out_date, city_id, room_id, room_name, breakfast_type, \n                contact_email, contact_phone, total_price, booking_status, username, special_requests) \n                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [resData.reservationNo, resData.voucherNo, resData.osRefNo, payload.agentOsRef, String(resData.hotelID || b.hotelID), resData.hotelName || b.hotelName || "Hotel", resData.hotelAddress || "", b.internalCode, resData.checkInDate || b.checkInDate.replace('Z', ''), resData.checkOutDate || b.checkOutDate.replace('Z', ''), String(b.cityID), String(b.roomID), resData.roomName || b.roomName || "", b.breakfast || "", b.roomRequest[0].email, b.roomRequest[0].phone, parseFloat(resData.totalPrice || 0), currentStatus, username, payload.roomRequest[0].requestDescription]));
 
         case 24:
           _ref5 = _context10.sent;
@@ -841,7 +841,6 @@ router.post('/booking', function _callee9(req, res) {
           return regeneratorRuntime.awrap(connection.commit());
 
         case 80:
-          // WORKER EMAIL
           if (currentStatus === 'Accept') {
             (function _callee8() {
               var _ref7, _ref8, paxesForPdf, pdfData, pdfBuffer;
@@ -858,9 +857,14 @@ router.post('/booking', function _callee9(req, res) {
                       _ref7 = _context9.sent;
                       _ref8 = _slicedToArray(_ref7, 1);
                       paxesForPdf = _ref8[0];
+                      // PERBAIKAN DI SINI: Lengkapi properti untuk PDF
                       pdfData = {
                         reservationNo: resData.reservationNo,
+                        osRefNo: resData.osRefNo,
+                        // Tambahkan ini
                         hotelName: resData.hotelName || b.hotelName || "Hotel",
+                        hotelAddress: resData.hotelAddress || "",
+                        // Tambahkan ini
                         roomName: resData.roomName || b.roomName || "Room",
                         totalPrice: resData.totalPrice || 0,
                         contactEmail: b.roomRequest[0].email,

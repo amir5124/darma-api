@@ -401,7 +401,6 @@ router.post('/booking-detail', async (req, res) => {
 
         connection = await db.getConnection();
         
-        // 1. Cari data di DB lokal
         const [localRows] = await connection.execute(
             "SELECT * FROM hotel_bookings WHERE reservation_no = ?",
             [b.reservationNo]
@@ -413,7 +412,6 @@ router.post('/booking-detail', async (req, res) => {
 
         const localData = localRows[0];
 
-        // 2. Konstruksi Payload untuk Supplier
         const payload = {
             reservationNo: (localData.reservation_no.startsWith("PRC-")) ? "" : localData.reservation_no,
             osRefNo: String(localData.os_ref_no),
@@ -425,30 +423,32 @@ router.post('/booking-detail', async (req, res) => {
         const response = await axios.post(`${BASE_URL}/Hotel/BookingDetail`, payload, { httpsAgent: agent });
         const resData = response.data;
 
-        // 3. LOGIKA UPDATE & EMAIL
         if (resData.status === "SUCCESS" && resData.bookingDetail) {
             const detail = resData.bookingDetail;
             const cleanStatus = (detail.bookingStatus || "").trim();
 
             if (cleanStatus === "Accept") {
-                // Ambil data paxes untuk PDF
                 const [paxes] = await connection.execute(
                     "SELECT title, first_name as firstName, last_name as lastName FROM hotel_booking_paxes WHERE booking_id = ?",
                     [localData.id]
                 );
 
+                // PERBAIKAN DI SINI: Lengkapi properti untuk PDF
                 const pdfData = {
                     reservationNo: detail.reservationNo,
+                    osRefNo: detail.osRefNo || localData.os_ref_no,
                     hotelName: detail.hotelName || localData.hotel_name,
+                    hotelAddress: detail.hotelAddress || localData.hotel_address,
                     roomName: detail.roomName || localData.room_name,
                     totalPrice: detail.totalPrice || localData.total_price,
                     contactEmail: localData.contact_email,
                     contactPhone: localData.contact_phone,
-                    checkInDate: detail.checkInDate || localData.check_in_date
+                    checkInDate: detail.checkInDate || localData.check_in_date,
+                    checkOutDate: detail.checkOutDate || localData.check_out_date,
+                    specialRequests: localData.special_requests || "-",
+                    breakfastType: detail.breakfast || localData.breakfast_type
                 };
 
-                // KONDISI KIRIM EMAIL: 
-                // Jika transisi status (dari Processed ke Accept) ATAU Klik Kirim Ulang (forceResend)
                 const isTransition = (localData.booking_status !== 'Accept');
                 const isForceResend = (b.forceResend === true);
 
@@ -468,8 +468,6 @@ router.post('/booking-detail', async (req, res) => {
                     }
                 }
 
-                // 4. Update Database
-                // Menggunakan updated_at = NOW() (Pastikan kolom updated_at sudah ada di DB)
                 await connection.execute(
                     `UPDATE hotel_bookings SET 
                         reservation_no = ?, 
@@ -501,7 +499,6 @@ router.post('/booking', async (req, res) => {
         const b = req.body;
         const username = b.username || "guest";
 
-        // Pastikan format payload sesuai dokumentasi API Supplier
         const payload = {
             paxPassport: b.paxPassport || "ID",
             countryID: b.countryID || "ID",
@@ -518,7 +515,7 @@ router.post('/booking', async (req, res) => {
                 phone: String(room.phone || '08123456789'),
                 email: String(room.email || 'guest@mail.com'),
                 specialRequestArray: room.specialRequestArray || [], 
-                requestDescription: room.requestDescription || "", // Pastikan string kosong jika null
+                requestDescription: room.requestDescription || "", 
                 roomType: 0,
                 isRequestChildBed: false,
                 childNum: parseInt(room.childNum) || 0,
@@ -558,7 +555,6 @@ router.post('/booking', async (req, res) => {
             connection = await db.getConnection();
             await connection.beginTransaction();
 
-            // INSERT ke database termasuk kolom special_requests
             const [bookingResult] = await connection.execute(
                 `INSERT INTO hotel_bookings 
                 (reservation_no, voucher_no, os_ref_no, agent_os_ref, hotel_id, hotel_name, hotel_address, 
@@ -574,7 +570,7 @@ router.post('/booking', async (req, res) => {
                     String(b.cityID), String(b.roomID), resData.roomName || b.roomName || "",
                     b.breakfast || "", b.roomRequest[0].email, b.roomRequest[0].phone,
                     parseFloat(resData.totalPrice || 0), currentStatus, username,
-                    payload.roomRequest[0].requestDescription // Simpan Special Request ke DB
+                    payload.roomRequest[0].requestDescription
                 ]
             );
 
@@ -591,7 +587,6 @@ router.post('/booking', async (req, res) => {
 
             await connection.commit();
 
-            // WORKER EMAIL
             if (currentStatus === 'Accept') {
                 (async () => {
                     try {
@@ -600,9 +595,12 @@ router.post('/booking', async (req, res) => {
                             [newBookingId]
                         );
 
+                        // PERBAIKAN DI SINI: Lengkapi properti untuk PDF
                         const pdfData = {
                             reservationNo: resData.reservationNo,
+                            osRefNo: resData.osRefNo, // Tambahkan ini
                             hotelName: resData.hotelName || b.hotelName || "Hotel",
+                            hotelAddress: resData.hotelAddress || "", // Tambahkan ini
                             roomName: resData.roomName || b.roomName || "Room",
                             totalPrice: resData.totalPrice || 0,
                             contactEmail: b.roomRequest[0].email,
