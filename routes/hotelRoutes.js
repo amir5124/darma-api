@@ -60,6 +60,12 @@ async function generateBookingPDF(data, paxes) {
             ? paxes.map((p) => `${p.title || ''} ${p.firstName || ''} ${p.lastName || ''}`).join(', ')
             : "Guest";
 
+        // 6. Normalisasi Special Request (Menangani data dari API maupun DB)
+        const requestValue = data.specialRequests || data.special_requests || "";
+        const finalSpecialRequest = (requestValue && requestValue !== "" && requestValue !== "-") 
+            ? requestValue 
+            : "Tidak ada permintaan khusus";
+
         const htmlContent = `
         <html>
         <head>
@@ -178,7 +184,7 @@ async function generateBookingPDF(data, paxes) {
                     <div class="label">Special Request</div>
                     <div class="value">: 
                         <div class="special-request-box">
-                            ${data.specialRequests && data.specialRequests !== "" ? data.specialRequests : "Tidak ada permintaan khusus"}
+                            ${finalSpecialRequest}
                         </div>
                     </div>
                 </div>
