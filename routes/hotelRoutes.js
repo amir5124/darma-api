@@ -23,17 +23,37 @@ async function generateBookingPDF(data, paxes) {
     const browser = await puppeteer.launch({ headless: "new", args: ['--no-sandbox'] });
     const page = await browser.newPage();
 
-    // Format tanggal Indonesia untuk waktu pembayaran
+    // 1. Perbaikan Pembulatan Harga (Tanpa dibagi 1000 agar angka tetap utuh)
+    // Math.ceil digunakan untuk membulatkan ke atas sesuai permintaan Anda (250238.66 -> 250239)
+    const totalHargaFisik = Math.ceil(Number(data.totalPrice || 0));
+    const totalFormatted = totalHargaFisik.toLocaleString('id-ID');
+
+    // 2. Format Tanggal Indonesia untuk Waktu Pembayaran
     const paymentDate = new Date().toLocaleString('id-ID', {
-        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit'
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
     });
 
-    // Format tanggal Check-in & Check-out
+    // 3. Format Tanggal Check-in
     const formatDate = (dateStr) => {
+        if (!dateStr) return "-";
         return new Date(dateStr).toLocaleDateString('id-ID', {
-            day: 'numeric', month: 'long', year: 'numeric'
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric'
         });
     };
+
+    // 4. Penanganan data Undefined untuk Nama dan Telepon
+    const namaTamu = paxes && paxes[0]
+        ? `${paxes[0].title || ''} ${paxes[0].firstName || ''} ${paxes[0].lastName || ''}`.trim()
+        : "Guest";
+
+    const noTelp = data.contactPhone && data.contactPhone !== "undefined" ? data.contactPhone : "-";
 
     const htmlContent = `
     <html>
@@ -42,15 +62,10 @@ async function generateBookingPDF(data, paxes) {
             @import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap');
             body { font-family: 'Open Sans', sans-serif; color: #444; margin: 0; padding: 40px; background: #fff; }
             
-            /* Header Section */
             .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; }
-            .logo-area { font-size: 28px; font-weight: 800; color: #24b3ae; }
-            .logo-dot { color: #e03f7d; }
             .itinerary-info { text-align: right; }
             .itinerary-label { display: block; background: #24b3ae; color: white; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-bottom: 5px; }
-            .booked-by { font-size: 11px; color: #888; }
 
-            /* Paid Stamp */
             .paid-badge { 
                 float: right; width: 80px; height: 80px; border: 5px solid #4CAF50; border-radius: 50%; 
                 display: flex; align-items: center; justify-content: center; color: #4CAF50; 
@@ -58,7 +73,6 @@ async function generateBookingPDF(data, paxes) {
                 margin-top: -10px; margin-right: 20px;
             }
 
-            /* Section Styling */
             .section-header { 
                 color: #24b3ae; font-size: 16px; font-weight: 700; 
                 border-bottom: 2px solid #f0f0f0; margin: 25px 0 10px 0; padding-bottom: 5px; 
@@ -67,13 +81,11 @@ async function generateBookingPDF(data, paxes) {
             .info-item label { display: block; font-size: 11px; color: #999; text-transform: uppercase; margin-bottom: 3px; }
             .info-item span { font-size: 13px; font-weight: 600; color: #333; }
 
-            /* Table Styling */
             table { width: 100%; border-collapse: collapse; margin-top: 15px; }
             th { background: #f8f8f8; color: #24b3ae; text-align: left; padding: 12px; font-size: 12px; border-bottom: 1px solid #eee; }
             td { padding: 15px 12px; border-bottom: 1px solid #eee; font-size: 12px; vertical-align: top; }
             .product-type { font-weight: 700; color: #e03f7d; }
             
-            /* Footer/Total Area */
             .summary-container { margin-top: 20px; border-top: 1px dashed #ccc; padding-top: 15px; }
             .total-row { display: flex; justify-content: flex-end; align-items: center; padding: 5px 0; }
             .total-label { font-size: 14px; font-weight: 600; margin-right: 20px; }
@@ -84,101 +96,98 @@ async function generateBookingPDF(data, paxes) {
     </head>
     <body>
       <div class="header">
-    <div class="logo-area">
-        <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877917/WhatsApp_Image_2026-01-20_at_09.45.43-removebg-preview_lqkgrw.png" 
-             height="50" 
-             style="margin-bottom: 10px; display: block;">
-        
-        <div style="font-size: 12px; color: #555; line-height: 1.5;">
-            <div class="powered-by">Powered by Darmawisata Indonesia</div>
-            <div class="booked-by-new">Dipesan dan dibayar oleh Darmawisata Indonesia</div>
-        </div>
-    </div>
-
-    <div class="itinerary-info">
-        <span class="itinerary-label">Itinerary ID: ${data.reservationNo}</span>
-    </div>
-</div>
-
-        <div class="paid-badge">PAID</div>
-
-        <div class="section-header">Detail Kontak</div>
-        <div class="info-grid">
-            <div class="info-item">
-                <label>Nama Pengambil</label>
-                <span>${paxes[0].title} ${paxes[0].firstName} ${paxes[0].lastName}</span>
-            </div>
-            <div class="info-item">
-                <label>Alamat Email</label>
-                <span>${data.contactEmail}</span>
-            </div>
-            <div class="info-item">
-                <label>Nomor Telepon</label>
-                <span>${data.contactPhone}</span>
+        <div class="logo-area">
+            <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877917/WhatsApp_Image_2026-01-20_at_09.45.43-removebg-preview_lqkgrw.png" 
+                 height="50" style="margin-bottom: 10px; display: block;">
+            <div style="font-size: 12px; color: #555; line-height: 1.5;">
+                <div>Powered by Darmawisata Indonesia</div>
+                <div>Dipesan dan dibayar oleh Darmawisata Indonesia</div>
             </div>
         </div>
-
-        <div class="section-header">Detail Pembayaran</div>
-        <div class="info-grid">
-            <div class="info-item">
-                <label>Waktu Pembayaran</label>
-                <span>${paymentDate}</span>
-            </div>
-            <div class="info-item">
-                <label>Metode Pembayaran</label>
-                <span>Koin Aplikasi</span>
-            </div>
-            <div class="info-item">
-                <label>Status</label>
-                <span style="color: #4CAF50;">Sukses</span>
-            </div>
+        <div class="itinerary-info">
+            <span class="itinerary-label">Itinerary ID: ${data.reservationNo}</span>
         </div>
+      </div>
 
-        <table>
-            <thead>
-                <tr>
-                    <th width="5%">No</th>
-                    <th width="15%">Jenis Produk</th>
-                    <th width="55%">Deskripsi</th>
-                    <th width="25%" style="text-align: right;">Jumlah Total</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td>1</td>
-                    <td class="product-type">Hotel</td>
-                    <td>
-                        <div style="font-weight: 700; font-size: 14px; margin-bottom: 5px;">${data.hotelName}</div>
-                        <div style="color: #666; margin-bottom: 10px;">${data.roomName}</div>
-                        <div style="display: flex; gap: 20px;">
-                            <div><small style="color:#999">CHECK-IN</small><br><b>${formatDate(data.checkInDate)}</b></div>
-                            <div><small style="color:#999">DURASI</small><br><b>1 Kamar</b></div>
-                        </div>
-                    </td>
-                    <td style="text-align: right; font-weight: 700;">
-                        IDR ${Number(data.totalPrice).toLocaleString('id-ID')}
-                    </td>
-                </tr>
-            </tbody>
-        </table>
+      <div class="paid-badge">PAID</div>
 
-        <div class="summary-container">
-            <div class="total-row">
-                <div class="total-label">Biaya Administrasi</div>
-                <div style="width: 150px; text-align: right; font-weight: 600; color: #4CAF50;">GRATIS</div>
-            </div>
-            <div class="total-row" style="margin-top: 10px;">
-                <div class="total-label" style="font-size: 16px;">Total Pembayaran</div>
-                <div class="total-amount" style="width: 180px; text-align: right;">
-                    IDR ${Number(data.totalPrice).toLocaleString('id-ID')}
-                </div>
-            </div>
-        </div>
+      <div class="section-header">Detail Kontak</div>
+      <div class="info-grid">
+          <div class="info-item">
+              <label>Nama Pengambil</label>
+              <span>${namaTamu}</span>
+          </div>
+          <div class="info-item">
+              <label>Alamat Email</label>
+              <span>${data.contactEmail || '-'}</span>
+          </div>
+          <div class="info-item">
+              <label>Nomor Telepon</label>
+              <span>${noTelp}</span>
+          </div>
+      </div>
 
-        <div class="footer-note">
-            Bukti transaksi ini sah dan dihasilkan secara otomatis oleh sistem LinkU Travel.<br>
-            Silakan hubungi Customer Care kami jika Anda memiliki pertanyaan mengenai pesanan ini.
-        </div>
+      <div class="section-header">Detail Pembayaran</div>
+      <div class="info-grid">
+          <div class="info-item">
+              <label>Waktu Pembayaran</label>
+              <span>${paymentDate}</span>
+          </div>
+          <div class="info-item">
+              <label>Metode Pembayaran</label>
+              <span>Koin Aplikasi</span>
+          </div>
+          <div class="info-item">
+              <label>Status</label>
+              <span style="color: #4CAF50;">Sukses</span>
+          </div>
+      </div>
+
+      <table>
+          <thead>
+              <tr>
+                  <th width="5%">No</th>
+                  <th width="15%">Jenis Produk</th>
+                  <th width="55%">Deskripsi</th>
+                  <th width="25%" style="text-align: right;">Jumlah Total</th>
+              </tr>
+          </thead>
+          <tbody>
+              <tr>
+                  <td>1</td>
+                  <td class="product-type">Hotel</td>
+                  <td>
+                      <div style="font-weight: 700; font-size: 14px; margin-bottom: 5px;">${data.hotelName}</div>
+                      <div style="color: #666; margin-bottom: 10px;">${data.roomName}</div>
+                      <div style="display: flex; gap: 20px;">
+                          <div><small style="color:#999">CHECK-IN</small><br><b>${formatDate(data.checkInDate)}</b></div>
+                          <div><small style="color:#999">DURASI</small><br><b>1 Kamar</b></div>
+                      </div>
+                  </td>
+                  <td style="text-align: right; font-weight: 700;">
+                     IDR ${totalFormatted}
+                  </td>
+              </tr>
+          </tbody>
+      </table>
+
+      <div class="summary-container">
+          <div class="total-row">
+              <div class="total-label">Biaya Administrasi</div>
+              <div style="width: 150px; text-align: right; font-weight: 600; color: #4CAF50;">GRATIS</div>
+          </div>
+          <div class="total-row" style="margin-top: 10px;">
+              <div class="total-label" style="font-size: 16px;">Total Pembayaran</div>
+              <div class="total-amount" style="width: 180px; text-align: right;">
+                  IDR ${totalFormatted}
+              </div>
+          </div>
+      </div>
+
+      <div class="footer-note">
+          Bukti transaksi ini sah dan dihasilkan secara otomatis oleh sistem LinkU Travel.<br>
+          Silakan hubungi Customer Care kami jika Anda memiliki pertanyaan mengenai pesanan ini.
+      </div>
     </body>
     </html>`;
 
@@ -238,9 +247,9 @@ router.post('/search-by-name', async (req, res) => {
         const { hotelName } = req.body;
 
         if (!hotelName || hotelName.trim().length < 2) {
-            return res.status(400).json({ 
-                status: "ERROR", 
-                respMessage: "hotelName minimal 2 karakter." 
+            return res.status(400).json({
+                status: "ERROR",
+                respMessage: "hotelName minimal 2 karakter."
             });
         }
 
@@ -369,16 +378,121 @@ router.get('/room-image', async (req, res) => {
 });
 
 
+
+// 5. HOTEL BOOKING DETAIL
+router.post('/booking-detail', async (req, res) => {
+    let connection;
+    try {
+        const token = await getConsistentToken();
+        const b = req.body;
+
+        connection = await db.getConnection();
+        
+        // 1. Cari data di DB lokal berdasarkan nomor reservasi (bisa PRC- atau nomor asli)
+        const [localRows] = await connection.execute(
+            "SELECT * FROM hotel_bookings WHERE reservation_no = ?",
+            [b.reservationNo]
+        );
+
+        if (localRows.length === 0) {
+            return res.status(404).json({ status: "ERROR", respMessage: "Booking tidak ditemukan di database lokal." });
+        }
+
+        const localData = localRows[0];
+
+        // 2. Konstruksi Payload untuk Supplier
+        // Jika di DB lokal masih "PRC-", kirim reservationNo KOSONG ke supplier
+        // Supplier akan mengenali booking melalui osRefNo
+        const payload = {
+            reservationNo: (localData.reservation_no.startsWith("PRC-")) ? "" : localData.reservation_no,
+            osRefNo: String(localData.os_ref_no),
+            agentOsRef: localData.agent_os_ref || "",
+            userID: USER_CONFIG.userID,
+            accessToken: token
+        };
+
+        logger.debug("CHECK_DETAIL_PAYLOAD: " + JSON.stringify(payload));
+
+        const response = await axios.post(`${BASE_URL}/Hotel/BookingDetail`, payload, { httpsAgent: agent });
+        const resData = response.data;
+
+        // 3. LOGIKA UPDATE: Jika status di Supplier sudah 'Accept'
+        if (resData.status === "SUCCESS" && resData.bookingDetail) {
+            const detail = resData.bookingDetail;
+            const cleanStatus = (detail.bookingStatus || "").trim();
+
+            // Jika status sekarang 'Accept' dan sebelumnya di lokal masih 'Processed' (atau nomor masih PRC-)
+            if (cleanStatus === "Accept") {
+                
+                // Ambil data paxes untuk generate PDF
+                const [paxes] = await connection.execute(
+                    "SELECT title, first_name as firstName, last_name as lastName FROM hotel_booking_paxes WHERE booking_id = ?",
+                    [localData.id]
+                );
+
+                const pdfData = {
+                    reservationNo: detail.reservationNo, // Nomor ASLI (DI2026...)
+                    hotelName: detail.hotelName || localData.hotel_name,
+                    roomName: detail.roomName || localData.room_name,
+                    totalPrice: detail.totalPrice || localData.total_price,
+                    contactEmail: localData.contact_email,
+                    contactPhone: localData.contact_phone,
+                    checkInDate: detail.checkInDate || localData.check_in_date
+                };
+
+                // Generate & Kirim Email (Hanya dilakukan saat transisi dari Processed ke Accept)
+                if (localData.booking_status !== 'Accept') {
+                    try {
+                        const pdfBuffer = await generateBookingPDF(pdfData, paxes);
+                        await transporter.sendMail({
+                            from: '"LinkU Travel" <linkutransport@gmail.com>',
+                            to: localData.contact_email,
+                            subject: `E-Tiket Hotel Berhasil - ${detail.reservationNo}`,
+                            html: `<p>Pesanan Anda ${detail.reservationNo} telah berhasil dikonfirmasi.</p>`,
+                            attachments: [{ filename: `E-Tiket-${detail.reservationNo}.pdf`, content: pdfBuffer }]
+                        });
+                        logger.info(`Email Update Accept Terkirim: ${detail.reservationNo}`);
+                    } catch (mailErr) {
+                        logger.error("Gagal kirim email update: " + mailErr.message);
+                    }
+                }
+
+                // UPDATE DATABASE: Timpa nomor PRC- dengan nomor ASLI dari supplier
+                await connection.execute(
+                    `UPDATE hotel_bookings SET 
+                        reservation_no = ?, 
+                        voucher_no = ?, 
+                        booking_status = 'Accept',
+                        updated_at = NOW() 
+                     WHERE id = ?`,
+                    [detail.reservationNo, detail.voucherNo, localData.id]
+                );
+
+                // Tambahkan flag agar frontend tahu ada perubahan nomor reservasi
+                resData.updatedToAccept = true;
+                resData.newReservationNo = detail.reservationNo;
+            }
+        }
+
+        res.json(resData);
+    } catch (error) {
+        logger.error("Booking Detail Error: " + error.message);
+        res.status(500).json({ status: "ERROR", respMessage: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
 router.post('/booking', async (req, res) => {
     let connection;
     try {
         const token = await getConsistentToken();
         const b = req.body;
 
-        // ✅ TAMBAHAN: Ambil username dari request body
+        // 1. Ambil username dari request body (fallback ke "guest")
         const username = b.username || "guest";
 
-        // 1. Konstruksi Payload untuk Supplier
+        // 2. Konstruksi Payload untuk Supplier
         const payload = {
             paxPassport: b.paxPassport || "ID",
             countryID: b.countryID || "ID",
@@ -411,7 +525,7 @@ router.post('/booking', async (req, res) => {
             accessToken: token
         };
 
-        // 2. Kirim ke Supplier
+        // 3. Kirim ke Supplier
         logger.debug("REQ_HOTEL_BOOKING_FINAL", JSON.stringify(payload));
         const response = await axios.post(`${BASE_URL}/Hotel/BookingAllSupplier`, payload, {
             httpsAgent: agent,
@@ -422,21 +536,28 @@ router.post('/booking', async (req, res) => {
         const resData = response.data;
         logger.debug("RES_HOTEL_BOOKING_FINAL", JSON.stringify(resData));
 
-        // 3. Cek Status
-        const isProcessed = resData.status === "ERROR" && resData.respMessage && resData.respMessage.includes("PROCESSED");
+        // 4. Logika Deteksi Status (Kritikal)
+        // Cek apakah pesan mengandung kata "PROCESSED" meskipun statusnya FAILED atau ERROR
+        const msg = (resData.respMessage || "").toUpperCase();
+        const isProcessed = (resData.status === "FAILED" || resData.status === "ERROR") && msg.includes("PROCESSED");
 
-        if (resData.status === "SUCCESS" || resData.bookingStatus === "Accept" || isProcessed) {
+        // Cek apakah supplier memberikan status booking "Accept" (biasanya di field bookingStatus)
+        const isAccepted = resData.bookingStatus && resData.bookingStatus.trim() === "Accept";
 
+        if (resData.status === "SUCCESS" || isAccepted || isProcessed) {
+
+            // Jika statusnya diproses (waiting), normalisasi agar bisa masuk DB
+            let currentStatus = 'Accept';
             if (isProcessed) {
-                resData.status = "SUCCESS";
-                resData.reservationNo = resData.reservationNo || "PROCESSED-" + Date.now();
+                currentStatus = 'Processed';
+                resData.reservationNo = resData.reservationNo || "PRC-" + Date.now();
                 resData.voucherNo = resData.voucherNo || resData.reservationNo;
             }
 
             connection = await db.getConnection();
             await connection.beginTransaction();
 
-            // 4. Simpan ke Database — ✅ tambahkan kolom `username`
+            // 5. Simpan ke Database
             const [bookingResult] = await connection.execute(
                 `INSERT INTO hotel_bookings 
                 (reservation_no, voucher_no, os_ref_no, agent_os_ref, hotel_id, hotel_name, hotel_address, 
@@ -444,18 +565,31 @@ router.post('/booking', async (req, res) => {
                 contact_email, contact_phone, total_price, booking_status, username) 
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
-                    resData.reservationNo, resData.voucherNo, resData.osRefNo, payload.agentOsRef,
-                    resData.hotelID || b.hotelID, resData.hotelName || "Hotel", resData.hotelAddress || "",
-                    b.internalCode, resData.checkInDate, resData.checkOutDate, b.cityID, b.roomID,
-                    resData.roomName || b.roomName, b.breakfast, b.roomRequest[0].email, b.roomRequest[0].phone,
-                    resData.totalPrice || 0, 'Accept',
-                    username  // ✅ TAMBAHAN
+                    resData.reservationNo || null,
+                    resData.voucherNo || null,
+                    resData.osRefNo || null,
+                    payload.agentOsRef || null,
+                    String(resData.hotelID || b.hotelID),
+                    resData.hotelName || b.hotelName || "Hotel",
+                    resData.hotelAddress || "",
+                    b.internalCode || null,
+                    resData.checkInDate || b.checkInDate.replace('Z', ''),
+                    resData.checkOutDate || b.checkOutDate.replace('Z', ''),
+                    String(b.cityID),
+                    String(b.roomID),
+                    resData.roomName || b.roomName || "",
+                    b.breakfast || "",
+                    b.roomRequest[0].email || "",
+                    b.roomRequest[0].phone || "",
+                    parseFloat(resData.totalPrice || 0),
+                    currentStatus, // 'Accept' atau 'Processed'
+                    username
                 ]
             );
 
             const newBookingId = bookingResult.insertId;
 
-            // 5. Simpan Tamu
+            // 6. Simpan Data Tamu
             for (const room of b.roomRequest) {
                 for (const pax of room.paxes) {
                     await connection.execute(
@@ -467,51 +601,57 @@ router.post('/booking', async (req, res) => {
             }
 
             await connection.commit();
+            logger.info(`Booking Berhasil Disimpan: ID ${newBookingId}, User: ${username}`);
 
-            // 6. Worker PDF & Email (Async)
-            (async () => {
-                try {
-                    const pdfData = {
-                        reservationNo: resData.reservationNo,
-                        hotelName: resData.hotelName || "Hotel",
-                        roomName: resData.roomName || "Room",
-                        totalPrice: resData.totalPrice || 0,
-                        contactEmail: b.roomRequest[0].email,
-                        contactPhone: b.roomRequest[0].phone,
-                        checkInDate: resData.checkInDate
-                    };
+            // 7. Worker PDF & Email (Hanya jika status 'Accept', bukan 'Processed')
+            if (currentStatus === 'Accept') {
+                (async () => {
+                    try {
+                        const pdfData = {
+                            reservationNo: resData.reservationNo,
+                            hotelName: resData.hotelName || "Hotel",
+                            roomName: resData.roomName || "Room",
+                            totalPrice: resData.totalPrice || 0,
+                            contactEmail: b.roomRequest[0].email,
+                            contactPhone: b.roomRequest[0].phone, // PASTIKAN INI ADA
+                            checkInDate: resData.checkInDate
+                        };
 
-                    const pdfBuffer = await generateBookingPDF(pdfData, b.roomRequest[0].paxes);
+                        // Paxes harus berupa array objek yang punya firstName dan lastName
+                        const pdfBuffer = await generateBookingPDF(pdfData, b.roomRequest[0].paxes);
 
-                    await transporter.sendMail({
-                        from: '"LinkU Travel" <linkutransport@gmail.com>',
-                        to: b.roomRequest[0].email,
-                        subject: `E-Tiket Hotel - ${resData.reservationNo}`,
-                        html: `<h3>Halo ${b.roomRequest[0].paxes[0].firstName},</h3>
-                               <p>Booking Anda berhasil diproses. Terlampir adalah e-tiket hotel Anda.</p>`,
-                        attachments: [{
-                            filename: `E-Tiket-${resData.reservationNo}.pdf`,
-                            content: pdfBuffer
-                        }]
-                    });
-                    logger.info(`Email PDF terkirim ke: ${b.roomRequest[0].email}`);
-                } catch (err) {
-                    logger.error("Worker PDF/Email Error: " + err.message);
-                }
-            })();
+                        await transporter.sendMail({
+                            from: '"LinkU Travel" <linkutransport@gmail.com>',
+                            to: b.roomRequest[0].email,
+                            subject: `E-Tiket Hotel - ${resData.reservationNo}`,
+                            html: `<h3>Halo ${b.roomRequest[0].paxes[0].firstName},</h3>
+                                   <p>Booking Anda berhasil dikonfirmasi. Terlampir adalah e-tiket hotel Anda.</p>`,
+                            attachments: [{
+                                filename: `E-Tiket-${resData.reservationNo}.pdf`,
+                                content: pdfBuffer
+                            }]
+                        });
+                        logger.info(`Email PDF terkirim ke: ${b.roomRequest[0].email}`);
+                    } catch (err) {
+                        logger.error("Worker PDF/Email Error: " + err.message);
+                    }
+                })();
+            }
 
-            // 7. Response Sukses
+            // 8. Kirim Response ke Frontend
             return res.json({
                 status: "SUCCESS",
                 booking_id: newBookingId,
-                username: username,  // ✅ Opsional: kembalikan ke frontend jika dibutuhkan
-                ...resData
+                internalStatus: currentStatus,
+                ...resData,
+                reservationNo: resData.reservationNo // Memastikan resNo terkirim
             });
 
         } else {
+            // Jika status benar-benar FAILED tanpa pesan PROCESSED
             return res.status(400).json({
                 status: "ERROR",
-                respMessage: resData.respMessage || "Gagal melakukan booking."
+                respMessage: resData.respMessage || "Gagal melakukan booking ke supplier."
             });
         }
 
@@ -523,26 +663,151 @@ router.post('/booking', async (req, res) => {
         if (connection) connection.release();
     }
 });
-// 5. HOTEL BOOKING DETAIL
-router.post('/booking-detail', async (req, res) => {
+
+router.get('/history', async (req, res) => {
+    let connection;
     try {
-        const token = await getConsistentToken();
-        const b = req.body;
-        const payload = {
-            reservationNo: b.reservationNo,
-            osRefNo: b.osRefNo,
-            agentOsRef: b.agentOsRef,
-            userID: USER_CONFIG.userID,
-            accessToken: token
-        };
+        const { username, page = 1, limit = 10 } = req.query;
 
-        logger.debug("REQ_HOTEL_DETAIL", payload);
-        const response = await axios.post(`${BASE_URL}/Hotel/BookingDetail`, payload, { httpsAgent: agent });
-        logger.debug("RES_HOTEL_DETAIL", response.data);
+        // 1. Validasi input awal
+        if (!username) {
+            return res.status(400).json({
+                status: "ERROR",
+                respMessage: "Parameter 'username' wajib diisi."
+            });
+        }
 
-        res.json(response.data);
+        // Pastikan page dan limit adalah angka yang valid (integer)
+        const limitNum = parseInt(limit) || 10;
+        const pageNum = parseInt(page) || 1;
+        const offsetNum = (pageNum - 1) * limitNum;
+
+        connection = await db.getConnection();
+
+        // 2. Ambil total data untuk pagination (Gunakan execute untuk parameter username)
+        const [[{ total }]] = await connection.execute(
+            `SELECT COUNT(*) as total FROM hotel_bookings WHERE username = ?`,
+            [username]
+        );
+
+        // 3. Ambil data booking
+        // CATATAN: Menggunakan .query() dengan template literal untuk LIMIT/OFFSET 
+        // karena banyak versi mysql2/mysql driver yang error jika LIMIT dikirim sebagai argumen ?
+        const [bookings] = await connection.query(
+            `SELECT 
+                hb.id,
+                hb.reservation_no,
+                hb.voucher_no,
+                hb.hotel_name,
+                hb.hotel_address,
+                hb.room_name,
+                hb.breakfast_type,
+                hb.check_in_date,
+                hb.check_out_date,
+                hb.total_price,
+                hb.currency,
+                hb.booking_status,
+                hb.contact_email,
+                hb.contact_phone,
+                hb.room_count,
+                hb.booking_date,
+                hb.username
+            FROM hotel_bookings hb
+            WHERE hb.username = ?
+            ORDER BY hb.booking_date DESC
+            LIMIT ${limitNum} OFFSET ${offsetNum}`,
+            [username]
+        );
+
+        // 4. Ambil paxes untuk setiap booking secara paralel (lebih efisien)
+        const bookingsWithPaxes = await Promise.all(bookings.map(async (booking) => {
+            const [paxes] = await connection.execute(
+                `SELECT title, first_name, last_name, pax_type
+                 FROM hotel_booking_paxes
+                 WHERE booking_id = ?`,
+                [booking.id]
+            );
+            return { ...booking, paxes };
+        }));
+
+        // 5. Response Sukses
+        return res.json({
+            status: "SUCCESS",
+            username: username,
+            total: total,
+            page: pageNum,
+            limit: limitNum,
+            total_pages: Math.ceil(total / limitNum),
+            data: bookingsWithPaxes
+        });
+
     } catch (error) {
-        res.status(500).json({ status: "ERROR", respMessage: error.message });
+        logger.error("History Booking Error: " + error.message);
+        return res.status(500).json({
+            status: "ERROR",
+            respMessage: "Internal Server Error: " + error.message
+        });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+
+// ============================================================
+// ENDPOINT: GET /api/hotels/history/:reservation_no
+// Ambil detail satu booking berdasarkan reservation_no
+// ============================================================
+
+router.get('/history/:reservation_no', async (req, res) => {
+    let connection;
+    try {
+        const { reservation_no } = req.params;
+        const { username } = req.query;
+
+        if (!username) {
+            return res.status(400).json({
+                status: "ERROR",
+                respMessage: "Parameter 'username' wajib diisi."
+            });
+        }
+
+        connection = await db.getConnection();
+
+        const [[booking]] = await connection.execute(
+            `SELECT * FROM hotel_bookings 
+             WHERE reservation_no = ? AND username = ?`,
+            [reservation_no, username]
+        );
+
+        if (!booking) {
+            return res.status(404).json({
+                status: "ERROR",
+                respMessage: "Booking tidak ditemukan."
+            });
+        }
+
+        const [paxes] = await connection.execute(
+            `SELECT title, first_name, last_name, pax_type
+             FROM hotel_booking_paxes
+             WHERE booking_id = ?`,
+            [booking.id]
+        );
+
+        booking.paxes = paxes;
+
+        return res.json({
+            status: "SUCCESS",
+            data: booking
+        });
+
+    } catch (error) {
+        logger.error("Detail Booking Error: " + error.message);
+        return res.status(500).json({
+            status: "ERROR",
+            respMessage: error.message
+        });
+    } finally {
+        if (connection) connection.release();
     }
 });
 
