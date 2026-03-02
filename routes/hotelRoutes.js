@@ -20,187 +20,203 @@ const transporter = nodemailer.createTransport({
 
 
 async function generateBookingPDF(data, paxes) {
-    const browser = await puppeteer.launch({ headless: "new", args: ['--no-sandbox'] });
-    const page = await browser.newPage();
+    let browser;
+    try {
+        browser = await puppeteer.launch({ 
+            headless: "new", 
+            args: ['--no-sandbox', '--disable-setuid-sandbox'] 
+        });
+        const page = await browser.newPage();
 
-    // 1. Perbaikan Pembulatan Harga (Tanpa dibagi 1000 agar angka tetap utuh)
-    // Math.ceil digunakan untuk membulatkan ke atas sesuai permintaan Anda (250238.66 -> 250239)
-    const totalHargaFisik = Math.ceil(Number(data.totalPrice || 0));
-    const totalFormatted = totalHargaFisik.toLocaleString('id-ID');
+        // 1. Perbaikan Pembulatan Harga
+        const totalHargaFisik = Math.ceil(Number(data.totalPrice || 0));
+        const totalFormatted = totalHargaFisik.toLocaleString('id-ID');
 
-    // 2. Format Tanggal Indonesia untuk Waktu Pembayaran
-    const paymentDate = new Date().toLocaleString('id-ID', {
-        weekday: 'long',
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-    });
-
-    // 3. Format Tanggal Check-in
-    const formatDate = (dateStr) => {
-        if (!dateStr) return "-";
-        return new Date(dateStr).toLocaleDateString('id-ID', {
+        // 2. Format Tanggal Indonesia untuk Waktu Pembayaran
+        const paymentDate = new Date().toLocaleString('id-ID', {
+            weekday: 'long',
             day: 'numeric',
             month: 'long',
-            year: 'numeric'
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
         });
-    };
 
-    // 4. Penanganan data Undefined untuk Nama dan Telepon
-    const namaTamu = paxes && paxes[0]
-        ? `${paxes[0].title || ''} ${paxes[0].firstName || ''} ${paxes[0].lastName || ''}`.trim()
-        : "Guest";
+        // 3. Helper Format Tanggal
+        const formatDate = (dateStr) => {
+            if (!dateStr) return "-";
+            return new Date(dateStr).toLocaleDateString('id-ID', {
+                day: 'numeric',
+                month: 'long',
+                year: 'numeric'
+            });
+        };
 
-    const noTelp = data.contactPhone && data.contactPhone !== "undefined" ? data.contactPhone : "-";
+        // 4. Hitung Durasi Malam Dinamis
+        const checkIn = new Date(data.checkInDate);
+        const checkOut = new Date(data.checkOutDate);
+        const diffTime = Math.abs(checkOut - checkIn);
+        const nights = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
 
-    const htmlContent = `
-    <html>
-    <head>
-        <style>
-            @import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap');
-            body { font-family: 'Open Sans', sans-serif; color: #444; margin: 0; padding: 40px; background: #fff; }
-            
-            .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; }
-            .itinerary-info { text-align: right; }
-            .itinerary-label { display: block; background: #24b3ae; color: white; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-bottom: 5px; }
+        // 5. Penanganan Daftar Tamu Dinamis (Mapping dari paxes)
+        const guestListHtml = paxes && paxes.length > 0
+            ? paxes.map((p, i) => `${i + 1}. ${p.title || ''} ${p.firstName || ''} ${p.lastName || ''}`).join('<br>')
+            : "Guest";
 
-            .paid-badge { 
-                float: right; width: 80px; height: 80px; border: 5px solid #4CAF50; border-radius: 50%; 
-                display: flex; align-items: center; justify-content: center; color: #4CAF50; 
-                font-weight: 900; font-size: 20px; transform: rotate(-20deg); opacity: 0.8;
-                margin-top: -10px; margin-right: 20px;
-            }
+        const noTelp = data.contactPhone && data.contactPhone !== "undefined" ? data.contactPhone : "-";
 
-            .section-header { 
-                color: #24b3ae; font-size: 16px; font-weight: 700; 
-                border-bottom: 2px solid #f0f0f0; margin: 25px 0 10px 0; padding-bottom: 5px; 
-            }
-            .info-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 20px; }
-            .info-item label { display: block; font-size: 11px; color: #999; text-transform: uppercase; margin-bottom: 3px; }
-            .info-item span { font-size: 13px; font-weight: 600; color: #333; }
+        const htmlContent = `
+        <html>
+        <head>
+            <style>
+                @import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap');
+                body { font-family: 'Open Sans', sans-serif; color: #444; margin: 0; padding: 40px; background: #fff; }
+                
+                .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; }
+                .itinerary-info { text-align: right; }
+                .itinerary-label { display: block; background: #24b3ae; color: white; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-bottom: 5px; }
 
-            table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-            th { background: #f8f8f8; color: #24b3ae; text-align: left; padding: 12px; font-size: 12px; border-bottom: 1px solid #eee; }
-            td { padding: 15px 12px; border-bottom: 1px solid #eee; font-size: 12px; vertical-align: top; }
-            .product-type { font-weight: 700; color: #e03f7d; }
-            
-            .summary-container { margin-top: 20px; border-top: 1px dashed #ccc; padding-top: 15px; }
-            .total-row { display: flex; justify-content: flex-end; align-items: center; padding: 5px 0; }
-            .total-label { font-size: 14px; font-weight: 600; margin-right: 20px; }
-            .total-amount { font-size: 22px; font-weight: 800; color: #e03f7d; }
-            
-            .footer-note { font-size: 10px; color: #aaa; margin-top: 40px; text-align: center; border-top: 1px solid #eee; padding-top: 10px; }
-        </style>
-    </head>
-    <body>
-      <div class="header">
-        <div class="logo-area">
-            <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877917/WhatsApp_Image_2026-01-20_at_09.45.43-removebg-preview_lqkgrw.png" 
-                 height="50" style="margin-bottom: 10px; display: block;">
-            <div style="font-size: 12px; color: #555; line-height: 1.5;">
-                <div>Powered by Darmawisata Indonesia</div>
-                <div>Dipesan dan dibayar oleh Darmawisata Indonesia</div>
+                .paid-badge { 
+                    float: right; width: 80px; height: 80px; border: 5px solid #4CAF50; border-radius: 50%; 
+                    display: flex; align-items: center; justify-content: center; color: #4CAF50; 
+                    font-weight: 900; font-size: 20px; transform: rotate(-20deg); opacity: 0.8;
+                    margin-top: -10px; margin-right: 20px;
+                }
+
+                .section-header { 
+                    color: #24b3ae; font-size: 16px; font-weight: 700; 
+                    border-bottom: 2px solid #f0f0f0; margin: 25px 0 10px 0; padding-bottom: 5px; 
+                }
+                .info-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+                .info-item label { display: block; font-size: 11px; color: #999; text-transform: uppercase; margin-bottom: 3px; }
+                .info-item span { font-size: 13px; font-weight: 600; color: #333; }
+
+                table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+                th { background: #f8f8f8; color: #24b3ae; text-align: left; padding: 12px; font-size: 12px; border-bottom: 1px solid #eee; }
+                td { padding: 15px 12px; border-bottom: 1px solid #eee; font-size: 12px; vertical-align: top; }
+                .product-type { font-weight: 700; color: #e03f7d; }
+                
+                .summary-container { margin-top: 20px; border-top: 1px dashed #ccc; padding-top: 15px; }
+                .total-row { display: flex; justify-content: flex-end; align-items: center; padding: 5px 0; }
+                .total-label { font-size: 14px; font-weight: 600; margin-right: 20px; }
+                .total-amount { font-size: 22px; font-weight: 800; color: #e03f7d; }
+                
+                .footer-note { font-size: 10px; color: #aaa; margin-top: 40px; text-align: center; border-top: 1px solid #eee; padding-top: 10px; }
+            </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="logo-area">
+                <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877917/WhatsApp_Image_2026-01-20_at_09.45.43-removebg-preview_lqkgrw.png" 
+                     height="50" style="margin-bottom: 10px; display: block;">
+                <div style="font-size: 12px; color: #555; line-height: 1.5;">
+                    <div>Powered by Darmawisata Indonesia</div>
+                    <div>Dipesan dan dibayar oleh Darmawisata Indonesia</div>
+                </div>
             </div>
-        </div>
-        <div class="itinerary-info">
-            <span class="itinerary-label">Itinerary ID: ${data.reservationNo}</span>
-        </div>
-      </div>
+            <div class="itinerary-info">
+                <span class="itinerary-label">Itinerary ID: ${data.reservationNo}</span>
+            </div>
+          </div>
 
-      <div class="paid-badge">PAID</div>
+          <div class="paid-badge">PAID</div>
 
-      <div class="section-header">Detail Kontak</div>
-      <div class="info-grid">
-          <div class="info-item">
-              <label>Nama Pengambil</label>
-              <span>${namaTamu}</span>
-          </div>
-          <div class="info-item">
-              <label>Alamat Email</label>
-              <span>${data.contactEmail || '-'}</span>
-          </div>
-          <div class="info-item">
-              <label>Nomor Telepon</label>
-              <span>${noTelp}</span>
-          </div>
-      </div>
-
-      <div class="section-header">Detail Pembayaran</div>
-      <div class="info-grid">
-          <div class="info-item">
-              <label>Waktu Pembayaran</label>
-              <span>${paymentDate}</span>
-          </div>
-          <div class="info-item">
-              <label>Metode Pembayaran</label>
-              <span>Koin Aplikasi</span>
-          </div>
-          <div class="info-item">
-              <label>Status</label>
-              <span style="color: #4CAF50;">Sukses</span>
-          </div>
-      </div>
-
-      <table>
-          <thead>
-              <tr>
-                  <th width="5%">No</th>
-                  <th width="15%">Jenis Produk</th>
-                  <th width="55%">Deskripsi</th>
-                  <th width="25%" style="text-align: right;">Jumlah Total</th>
-              </tr>
-          </thead>
-          <tbody>
-              <tr>
-                  <td>1</td>
-                  <td class="product-type">Hotel</td>
-                  <td>
-                      <div style="font-weight: 700; font-size: 14px; margin-bottom: 5px;">${data.hotelName}</div>
-                      <div style="color: #666; margin-bottom: 10px;">${data.roomName}</div>
-                      <div style="display: flex; gap: 20px;">
-                          <div><small style="color:#999">CHECK-IN</small><br><b>${formatDate(data.checkInDate)}</b></div>
-                          <div><small style="color:#999">DURASI</small><br><b>1 Kamar</b></div>
-                      </div>
-                  </td>
-                  <td style="text-align: right; font-weight: 700;">
-                     IDR ${totalFormatted}
-                  </td>
-              </tr>
-          </tbody>
-      </table>
-
-      <div class="summary-container">
-          <div class="total-row">
-              <div class="total-label">Biaya Administrasi</div>
-              <div style="width: 150px; text-align: right; font-weight: 600; color: #4CAF50;">GRATIS</div>
-          </div>
-          <div class="total-row" style="margin-top: 10px;">
-              <div class="total-label" style="font-size: 16px;">Total Pembayaran</div>
-              <div class="total-amount" style="width: 180px; text-align: right;">
-                  IDR ${totalFormatted}
+          <div class="section-header">Detail Kontak</div>
+          <div class="info-grid">
+              <div class="info-item">
+                  <label>Daftar Tamu</label>
+                  <span style="font-size: 12px;">${guestListHtml}</span>
+              </div>
+              <div class="info-item">
+                  <label>Alamat Email</label>
+                  <span>${data.contactEmail || '-'}</span>
+              </div>
+              <div class="info-item">
+                  <label>Nomor Telepon</label>
+                  <span>${noTelp}</span>
               </div>
           </div>
-      </div>
 
-      <div class="footer-note">
-          Bukti transaksi ini sah dan dihasilkan secara otomatis oleh sistem LinkU Travel.<br>
-          Silakan hubungi Customer Care kami jika Anda memiliki pertanyaan mengenai pesanan ini.
-      </div>
-    </body>
-    </html>`;
+          <div class="section-header">Detail Pembayaran</div>
+          <div class="info-grid">
+              <div class="info-item">
+                  <label>Waktu Pembayaran</label>
+                  <span>${paymentDate}</span>
+              </div>
+              <div class="info-item">
+                  <label>Metode Pembayaran</label>
+                  <span>Koin Aplikasi</span>
+              </div>
+              <div class="info-item">
+                  <label>Status</label>
+                  <span style="color: #4CAF50;">Sukses</span>
+              </div>
+          </div>
 
-    await page.setContent(htmlContent);
-    const pdfBuffer = await page.pdf({
-        format: 'A4',
-        printBackground: true,
-        margin: { top: '20px', bottom: '20px', left: '20px', right: '20px' }
-    });
-    await browser.close();
-    return pdfBuffer;
+          <table>
+              <thead>
+                  <tr>
+                      <th width="5%">No</th>
+                      <th width="15%">Jenis Produk</th>
+                      <th width="55%">Deskripsi</th>
+                      <th width="25%" style="text-align: right;">Jumlah Total</th>
+                  </tr>
+              </thead>
+              <tbody>
+                  <tr>
+                      <td>1</td>
+                      <td class="product-type">Hotel</td>
+                      <td>
+                          <div style="font-weight: 700; font-size: 14px; margin-bottom: 5px;">${data.hotelName}</div>
+                          <div style="color: #666; margin-bottom: 10px;">${data.roomName}</div>
+                          <div style="display: flex; gap: 20px;">
+                              <div><small style="color:#999">CHECK-IN</small><br><b>${formatDate(data.checkInDate)}</b></div>
+                              <div><small style="color:#999">CHECK-OUT</small><br><b>${formatDate(data.checkOutDate)}</b></div>
+                              <div><small style="color:#999">DURASI</small><br><b>${nights} Malam</b></div>
+                          </div>
+                      </td>
+                      <td style="text-align: right; font-weight: 700;">
+                           IDR ${totalFormatted}
+                      </td>
+                  </tr>
+              </tbody>
+          </table>
+
+          <div class="summary-container">
+              <div class="total-row">
+                  <div class="total-label">Biaya Administrasi</div>
+                  <div style="width: 150px; text-align: right; font-weight: 600; color: #4CAF50;">GRATIS</div>
+              </div>
+              <div class="total-row" style="margin-top: 10px;">
+                  <div class="total-label" style="font-size: 16px;">Total Pembayaran</div>
+                  <div class="total-amount" style="width: 180px; text-align: right;">
+                      IDR ${totalFormatted}
+                  </div>
+              </div>
+          </div>
+
+          <div class="footer-note">
+              Bukti transaksi ini sah dan dihasilkan secara otomatis oleh sistem LinkU Travel.<br>
+              Silakan hubungi Customer Care kami jika Anda memiliki pertanyaan mengenai pesanan ini.
+          </div>
+        </body>
+        </html>`;
+
+        await page.setContent(htmlContent);
+        const pdfBuffer = await page.pdf({
+            format: 'A4',
+            printBackground: true,
+            margin: { top: '20px', bottom: '20px', left: '20px', right: '20px' }
+        });
+        
+        return pdfBuffer;
+    } catch (error) {
+        console.error("Error generating PDF:", error);
+        throw error;
+    } finally {
+        if (browser) await browser.close();
+    }
 }
-
 // 1. HOTEL SEARCH
 router.post('/search', async (req, res) => {
     try {
