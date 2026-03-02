@@ -606,23 +606,21 @@ router.post('/booking-detail', function _callee7(req, res) {
     }
   }, null, null, [[0, 52, 56, 59], [33, 42]]);
 });
-router.post('/booking', function _callee9(req, res) {
+router.post('/booking', function _callee8(req, res) {
   var connection, token, b, username, payload, response, resData, msg, isProcessed, isAccepted, currentStatus, _ref5, _ref6, bookingResult, newBookingId, _iteratorNormalCompletion, _didIteratorError, _iteratorError, _iterator, _step, room, _iteratorNormalCompletion2, _didIteratorError2, _iteratorError2, _iterator2, _step2, pax;
 
-  return regeneratorRuntime.async(function _callee9$(_context10) {
+  return regeneratorRuntime.async(function _callee8$(_context9) {
     while (1) {
-      switch (_context10.prev = _context10.next) {
+      switch (_context9.prev = _context9.next) {
         case 0:
-          _context10.prev = 0;
-          _context10.next = 3;
+          _context9.prev = 0;
+          _context9.next = 3;
           return regeneratorRuntime.awrap(getConsistentToken());
 
         case 3:
-          token = _context10.sent;
-          b = req.body; // 1. Ambil username dari request body (fallback ke "guest")
-
-          username = b.username || "guest"; // 2. Konstruksi Payload untuk Supplier
-          // Perbaikan: Menjamin tidak ada nilai NULL pada mandatory fields
+          token = _context9.sent;
+          b = req.body;
+          username = b.username || "guest"; // 1. Konstruksi Payload dengan Proteksi Anti-NULL
 
           payload = {
             paxPassport: b.paxPassport || "ID",
@@ -632,24 +630,26 @@ router.post('/booking', function _callee9(req, res) {
             checkOutDate: b.checkOutDate.endsWith('Z') ? b.checkOutDate : b.checkOutDate + 'Z',
             roomRequest: b.roomRequest.map(function (room) {
               return {
-                paxes: room.paxes.map(function (pax) {
+                // Proteksi: Jika paxes kosong, isi dengan data default agar tidak 'Wrong Format'
+                paxes: room.paxes && room.paxes.length > 0 ? room.paxes.map(function (pax) {
                   return {
                     title: pax.title || 'Mr.',
-                    firstName: (pax.firstName || '').trim(),
-                    lastName: (pax.lastName || '').trim()
+                    firstName: (pax.firstName || 'Guest').trim(),
+                    lastName: (pax.lastName || 'User').trim()
                   };
-                }),
+                }) : [{
+                  title: 'Mr.',
+                  firstName: 'Guest',
+                  lastName: 'User'
+                }],
                 isSmokingRoom: Boolean(room.isSmokingRoom),
-                phone: String(room.phone || ''),
-                email: String(room.email || ''),
-                // Supplier menolak NULL. Jika kosong, kirim array kosong []
+                phone: String(room.phone || '08123456789'),
+                email: String(room.email || 'guest@mail.com'),
                 specialRequestArray: room.specialRequestArray || [],
-                // Supplier menolak NULL. Jika kosong, kirim string kosong ""
                 requestDescription: room.requestDescription || "",
                 roomType: 0,
                 isRequestChildBed: false,
                 childNum: parseInt(room.childNum) || 0,
-                // Pastikan childAges adalah array, minimal [0] jika childNum > 0 tapi data kosong
                 childAges: room.childAges && room.childAges.length > 0 ? room.childAges : [0]
               };
             }),
@@ -657,7 +657,6 @@ router.post('/booking', function _callee9(req, res) {
             hotelID: b.hotelID,
             breakfast: b.breakfast || "Room Only",
             roomID: b.roomID,
-            // Perbaikan: Mengirim string kosong daripada null untuk bedType
             bedType: {
               ID: b.bedType && b.bedType.ID ? String(b.bedType.ID) : "",
               bed: b.bedType && b.bedType.bed ? String(b.bedType.bed) : ""
@@ -665,68 +664,65 @@ router.post('/booking', function _callee9(req, res) {
             agentOsRef: b.agentOsRef || "LC-".concat(Date.now()),
             userID: USER_CONFIG.userID,
             accessToken: token
-          }; // 3. Kirim ke Supplier
+          }; // 2. Hit Supplier
 
-          logger.debug("REQ_HOTEL_BOOKING_FINAL", JSON.stringify(payload));
-          _context10.next = 10;
+          _context9.next = 9;
           return regeneratorRuntime.awrap(axios.post("".concat(BASE_URL, "/Hotel/BookingAllSupplier"), payload, {
-            httpsAgent: agent,
             headers: {
               'Content-Type': 'application/json'
             },
             timeout: 60000
           }));
 
-        case 10:
-          response = _context10.sent;
-          resData = response.data;
-          logger.debug("RES_HOTEL_BOOKING_FINAL", JSON.stringify(resData)); // 4. Logika Deteksi Status (Kritikal)
+        case 9:
+          response = _context9.sent;
+          resData = response.data; // 3. Deteksi Status PROCESSED (Bukan Gagal, tapi Menunggu)
 
           msg = (resData.respMessage || "").toUpperCase();
           isProcessed = (resData.status === "FAILED" || resData.status === "ERROR") && msg.includes("PROCESSED");
           isAccepted = resData.bookingStatus && resData.bookingStatus.trim() === "Accept";
 
           if (!(resData.status === "SUCCESS" || isAccepted || isProcessed)) {
-            _context10.next = 87;
+            _context9.next = 83;
             break;
           }
 
-          // Jika statusnya diproses (waiting), normalisasi agar bisa masuk DB
           currentStatus = 'Accept';
 
           if (isProcessed) {
-            currentStatus = 'Processed';
+            currentStatus = 'Processed'; // Berikan nomor dummy sementara jika supplier tidak mengirim nomor reservasi saat diproses
+
             resData.reservationNo = resData.reservationNo || "PRC-" + Date.now();
             resData.voucherNo = resData.voucherNo || resData.reservationNo;
           }
 
-          _context10.next = 21;
+          _context9.next = 19;
           return regeneratorRuntime.awrap(db.getConnection());
 
-        case 21:
-          connection = _context10.sent;
-          _context10.next = 24;
+        case 19:
+          connection = _context9.sent;
+          _context9.next = 22;
           return regeneratorRuntime.awrap(connection.beginTransaction());
 
-        case 24:
-          _context10.next = 26;
-          return regeneratorRuntime.awrap(connection.execute("INSERT INTO hotel_bookings \n                (reservation_no, voucher_no, os_ref_no, agent_os_ref, hotel_id, hotel_name, hotel_address, \n                internal_code, check_in_date, check_out_date, city_id, room_id, room_name, breakfast_type, \n                contact_email, contact_phone, total_price, booking_status, username) \n                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [resData.reservationNo || null, resData.voucherNo || null, resData.osRefNo || null, payload.agentOsRef || null, String(resData.hotelID || b.hotelID), resData.hotelName || b.hotelName || "Hotel", resData.hotelAddress || "", b.internalCode || null, resData.checkInDate || b.checkInDate.replace('Z', ''), resData.checkOutDate || b.checkOutDate.replace('Z', ''), String(b.cityID), String(b.roomID), resData.roomName || b.roomName || "", b.breakfast || "", b.roomRequest[0].email || "", b.roomRequest[0].phone || "", parseFloat(resData.totalPrice || 0), currentStatus, username]));
+        case 22:
+          _context9.next = 24;
+          return regeneratorRuntime.awrap(connection.execute("INSERT INTO hotel_bookings \n                (reservation_no, voucher_no, os_ref_no, agent_os_ref, hotel_id, hotel_name, hotel_address, \n                internal_code, check_in_date, check_out_date, city_id, room_id, room_name, breakfast_type, \n                contact_email, contact_phone, total_price, booking_status, username) \n                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [resData.reservationNo, resData.voucherNo, resData.osRefNo, payload.agentOsRef, String(resData.hotelID || b.hotelID), resData.hotelName || b.hotelName || "Hotel", resData.hotelAddress || "", b.internalCode, resData.checkInDate || b.checkInDate.replace('Z', ''), resData.checkOutDate || b.checkOutDate.replace('Z', ''), String(b.cityID), String(b.roomID), resData.roomName || b.roomName || "", b.breakfast || "", b.roomRequest[0].email, b.roomRequest[0].phone, parseFloat(resData.totalPrice || 0), currentStatus, username]));
 
-        case 26:
-          _ref5 = _context10.sent;
+        case 24:
+          _ref5 = _context9.sent;
           _ref6 = _slicedToArray(_ref5, 1);
           bookingResult = _ref6[0];
-          newBookingId = bookingResult.insertId; // 6. Simpan Data Tamu
-
+          // 5. Simpan Data Tamu
+          newBookingId = bookingResult.insertId;
           _iteratorNormalCompletion = true;
           _didIteratorError = false;
           _iteratorError = undefined;
-          _context10.prev = 33;
+          _context9.prev = 31;
           _iterator = b.roomRequest[Symbol.iterator]();
 
-        case 35:
+        case 33:
           if (_iteratorNormalCompletion = (_step = _iterator.next()).done) {
-            _context10.next = 66;
+            _context9.next = 64;
             break;
           }
 
@@ -734,221 +730,164 @@ router.post('/booking', function _callee9(req, res) {
           _iteratorNormalCompletion2 = true;
           _didIteratorError2 = false;
           _iteratorError2 = undefined;
-          _context10.prev = 40;
+          _context9.prev = 38;
           _iterator2 = room.paxes[Symbol.iterator]();
 
-        case 42:
+        case 40:
           if (_iteratorNormalCompletion2 = (_step2 = _iterator2.next()).done) {
-            _context10.next = 49;
+            _context9.next = 47;
             break;
           }
 
           pax = _step2.value;
-          _context10.next = 46;
+          _context9.next = 44;
           return regeneratorRuntime.awrap(connection.execute("INSERT INTO hotel_booking_paxes (booking_id, pax_type, title, first_name, last_name) \n                        VALUES (?, 'ADULT', ?, ?, ?)", [newBookingId, pax.title, pax.firstName, pax.lastName]));
 
-        case 46:
+        case 44:
           _iteratorNormalCompletion2 = true;
-          _context10.next = 42;
+          _context9.next = 40;
+          break;
+
+        case 47:
+          _context9.next = 53;
           break;
 
         case 49:
-          _context10.next = 55;
-          break;
-
-        case 51:
-          _context10.prev = 51;
-          _context10.t0 = _context10["catch"](40);
+          _context9.prev = 49;
+          _context9.t0 = _context9["catch"](38);
           _didIteratorError2 = true;
-          _iteratorError2 = _context10.t0;
+          _iteratorError2 = _context9.t0;
 
-        case 55:
-          _context10.prev = 55;
-          _context10.prev = 56;
+        case 53:
+          _context9.prev = 53;
+          _context9.prev = 54;
 
           if (!_iteratorNormalCompletion2 && _iterator2["return"] != null) {
             _iterator2["return"]();
           }
 
-        case 58:
-          _context10.prev = 58;
+        case 56:
+          _context9.prev = 56;
 
           if (!_didIteratorError2) {
-            _context10.next = 61;
+            _context9.next = 59;
             break;
           }
 
           throw _iteratorError2;
 
+        case 59:
+          return _context9.finish(56);
+
+        case 60:
+          return _context9.finish(53);
+
         case 61:
-          return _context10.finish(58);
-
-        case 62:
-          return _context10.finish(55);
-
-        case 63:
           _iteratorNormalCompletion = true;
-          _context10.next = 35;
+          _context9.next = 33;
+          break;
+
+        case 64:
+          _context9.next = 70;
           break;
 
         case 66:
-          _context10.next = 72;
-          break;
-
-        case 68:
-          _context10.prev = 68;
-          _context10.t1 = _context10["catch"](33);
+          _context9.prev = 66;
+          _context9.t1 = _context9["catch"](31);
           _didIteratorError = true;
-          _iteratorError = _context10.t1;
+          _iteratorError = _context9.t1;
 
-        case 72:
-          _context10.prev = 72;
-          _context10.prev = 73;
+        case 70:
+          _context9.prev = 70;
+          _context9.prev = 71;
 
           if (!_iteratorNormalCompletion && _iterator["return"] != null) {
             _iterator["return"]();
           }
 
-        case 75:
-          _context10.prev = 75;
+        case 73:
+          _context9.prev = 73;
 
           if (!_didIteratorError) {
-            _context10.next = 78;
+            _context9.next = 76;
             break;
           }
 
           throw _iteratorError;
 
+        case 76:
+          return _context9.finish(73);
+
+        case 77:
+          return _context9.finish(70);
+
         case 78:
-          return _context10.finish(75);
-
-        case 79:
-          return _context10.finish(72);
-
-        case 80:
-          _context10.next = 82;
+          _context9.next = 80;
           return regeneratorRuntime.awrap(connection.commit());
 
-        case 82:
-          logger.info("Booking Berhasil Disimpan: ID ".concat(newBookingId, ", User: ").concat(username)); // 7. Worker PDF & Email
-
-          if (currentStatus === 'Accept') {
-            (function _callee8() {
-              var pdfData, pdfBuffer;
-              return regeneratorRuntime.async(function _callee8$(_context9) {
-                while (1) {
-                  switch (_context9.prev = _context9.next) {
-                    case 0:
-                      _context9.prev = 0;
-                      pdfData = {
-                        reservationNo: resData.reservationNo,
-                        hotelName: resData.hotelName || b.hotelName || "Hotel",
-                        roomName: resData.roomName || b.roomName || "Room",
-                        totalPrice: resData.totalPrice || 0,
-                        contactEmail: b.roomRequest[0].email,
-                        contactPhone: b.roomRequest[0].phone,
-                        checkInDate: resData.checkInDate || b.checkInDate
-                      };
-                      _context9.next = 4;
-                      return regeneratorRuntime.awrap(generateBookingPDF(pdfData, b.roomRequest[0].paxes));
-
-                    case 4:
-                      pdfBuffer = _context9.sent;
-                      _context9.next = 7;
-                      return regeneratorRuntime.awrap(transporter.sendMail({
-                        from: '"LinkU Travel" <linkutransport@gmail.com>',
-                        to: b.roomRequest[0].email,
-                        subject: "E-Tiket Hotel - ".concat(resData.reservationNo),
-                        html: "<p>Booking Anda berhasil dikonfirmasi. Terlampir adalah e-tiket hotel Anda.</p>",
-                        attachments: [{
-                          filename: "E-Tiket-".concat(resData.reservationNo, ".pdf"),
-                          content: pdfBuffer
-                        }]
-                      }));
-
-                    case 7:
-                      _context9.next = 12;
-                      break;
-
-                    case 9:
-                      _context9.prev = 9;
-                      _context9.t0 = _context9["catch"](0);
-                      logger.error("Worker PDF/Email Error: " + _context9.t0.message);
-
-                    case 12:
-                    case "end":
-                      return _context9.stop();
-                  }
-                }
-              }, null, null, [[0, 9]]);
-            })();
-          }
-
-          return _context10.abrupt("return", res.json(_objectSpread({
+        case 80:
+          return _context9.abrupt("return", res.json(_objectSpread({
             status: "SUCCESS",
             booking_id: newBookingId,
             internalStatus: currentStatus
-          }, resData, {
-            reservationNo: resData.reservationNo
-          })));
+          }, resData)));
 
-        case 87:
-          return _context10.abrupt("return", res.status(400).json({
+        case 83:
+          return _context9.abrupt("return", res.status(400).json({
             status: "ERROR",
-            respMessage: resData.respMessage || "Gagal melakukan booking ke supplier."
+            respMessage: resData.respMessage || "Kamar sudah tidak tersedia."
           }));
 
-        case 88:
-          _context10.next = 97;
+        case 84:
+          _context9.next = 92;
           break;
 
-        case 90:
-          _context10.prev = 90;
-          _context10.t2 = _context10["catch"](0);
+        case 86:
+          _context9.prev = 86;
+          _context9.t2 = _context9["catch"](0);
 
           if (!connection) {
-            _context10.next = 95;
+            _context9.next = 91;
             break;
           }
 
-          _context10.next = 95;
+          _context9.next = 91;
           return regeneratorRuntime.awrap(connection.rollback());
 
-        case 95:
-          logger.error("Final Booking Error: " + _context10.t2.message);
+        case 91:
           res.status(500).json({
             status: "ERROR",
-            respMessage: _context10.t2.message
+            respMessage: _context9.t2.message
           });
 
-        case 97:
-          _context10.prev = 97;
+        case 92:
+          _context9.prev = 92;
           if (connection) connection.release();
-          return _context10.finish(97);
+          return _context9.finish(92);
 
-        case 100:
+        case 95:
         case "end":
-          return _context10.stop();
+          return _context9.stop();
       }
     }
-  }, null, null, [[0, 90, 97, 100], [33, 68, 72, 80], [40, 51, 55, 63], [56,, 58, 62], [73,, 75, 79]]);
+  }, null, null, [[0, 86, 92, 95], [31, 66, 70, 78], [38, 49, 53, 61], [54,, 56, 60], [71,, 73, 77]]);
 });
-router.get('/history', function _callee11(req, res) {
+router.get('/history', function _callee10(req, res) {
   var connection, _req$query, username, _req$query$page, page, _req$query$limit, limit, limitNum, pageNum, offsetNum, _ref7, _ref8, _ref8$, total, _ref9, _ref10, bookings, bookingsWithPaxes;
 
-  return regeneratorRuntime.async(function _callee11$(_context12) {
+  return regeneratorRuntime.async(function _callee10$(_context11) {
     while (1) {
-      switch (_context12.prev = _context12.next) {
+      switch (_context11.prev = _context11.next) {
         case 0:
-          _context12.prev = 0;
+          _context11.prev = 0;
           _req$query = req.query, username = _req$query.username, _req$query$page = _req$query.page, page = _req$query$page === void 0 ? 1 : _req$query$page, _req$query$limit = _req$query.limit, limit = _req$query$limit === void 0 ? 10 : _req$query$limit; // 1. Validasi input awal
 
           if (username) {
-            _context12.next = 4;
+            _context11.next = 4;
             break;
           }
 
-          return _context12.abrupt("return", res.status(400).json({
+          return _context11.abrupt("return", res.status(400).json({
             status: "ERROR",
             respMessage: "Parameter 'username' wajib diisi."
           }));
@@ -958,56 +897,56 @@ router.get('/history', function _callee11(req, res) {
           limitNum = parseInt(limit) || 10;
           pageNum = parseInt(page) || 1;
           offsetNum = (pageNum - 1) * limitNum;
-          _context12.next = 9;
+          _context11.next = 9;
           return regeneratorRuntime.awrap(db.getConnection());
 
         case 9:
-          connection = _context12.sent;
-          _context12.next = 12;
+          connection = _context11.sent;
+          _context11.next = 12;
           return regeneratorRuntime.awrap(connection.execute("SELECT COUNT(*) as total FROM hotel_bookings WHERE username = ?", [username]));
 
         case 12:
-          _ref7 = _context12.sent;
+          _ref7 = _context11.sent;
           _ref8 = _slicedToArray(_ref7, 1);
           _ref8$ = _slicedToArray(_ref8[0], 1);
           total = _ref8$[0].total;
-          _context12.next = 18;
+          _context11.next = 18;
           return regeneratorRuntime.awrap(connection.query("SELECT \n                hb.id,\n                hb.reservation_no,\n                hb.voucher_no,\n                hb.hotel_name,\n                hb.hotel_address,\n                hb.room_name,\n                hb.breakfast_type,\n                hb.check_in_date,\n                hb.check_out_date,\n                hb.total_price,\n                hb.currency,\n                hb.booking_status,\n                hb.contact_email,\n                hb.contact_phone,\n                hb.room_count,\n                hb.booking_date,\n                hb.username\n            FROM hotel_bookings hb\n            WHERE hb.username = ?\n            ORDER BY hb.booking_date DESC\n            LIMIT ".concat(limitNum, " OFFSET ").concat(offsetNum), [username]));
 
         case 18:
-          _ref9 = _context12.sent;
+          _ref9 = _context11.sent;
           _ref10 = _slicedToArray(_ref9, 1);
           bookings = _ref10[0];
-          _context12.next = 23;
-          return regeneratorRuntime.awrap(Promise.all(bookings.map(function _callee10(booking) {
+          _context11.next = 23;
+          return regeneratorRuntime.awrap(Promise.all(bookings.map(function _callee9(booking) {
             var _ref11, _ref12, paxes;
 
-            return regeneratorRuntime.async(function _callee10$(_context11) {
+            return regeneratorRuntime.async(function _callee9$(_context10) {
               while (1) {
-                switch (_context11.prev = _context11.next) {
+                switch (_context10.prev = _context10.next) {
                   case 0:
-                    _context11.next = 2;
+                    _context10.next = 2;
                     return regeneratorRuntime.awrap(connection.execute("SELECT title, first_name, last_name, pax_type\n                 FROM hotel_booking_paxes\n                 WHERE booking_id = ?", [booking.id]));
 
                   case 2:
-                    _ref11 = _context11.sent;
+                    _ref11 = _context10.sent;
                     _ref12 = _slicedToArray(_ref11, 1);
                     paxes = _ref12[0];
-                    return _context11.abrupt("return", _objectSpread({}, booking, {
+                    return _context10.abrupt("return", _objectSpread({}, booking, {
                       paxes: paxes
                     }));
 
                   case 6:
                   case "end":
-                    return _context11.stop();
+                    return _context10.stop();
                 }
               }
             });
           })));
 
         case 23:
-          bookingsWithPaxes = _context12.sent;
-          return _context12.abrupt("return", res.json({
+          bookingsWithPaxes = _context11.sent;
+          return _context11.abrupt("return", res.json({
             status: "SUCCESS",
             username: username,
             total: total,
@@ -1018,22 +957,22 @@ router.get('/history', function _callee11(req, res) {
           }));
 
         case 27:
-          _context12.prev = 27;
-          _context12.t0 = _context12["catch"](0);
-          logger.error("History Booking Error: " + _context12.t0.message);
-          return _context12.abrupt("return", res.status(500).json({
+          _context11.prev = 27;
+          _context11.t0 = _context11["catch"](0);
+          logger.error("History Booking Error: " + _context11.t0.message);
+          return _context11.abrupt("return", res.status(500).json({
             status: "ERROR",
-            respMessage: "Internal Server Error: " + _context12.t0.message
+            respMessage: "Internal Server Error: " + _context11.t0.message
           }));
 
         case 31:
-          _context12.prev = 31;
+          _context11.prev = 31;
           if (connection) connection.release();
-          return _context12.finish(31);
+          return _context11.finish(31);
 
         case 34:
         case "end":
-          return _context12.stop();
+          return _context11.stop();
       }
     }
   }, null, null, [[0, 27, 31, 34]]);
@@ -1042,83 +981,83 @@ router.get('/history', function _callee11(req, res) {
 // Ambil detail satu booking berdasarkan reservation_no
 // ============================================================
 
-router.get('/history/:reservation_no', function _callee12(req, res) {
+router.get('/history/:reservation_no', function _callee11(req, res) {
   var connection, reservation_no, username, _ref13, _ref14, _ref14$, booking, _ref15, _ref16, paxes;
 
-  return regeneratorRuntime.async(function _callee12$(_context13) {
+  return regeneratorRuntime.async(function _callee11$(_context12) {
     while (1) {
-      switch (_context13.prev = _context13.next) {
+      switch (_context12.prev = _context12.next) {
         case 0:
-          _context13.prev = 0;
+          _context12.prev = 0;
           reservation_no = req.params.reservation_no;
           username = req.query.username;
 
           if (username) {
-            _context13.next = 5;
+            _context12.next = 5;
             break;
           }
 
-          return _context13.abrupt("return", res.status(400).json({
+          return _context12.abrupt("return", res.status(400).json({
             status: "ERROR",
             respMessage: "Parameter 'username' wajib diisi."
           }));
 
         case 5:
-          _context13.next = 7;
+          _context12.next = 7;
           return regeneratorRuntime.awrap(db.getConnection());
 
         case 7:
-          connection = _context13.sent;
-          _context13.next = 10;
+          connection = _context12.sent;
+          _context12.next = 10;
           return regeneratorRuntime.awrap(connection.execute("SELECT * FROM hotel_bookings \n             WHERE reservation_no = ? AND username = ?", [reservation_no, username]));
 
         case 10:
-          _ref13 = _context13.sent;
+          _ref13 = _context12.sent;
           _ref14 = _slicedToArray(_ref13, 1);
           _ref14$ = _slicedToArray(_ref14[0], 1);
           booking = _ref14$[0];
 
           if (booking) {
-            _context13.next = 16;
+            _context12.next = 16;
             break;
           }
 
-          return _context13.abrupt("return", res.status(404).json({
+          return _context12.abrupt("return", res.status(404).json({
             status: "ERROR",
             respMessage: "Booking tidak ditemukan."
           }));
 
         case 16:
-          _context13.next = 18;
+          _context12.next = 18;
           return regeneratorRuntime.awrap(connection.execute("SELECT title, first_name, last_name, pax_type\n             FROM hotel_booking_paxes\n             WHERE booking_id = ?", [booking.id]));
 
         case 18:
-          _ref15 = _context13.sent;
+          _ref15 = _context12.sent;
           _ref16 = _slicedToArray(_ref15, 1);
           paxes = _ref16[0];
           booking.paxes = paxes;
-          return _context13.abrupt("return", res.json({
+          return _context12.abrupt("return", res.json({
             status: "SUCCESS",
             data: booking
           }));
 
         case 25:
-          _context13.prev = 25;
-          _context13.t0 = _context13["catch"](0);
-          logger.error("Detail Booking Error: " + _context13.t0.message);
-          return _context13.abrupt("return", res.status(500).json({
+          _context12.prev = 25;
+          _context12.t0 = _context12["catch"](0);
+          logger.error("Detail Booking Error: " + _context12.t0.message);
+          return _context12.abrupt("return", res.status(500).json({
             status: "ERROR",
-            respMessage: _context13.t0.message
+            respMessage: _context12.t0.message
           }));
 
         case 29:
-          _context13.prev = 29;
+          _context12.prev = 29;
           if (connection) connection.release();
-          return _context13.finish(29);
+          return _context12.finish(29);
 
         case 32:
         case "end":
-          return _context13.stop();
+          return _context12.stop();
       }
     }
   }, null, null, [[0, 25, 29, 32]]);
