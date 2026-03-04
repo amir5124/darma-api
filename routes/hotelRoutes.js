@@ -135,6 +135,7 @@ async function generateBookingPDF(data, paxes) {
                 <div>
                     <div class="info-row"><div class="label">Voucher No.</div><div class="value">: ${data.voucherNo || data.reservationNo}</div></div>
                     <div class="info-row"><div class="label">Tgl Pembelian</div><div class="value">: ${paymentDate}</div></div>
+                      <div class="info-row"><div class="label">Dicetak Oleh</div><div class="value">: LinkU</div></div>
                 </div>
                 <div style="text-align: right;">
                     <div class="info-row" style="justify-content: flex-end;"><div class="label">File No.</div><div class="value">: ${data.reservationNo}</div></div>
