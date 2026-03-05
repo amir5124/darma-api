@@ -22,9 +22,9 @@ const transporter = nodemailer.createTransport({
 async function generateBookingPDF(data, paxes) {
     let browser;
     try {
-        browser = await puppeteer.launch({ 
-            headless: "new", 
-            args: ['--no-sandbox', '--disable-setuid-sandbox'] 
+        browser = await puppeteer.launch({
+            headless: "new",
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
         const page = await browser.newPage();
 
@@ -62,8 +62,8 @@ async function generateBookingPDF(data, paxes) {
 
         // 6. Normalisasi Special Request (Menangani data dari API maupun DB)
         const requestValue = data.specialRequests || data.special_requests || "";
-        const finalSpecialRequest = (requestValue && requestValue !== "" && requestValue !== "-") 
-            ? requestValue 
+        const finalSpecialRequest = (requestValue && requestValue !== "" && requestValue !== "-")
+            ? requestValue
             : "Tidak ada permintaan khusus";
 
         const htmlContent = `
@@ -113,21 +113,41 @@ async function generateBookingPDF(data, paxes) {
                     border-radius: 12px; transform: rotate(-15deg); opacity: 0.2;
                 }
 
+                .contact-details {
+    margin-top: 8px;
+    line-height: 1.4;
+}
+
+.contact-details p {
+    margin: 0;
+    font-size: 10px; 
+    color: #475569;
+    font-family: sans-serif;
+}
+
+.contact-details strong {
+    color: #24b3ae; 
+}
+
                 .footer { margin-top: 50px; border-top: 1px solid #e2e8f0; padding-top: 20px; text-align: center; font-size: 10px; color: #94a3b8; }
             </style>
         </head>
         <body>
             <div class="paid-stamp">PAID</div>
 
-            <div class="header">
-                <div class="logo-area">
-                    <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877917/WhatsApp_Image_2026-01-20_at_09.45.43-removebg-preview_lqkgrw.png" height="50">
-                </div>
-                <div class="hotel-info" style="text-align: right;">
-                    <div class="hotel-title">${data.hotelName}</div>
-                    <div class="hotel-address">${data.hotelAddress || 'Alamat hotel tersedia di sistem'}</div>
-                </div>
-            </div>
+           <div class="header">
+    <div class="logo-area">
+        <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877917/WhatsApp_Image_2026-01-20_at_09.45.43-removebg-preview_lqkgrw.png" height="50">
+        <div class="contact-details">
+            <p><strong>Contact Service:</strong> 081347423737</p>
+            <p><strong>Instagram:</strong> @linkuapps | <strong>Facebook:</strong> Linku Nusantara</p>
+        </div>
+    </div>
+    <div class="hotel-info" style="text-align: right;">
+        <div class="hotel-title">${data.hotelName}</div>
+        <div class="hotel-address">${data.hotelAddress || 'Alamat hotel tersedia di sistem'}</div>
+    </div>
+</div>
 
             <div class="voucher-title">Voucher Reservasi Hotel</div>
 
@@ -212,7 +232,7 @@ async function generateBookingPDF(data, paxes) {
             printBackground: true,
             margin: { top: '0px', bottom: '0px', left: '0px', right: '0px' }
         });
-        
+
         return pdfBuffer;
     } catch (error) {
         console.error("Error generating PDF:", error);
@@ -407,7 +427,7 @@ router.post('/booking-detail', async (req, res) => {
         const b = req.body;
 
         connection = await db.getConnection();
-        
+
         const [localRows] = await connection.execute(
             "SELECT * FROM hotel_bookings WHERE reservation_no = ?",
             [b.reservationNo]
@@ -521,8 +541,8 @@ router.post('/booking', async (req, res) => {
                 isSmokingRoom: Boolean(room.isSmokingRoom),
                 phone: String(room.phone || '08123456789'),
                 email: String(room.email || 'guest@mail.com'),
-                specialRequestArray: room.specialRequestArray || [], 
-                requestDescription: room.requestDescription || "", 
+                specialRequestArray: room.specialRequestArray || [],
+                requestDescription: room.requestDescription || "",
                 roomType: 0,
                 isRequestChildBed: false,
                 childNum: parseInt(room.childNum) || 0,
@@ -532,9 +552,9 @@ router.post('/booking', async (req, res) => {
             hotelID: b.hotelID,
             breakfast: b.breakfast || "Room Only",
             roomID: b.roomID,
-            bedType: { 
-                ID: (b.bedType && b.bedType.ID) ? String(b.bedType.ID) : "", 
-                bed: (b.bedType && b.bedType.bed) ? String(b.bedType.bed) : "" 
+            bedType: {
+                ID: (b.bedType && b.bedType.ID) ? String(b.bedType.ID) : "",
+                bed: (b.bedType && b.bedType.bed) ? String(b.bedType.bed) : ""
             },
             agentOsRef: b.agentOsRef || `LC-${Date.now()}`,
             userID: USER_CONFIG.userID,
@@ -623,7 +643,21 @@ router.post('/booking', async (req, res) => {
                             from: '"LinkU Travel" <linkutransport@gmail.com>',
                             to: b.roomRequest[0].email,
                             subject: `E-Tiket Hotel - ${resData.reservationNo}`,
-                            html: `<p>Booking Anda berhasil dikonfirmasi. Terlampir adalah e-tiket hotel Anda.</p>`,
+                            html: `<p>Halo Bapak/Ibu,
+
+Booking hotel Anda telah *berhasil dikonfirmasi.*
+
+Silakan menggunakan *voucher yang terlampir* pada email ini untuk proses *check-in di hotel.*
+
+Detail reservasi dapat dilihat pada *voucher yang terlampir.*
+
+Terima kasih telah menggunakan layanan *LinkU.*
+
+Jika membutuhkan bantuan, silakan hubungi layanan pelanggan kami.
+
+Salam hangat,
+*LinkU*
+Layanan terbaikmu</p>`,
                             attachments: [{ filename: `E-Tiket-${resData.reservationNo}.pdf`, content: pdfBuffer }]
                         });
                     } catch (err) {
