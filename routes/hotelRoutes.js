@@ -139,8 +139,8 @@ async function generateBookingPDF(data, paxes) {
     <div class="logo-area">
         <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877917/WhatsApp_Image_2026-01-20_at_09.45.43-removebg-preview_lqkgrw.png" height="50">
         <div class="contact-details">
-            <p><strong>Contact Service:</strong> 081347423737</p>
-            <p><strong>Instagram:</strong> @linkuapps</strong></p>
+            <p>Contact Service:<strong> 081347423737</strong></p>
+            <p>Instagram:<strong> @linkuapps</strong></p>
             <p>Facebook:<strong> Linku Nusantara</strong></p>
         </div>
     </div>
@@ -489,18 +489,18 @@ router.post('/booking-detail', async (req, res) => {
                             subject: `E-Tiket Hotel - ${detail.reservationNo}`,
                             html: `<p>Halo Bapak/Ibu,
 
-Booking hotel Anda telah *berhasil dikonfirmasi.*
+Booking hotel Anda telah berhasil dikonfirmasi.
 
-Silakan menggunakan *voucher yang terlampir* pada email ini untuk proses *check-in di hotel.*
+Silakan menggunakan voucher yang terlampir pada email ini untuk proses check-in di hotel.
 
-Detail reservasi dapat dilihat pada *voucher yang terlampir.*
+Detail reservasi dapat dilihat pada voucher yang terlampir.
 
-Terima kasih telah menggunakan layanan *LinkU.*
+Terima kasih telah menggunakan layanan LinkU.
 
 Jika membutuhkan bantuan, silakan hubungi layanan pelanggan kami.
 
 Salam hangat,
-*LinkU*
+LinkU
 Layanan terbaikmu</p>`,
                             attachments: [{ filename: `E-Tiket-${detail.reservationNo}.pdf`, content: pdfBuffer }]
                         });
@@ -660,18 +660,18 @@ router.post('/booking', async (req, res) => {
                             subject: `E-Tiket Hotel - ${resData.reservationNo}`,
                             html: `<p>Halo Bapak/Ibu,
 
-Booking hotel Anda telah *berhasil dikonfirmasi.*
+Booking hotel Anda telah berhasil dikonfirmasi.
 
-Silakan menggunakan *voucher yang terlampir* pada email ini untuk proses *check-in di hotel.*
+Silakan menggunakan voucher yang terlampir pada email ini untuk proses check-in di hotel.
 
-Detail reservasi dapat dilihat pada *voucher yang terlampir.*
+Detail reservasi dapat dilihat pada voucher yang terlampir.
 
-Terima kasih telah menggunakan layanan *LinkU.*
+Terima kasih telah menggunakan layanan LinkU.
 
 Jika membutuhkan bantuan, silakan hubungi layanan pelanggan kami.
 
 Salam hangat,
-*LinkU*
+LinkU
 Layanan terbaikmu</p>`,
                             attachments: [{ filename: `E-Tiket-${resData.reservationNo}.pdf`, content: pdfBuffer }]
                         });
