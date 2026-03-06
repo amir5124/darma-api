@@ -597,24 +597,40 @@ router.post('/booking', async (req, res) => {
             connection = await db.getConnection();
             await connection.beginTransaction();
 
-            const [bookingResult] = await connection.execute(
-                `INSERT INTO hotel_bookings 
-                (reservation_no, voucher_no, os_ref_no, agent_os_ref, hotel_id, hotel_name, hotel_address, 
-                internal_code, check_in_date, check_out_date, city_id, room_id, room_name, breakfast_type, 
-                contact_email, contact_phone, total_price, booking_status, username, special_requests) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [
-                    resData.reservationNo, resData.voucherNo, resData.osRefNo, payload.agentOsRef,
-                    String(resData.hotelID || b.hotelID), resData.hotelName || b.hotelName || "Hotel",
-                    resData.hotelAddress || "", b.internalCode,
-                    resData.checkInDate || b.checkInDate.replace('Z', ''),
-                    resData.checkOutDate || b.checkOutDate.replace('Z', ''),
-                    String(b.cityID), String(b.roomID), resData.roomName || b.roomName || "",
-                    b.breakfast || "", b.roomRequest[0].email, b.roomRequest[0].phone,
-                    parseFloat(resData.totalPrice || 0), currentStatus, username,
-                    payload.roomRequest[0].requestDescription
-                ]
-            );
+          const [bookingResult] = await connection.execute(
+    `INSERT INTO hotel_bookings 
+    (
+        reservation_no, voucher_no, os_ref_no, agent_os_ref, hotel_id, 
+        hotel_name, hotel_address, internal_code, check_in_date, check_out_date, 
+        city_id, room_id, room_name, breakfast_type, contact_email, 
+        contact_phone, total_price, commission, booking_status, username, 
+        special_requests
+    ) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, // Tambahkan satu tanda tanya (?)
+    [
+        resData.reservationNo, 
+        resData.voucherNo, 
+        resData.osRefNo, 
+        payload.agentOsRef,
+        String(resData.hotelID || b.hotelID), 
+        resData.hotelName || b.hotelName || "Hotel",
+        resData.hotelAddress || "", 
+        b.internalCode,
+        resData.checkInDate || b.checkInDate.replace('Z', ''),
+        resData.checkOutDate || b.checkOutDate.replace('Z', ''),
+        String(b.cityID), 
+        String(b.roomID), 
+        resData.roomName || b.roomName || "",
+        b.breakfast || "", 
+        b.roomRequest[0].email, 
+        b.roomRequest[0].phone,
+        parseFloat(resData.totalPrice || 0), 
+        parseFloat(b.commission || 0), // <--- INI PERUBAHANNYA
+        currentStatus, 
+        username,
+        payload.roomRequest[0].requestDescription
+    ]
+);
 
             const newBookingId = bookingResult.insertId;
             for (const room of b.roomRequest) {
