@@ -762,6 +762,7 @@ router.get('/history', async (req, res) => {
                 hb.contact_phone,
                 hb.room_count,
                 hb.booking_date,
+                hb.commission,
                 hb.username
             FROM hotel_bookings hb
             WHERE hb.username = ?
