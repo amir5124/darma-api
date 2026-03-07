@@ -597,7 +597,12 @@ router.post('/booking', async (req, res) => {
             connection = await db.getConnection();
             await connection.beginTransaction();
 
-          const [bookingResult] = await connection.execute(
+         // Gunakan harga yang dikirim dari Frontend jika resData.totalPrice kosong atau tidak akurat
+// Kita prioritaskan resData.totalPrice (dari Supplier), tapi jika selisih, gunakan b.totalPrice (dari Frontend)
+const finalTotalPrice = parseFloat(resData.totalPrice || b.totalPrice || 0);
+const finalCommission = parseFloat(b.commission || 0);
+
+const [bookingResult] = await connection.execute(
     `INSERT INTO hotel_bookings 
     (
         reservation_no, voucher_no, os_ref_no, agent_os_ref, hotel_id, 
@@ -606,7 +611,7 @@ router.post('/booking', async (req, res) => {
         contact_phone, total_price, commission, booking_status, username, 
         special_requests
     ) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, // Tambahkan satu tanda tanya (?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
         resData.reservationNo, 
         resData.voucherNo, 
@@ -624,8 +629,8 @@ router.post('/booking', async (req, res) => {
         b.breakfast || "", 
         b.roomRequest[0].email, 
         b.roomRequest[0].phone,
-        parseFloat(resData.totalPrice || 0), 
-        parseFloat(b.commission || 0), // <--- INI PERUBAHANNYA
+        finalTotalPrice, // <--- SEKARANG MENGGUNAKAN HARGA YANG BENAR (148.288)
+        finalCommission, // <--- KOMISI TETAP 15.000
         currentStatus, 
         username,
         payload.roomRequest[0].requestDescription

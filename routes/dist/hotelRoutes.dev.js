@@ -631,7 +631,7 @@ router.post('/booking-detail', function _callee7(req, res) {
   }, null, null, [[0, 53, 57, 60], [34, 43]]);
 });
 router.post('/booking', function _callee9(req, res) {
-  var connection, token, b, username, payload, response, resData, msg, isProcessed, isAccepted, currentStatus, _ref5, _ref6, bookingResult, newBookingId, _iteratorNormalCompletion, _didIteratorError, _iteratorError, _iterator, _step, room, _iteratorNormalCompletion2, _didIteratorError2, _iteratorError2, _iterator2, _step2, pax;
+  var connection, token, b, username, payload, response, resData, msg, isProcessed, isAccepted, currentStatus, finalTotalPrice, finalCommission, _ref5, _ref6, bookingResult, newBookingId, _iteratorNormalCompletion, _didIteratorError, _iteratorError, _iterator, _step, room, _iteratorNormalCompletion2, _didIteratorError2, _iteratorError2, _iterator2, _step2, pax;
 
   return regeneratorRuntime.async(function _callee9$(_context10) {
     while (1) {
@@ -703,7 +703,7 @@ router.post('/booking', function _callee9(req, res) {
           isAccepted = resData.bookingStatus && resData.bookingStatus.trim() === "Accept";
 
           if (!(resData.status === "SUCCESS" || isAccepted || isProcessed)) {
-            _context10.next = 84;
+            _context10.next = 86;
             break;
           }
 
@@ -724,12 +724,16 @@ router.post('/booking', function _callee9(req, res) {
           return regeneratorRuntime.awrap(connection.beginTransaction());
 
         case 22:
-          _context10.next = 24;
-          return regeneratorRuntime.awrap(connection.execute("INSERT INTO hotel_bookings \n    (\n        reservation_no, voucher_no, os_ref_no, agent_os_ref, hotel_id, \n        hotel_name, hotel_address, internal_code, check_in_date, check_out_date, \n        city_id, room_id, room_name, breakfast_type, contact_email, \n        contact_phone, total_price, commission, booking_status, username, \n        special_requests\n    ) \n    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", // Tambahkan satu tanda tanya (?)
-          [resData.reservationNo, resData.voucherNo, resData.osRefNo, payload.agentOsRef, String(resData.hotelID || b.hotelID), resData.hotelName || b.hotelName || "Hotel", resData.hotelAddress || "", b.internalCode, resData.checkInDate || b.checkInDate.replace('Z', ''), resData.checkOutDate || b.checkOutDate.replace('Z', ''), String(b.cityID), String(b.roomID), resData.roomName || b.roomName || "", b.breakfast || "", b.roomRequest[0].email, b.roomRequest[0].phone, parseFloat(resData.totalPrice || 0), parseFloat(b.commission || 0), // <--- INI PERUBAHANNYA
+          // Gunakan harga yang dikirim dari Frontend jika resData.totalPrice kosong atau tidak akurat
+          // Kita prioritaskan resData.totalPrice (dari Supplier), tapi jika selisih, gunakan b.totalPrice (dari Frontend)
+          finalTotalPrice = parseFloat(resData.totalPrice || b.totalPrice || 0);
+          finalCommission = parseFloat(b.commission || 0);
+          _context10.next = 26;
+          return regeneratorRuntime.awrap(connection.execute("INSERT INTO hotel_bookings \n    (\n        reservation_no, voucher_no, os_ref_no, agent_os_ref, hotel_id, \n        hotel_name, hotel_address, internal_code, check_in_date, check_out_date, \n        city_id, room_id, room_name, breakfast_type, contact_email, \n        contact_phone, total_price, commission, booking_status, username, \n        special_requests\n    ) \n    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [resData.reservationNo, resData.voucherNo, resData.osRefNo, payload.agentOsRef, String(resData.hotelID || b.hotelID), resData.hotelName || b.hotelName || "Hotel", resData.hotelAddress || "", b.internalCode, resData.checkInDate || b.checkInDate.replace('Z', ''), resData.checkOutDate || b.checkOutDate.replace('Z', ''), String(b.cityID), String(b.roomID), resData.roomName || b.roomName || "", b.breakfast || "", b.roomRequest[0].email, b.roomRequest[0].phone, finalTotalPrice, // <--- SEKARANG MENGGUNAKAN HARGA YANG BENAR (148.288)
+          finalCommission, // <--- KOMISI TETAP 15.000
           currentStatus, username, payload.roomRequest[0].requestDescription]));
 
-        case 24:
+        case 26:
           _ref5 = _context10.sent;
           _ref6 = _slicedToArray(_ref5, 1);
           bookingResult = _ref6[0];
@@ -737,12 +741,12 @@ router.post('/booking', function _callee9(req, res) {
           _iteratorNormalCompletion = true;
           _didIteratorError = false;
           _iteratorError = undefined;
-          _context10.prev = 31;
+          _context10.prev = 33;
           _iterator = b.roomRequest[Symbol.iterator]();
 
-        case 33:
+        case 35:
           if (_iteratorNormalCompletion = (_step = _iterator.next()).done) {
-            _context10.next = 64;
+            _context10.next = 66;
             break;
           }
 
@@ -750,102 +754,102 @@ router.post('/booking', function _callee9(req, res) {
           _iteratorNormalCompletion2 = true;
           _didIteratorError2 = false;
           _iteratorError2 = undefined;
-          _context10.prev = 38;
+          _context10.prev = 40;
           _iterator2 = room.paxes[Symbol.iterator]();
 
-        case 40:
+        case 42:
           if (_iteratorNormalCompletion2 = (_step2 = _iterator2.next()).done) {
-            _context10.next = 47;
+            _context10.next = 49;
             break;
           }
 
           pax = _step2.value;
-          _context10.next = 44;
+          _context10.next = 46;
           return regeneratorRuntime.awrap(connection.execute("INSERT INTO hotel_booking_paxes (booking_id, pax_type, title, first_name, last_name) \n                        VALUES (?, 'ADULT', ?, ?, ?)", [newBookingId, pax.title, pax.firstName, pax.lastName]));
 
-        case 44:
+        case 46:
           _iteratorNormalCompletion2 = true;
-          _context10.next = 40;
-          break;
-
-        case 47:
-          _context10.next = 53;
+          _context10.next = 42;
           break;
 
         case 49:
-          _context10.prev = 49;
-          _context10.t0 = _context10["catch"](38);
+          _context10.next = 55;
+          break;
+
+        case 51:
+          _context10.prev = 51;
+          _context10.t0 = _context10["catch"](40);
           _didIteratorError2 = true;
           _iteratorError2 = _context10.t0;
 
-        case 53:
-          _context10.prev = 53;
-          _context10.prev = 54;
+        case 55:
+          _context10.prev = 55;
+          _context10.prev = 56;
 
           if (!_iteratorNormalCompletion2 && _iterator2["return"] != null) {
             _iterator2["return"]();
           }
 
-        case 56:
-          _context10.prev = 56;
+        case 58:
+          _context10.prev = 58;
 
           if (!_didIteratorError2) {
-            _context10.next = 59;
+            _context10.next = 61;
             break;
           }
 
           throw _iteratorError2;
 
-        case 59:
-          return _context10.finish(56);
-
-        case 60:
-          return _context10.finish(53);
-
         case 61:
-          _iteratorNormalCompletion = true;
-          _context10.next = 33;
-          break;
+          return _context10.finish(58);
 
-        case 64:
-          _context10.next = 70;
+        case 62:
+          return _context10.finish(55);
+
+        case 63:
+          _iteratorNormalCompletion = true;
+          _context10.next = 35;
           break;
 
         case 66:
-          _context10.prev = 66;
-          _context10.t1 = _context10["catch"](31);
+          _context10.next = 72;
+          break;
+
+        case 68:
+          _context10.prev = 68;
+          _context10.t1 = _context10["catch"](33);
           _didIteratorError = true;
           _iteratorError = _context10.t1;
 
-        case 70:
-          _context10.prev = 70;
-          _context10.prev = 71;
+        case 72:
+          _context10.prev = 72;
+          _context10.prev = 73;
 
           if (!_iteratorNormalCompletion && _iterator["return"] != null) {
             _iterator["return"]();
           }
 
-        case 73:
-          _context10.prev = 73;
+        case 75:
+          _context10.prev = 75;
 
           if (!_didIteratorError) {
-            _context10.next = 76;
+            _context10.next = 78;
             break;
           }
 
           throw _iteratorError;
 
-        case 76:
-          return _context10.finish(73);
-
-        case 77:
-          return _context10.finish(70);
-
         case 78:
-          _context10.next = 80;
-          return regeneratorRuntime.awrap(connection.commit());
+          return _context10.finish(75);
+
+        case 79:
+          return _context10.finish(72);
 
         case 80:
+          _context10.next = 82;
+          return regeneratorRuntime.awrap(connection.commit());
+
+        case 82:
           if (currentStatus === 'Accept') {
             (function _callee8() {
               var _ref7, _ref8, paxesForPdf, pdfData, pdfBuffer;
@@ -919,45 +923,45 @@ router.post('/booking', function _callee9(req, res) {
             internalStatus: currentStatus
           }, resData)));
 
-        case 84:
+        case 86:
           return _context10.abrupt("return", res.status(400).json({
             status: "ERROR",
             respMessage: resData.respMessage || "Kamar tidak tersedia."
           }));
 
-        case 85:
-          _context10.next = 93;
+        case 87:
+          _context10.next = 95;
           break;
 
-        case 87:
-          _context10.prev = 87;
+        case 89:
+          _context10.prev = 89;
           _context10.t2 = _context10["catch"](0);
 
           if (!connection) {
-            _context10.next = 92;
+            _context10.next = 94;
             break;
           }
 
-          _context10.next = 92;
+          _context10.next = 94;
           return regeneratorRuntime.awrap(connection.rollback());
 
-        case 92:
+        case 94:
           res.status(500).json({
             status: "ERROR",
             respMessage: _context10.t2.message
           });
 
-        case 93:
-          _context10.prev = 93;
+        case 95:
+          _context10.prev = 95;
           if (connection) connection.release();
-          return _context10.finish(93);
+          return _context10.finish(95);
 
-        case 96:
+        case 98:
         case "end":
           return _context10.stop();
       }
     }
-  }, null, null, [[0, 87, 93, 96], [31, 66, 70, 78], [38, 49, 53, 61], [54,, 56, 60], [71,, 73, 77]]);
+  }, null, null, [[0, 89, 95, 98], [33, 68, 72, 80], [40, 51, 55, 63], [56,, 58, 62], [73,, 75, 79]]);
 });
 router.get('/history', function _callee11(req, res) {
   var connection, _req$query, username, _req$query$page, page, _req$query$limit, limit, limitNum, pageNum, offsetNum, _ref9, _ref10, _ref10$, total, _ref11, _ref12, bookings, bookingsWithPaxes;
