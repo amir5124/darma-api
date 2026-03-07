@@ -597,8 +597,10 @@ router.post('/booking', async (req, res) => {
             connection = await db.getConnection();
             await connection.beginTransaction();
 
-         const finalTotalPrice = b.totalPrice ? parseFloat(b.totalPrice) : parseFloat(resData.totalPrice || 0);
-const finalCommission = parseFloat(b.commission || 0);
+         // 1. Ambil nilai totalPrice dari price-info (yang dikirim frontend)
+// Kita bulatkan agar tidak ada angka desimal .6667 di database
+const finalModalDariPriceInfo = Math.round(parseFloat(b.totalPrice || resData.totalPrice || 0));
+const komisiTercatat = Math.round(parseFloat(b.commission || 0));
 
 const [bookingResult] = await connection.execute(
     `INSERT INTO hotel_bookings 
@@ -627,8 +629,8 @@ const [bookingResult] = await connection.execute(
         b.breakfast || "", 
         b.roomRequest[0].email, 
         b.roomRequest[0].phone,
-        finalTotalPrice, // Sekarang pakai 163288 dari frontend
-        finalCommission, 
+        finalModalDariPriceInfo, // Menyimpan 163288 (Sesuai Price-Info)
+        komisiTercatat,          // Menyimpan 15000 (Sebagai catatan saja)
         currentStatus, 
         username,
         payload.roomRequest[0].requestDescription

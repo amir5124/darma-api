@@ -631,7 +631,7 @@ router.post('/booking-detail', function _callee7(req, res) {
   }, null, null, [[0, 53, 57, 60], [34, 43]]);
 });
 router.post('/booking', function _callee9(req, res) {
-  var connection, token, b, username, payload, response, resData, msg, isProcessed, isAccepted, currentStatus, finalTotalPrice, finalCommission, _ref5, _ref6, bookingResult, newBookingId, _iteratorNormalCompletion, _didIteratorError, _iteratorError, _iterator, _step, room, _iteratorNormalCompletion2, _didIteratorError2, _iteratorError2, _iterator2, _step2, pax;
+  var connection, token, b, username, payload, response, resData, msg, isProcessed, isAccepted, currentStatus, finalModalDariPriceInfo, komisiTercatat, _ref5, _ref6, bookingResult, newBookingId, _iteratorNormalCompletion, _didIteratorError, _iteratorError, _iterator, _step, room, _iteratorNormalCompletion2, _didIteratorError2, _iteratorError2, _iterator2, _step2, pax;
 
   return regeneratorRuntime.async(function _callee9$(_context10) {
     while (1) {
@@ -724,11 +724,14 @@ router.post('/booking', function _callee9(req, res) {
           return regeneratorRuntime.awrap(connection.beginTransaction());
 
         case 22:
-          finalTotalPrice = b.totalPrice ? parseFloat(b.totalPrice) : parseFloat(resData.totalPrice || 0);
-          finalCommission = parseFloat(b.commission || 0);
+          // 1. Ambil nilai totalPrice dari price-info (yang dikirim frontend)
+          // Kita bulatkan agar tidak ada angka desimal .6667 di database
+          finalModalDariPriceInfo = Math.round(parseFloat(b.totalPrice || resData.totalPrice || 0));
+          komisiTercatat = Math.round(parseFloat(b.commission || 0));
           _context10.next = 26;
-          return regeneratorRuntime.awrap(connection.execute("INSERT INTO hotel_bookings \n    (\n        reservation_no, voucher_no, os_ref_no, agent_os_ref, hotel_id, \n        hotel_name, hotel_address, internal_code, check_in_date, check_out_date, \n        city_id, room_id, room_name, breakfast_type, contact_email, \n        contact_phone, total_price, commission, booking_status, username, \n        special_requests\n    ) \n    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [resData.reservationNo, resData.voucherNo, resData.osRefNo, payload.agentOsRef, String(resData.hotelID || b.hotelID), resData.hotelName || b.hotelName || "Hotel", resData.hotelAddress || "", b.internalCode, resData.checkInDate || b.checkInDate.replace('Z', ''), resData.checkOutDate || b.checkOutDate.replace('Z', ''), String(b.cityID), String(b.roomID), resData.roomName || b.roomName || "", b.breakfast || "", b.roomRequest[0].email, b.roomRequest[0].phone, finalTotalPrice, // Sekarang pakai 163288 dari frontend
-          finalCommission, currentStatus, username, payload.roomRequest[0].requestDescription]));
+          return regeneratorRuntime.awrap(connection.execute("INSERT INTO hotel_bookings \n    (\n        reservation_no, voucher_no, os_ref_no, agent_os_ref, hotel_id, \n        hotel_name, hotel_address, internal_code, check_in_date, check_out_date, \n        city_id, room_id, room_name, breakfast_type, contact_email, \n        contact_phone, total_price, commission, booking_status, username, \n        special_requests\n    ) \n    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [resData.reservationNo, resData.voucherNo, resData.osRefNo, payload.agentOsRef, String(resData.hotelID || b.hotelID), resData.hotelName || b.hotelName || "Hotel", resData.hotelAddress || "", b.internalCode, resData.checkInDate || b.checkInDate.replace('Z', ''), resData.checkOutDate || b.checkOutDate.replace('Z', ''), String(b.cityID), String(b.roomID), resData.roomName || b.roomName || "", b.breakfast || "", b.roomRequest[0].email, b.roomRequest[0].phone, finalModalDariPriceInfo, // Menyimpan 163288 (Sesuai Price-Info)
+          komisiTercatat, // Menyimpan 15000 (Sebagai catatan saja)
+          currentStatus, username, payload.roomRequest[0].requestDescription]));
 
         case 26:
           _ref5 = _context10.sent;
