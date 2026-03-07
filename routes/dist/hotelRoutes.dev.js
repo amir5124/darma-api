@@ -724,14 +724,11 @@ router.post('/booking', function _callee9(req, res) {
           return regeneratorRuntime.awrap(connection.beginTransaction());
 
         case 22:
-          // Gunakan harga yang dikirim dari Frontend jika resData.totalPrice kosong atau tidak akurat
-          // Kita prioritaskan resData.totalPrice (dari Supplier), tapi jika selisih, gunakan b.totalPrice (dari Frontend)
-          finalTotalPrice = parseFloat(resData.totalPrice || b.totalPrice || 0);
+          finalTotalPrice = b.totalPrice ? parseFloat(b.totalPrice) : parseFloat(resData.totalPrice || 0);
           finalCommission = parseFloat(b.commission || 0);
           _context10.next = 26;
-          return regeneratorRuntime.awrap(connection.execute("INSERT INTO hotel_bookings \n    (\n        reservation_no, voucher_no, os_ref_no, agent_os_ref, hotel_id, \n        hotel_name, hotel_address, internal_code, check_in_date, check_out_date, \n        city_id, room_id, room_name, breakfast_type, contact_email, \n        contact_phone, total_price, commission, booking_status, username, \n        special_requests\n    ) \n    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [resData.reservationNo, resData.voucherNo, resData.osRefNo, payload.agentOsRef, String(resData.hotelID || b.hotelID), resData.hotelName || b.hotelName || "Hotel", resData.hotelAddress || "", b.internalCode, resData.checkInDate || b.checkInDate.replace('Z', ''), resData.checkOutDate || b.checkOutDate.replace('Z', ''), String(b.cityID), String(b.roomID), resData.roomName || b.roomName || "", b.breakfast || "", b.roomRequest[0].email, b.roomRequest[0].phone, finalTotalPrice, // <--- SEKARANG MENGGUNAKAN HARGA YANG BENAR (148.288)
-          finalCommission, // <--- KOMISI TETAP 15.000
-          currentStatus, username, payload.roomRequest[0].requestDescription]));
+          return regeneratorRuntime.awrap(connection.execute("INSERT INTO hotel_bookings \n    (\n        reservation_no, voucher_no, os_ref_no, agent_os_ref, hotel_id, \n        hotel_name, hotel_address, internal_code, check_in_date, check_out_date, \n        city_id, room_id, room_name, breakfast_type, contact_email, \n        contact_phone, total_price, commission, booking_status, username, \n        special_requests\n    ) \n    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [resData.reservationNo, resData.voucherNo, resData.osRefNo, payload.agentOsRef, String(resData.hotelID || b.hotelID), resData.hotelName || b.hotelName || "Hotel", resData.hotelAddress || "", b.internalCode, resData.checkInDate || b.checkInDate.replace('Z', ''), resData.checkOutDate || b.checkOutDate.replace('Z', ''), String(b.cityID), String(b.roomID), resData.roomName || b.roomName || "", b.breakfast || "", b.roomRequest[0].email, b.roomRequest[0].phone, finalTotalPrice, // Sekarang pakai 163288 dari frontend
+          finalCommission, currentStatus, username, payload.roomRequest[0].requestDescription]));
 
         case 26:
           _ref5 = _context10.sent;

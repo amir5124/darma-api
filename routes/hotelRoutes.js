@@ -597,9 +597,7 @@ router.post('/booking', async (req, res) => {
             connection = await db.getConnection();
             await connection.beginTransaction();
 
-         // Gunakan harga yang dikirim dari Frontend jika resData.totalPrice kosong atau tidak akurat
-// Kita prioritaskan resData.totalPrice (dari Supplier), tapi jika selisih, gunakan b.totalPrice (dari Frontend)
-const finalTotalPrice = parseFloat(resData.totalPrice || b.totalPrice || 0);
+         const finalTotalPrice = b.totalPrice ? parseFloat(b.totalPrice) : parseFloat(resData.totalPrice || 0);
 const finalCommission = parseFloat(b.commission || 0);
 
 const [bookingResult] = await connection.execute(
@@ -629,8 +627,8 @@ const [bookingResult] = await connection.execute(
         b.breakfast || "", 
         b.roomRequest[0].email, 
         b.roomRequest[0].phone,
-        finalTotalPrice, // <--- SEKARANG MENGGUNAKAN HARGA YANG BENAR (148.288)
-        finalCommission, // <--- KOMISI TETAP 15.000
+        finalTotalPrice, // Sekarang pakai 163288 dari frontend
+        finalCommission, 
         currentStatus, 
         username,
         payload.roomRequest[0].requestDescription
