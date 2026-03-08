@@ -28,10 +28,12 @@ async function generateBookingPDF(data, paxes) {
         });
         const page = await browser.newPage();
 
-        // 1. Pembulatan Harga
-        const hargaDasar = Number(data.totalPrice || 0);
-        const biayaHandling = Number(data.handling_fee || 0); // Ambil dari data baru
-        const totalHargaFisik = Math.ceil(hargaDasar + biayaHandling);
+        const hargaDasar = parseFloat(data.totalPrice || 0);
+    const biayaHandling = parseFloat(data.handlingFee || 0);
+    
+    // Total Akhir
+    const totalHargaFisik = Math.ceil(hargaDasar + biayaHandling);
+    const totalFormatted = totalHargaFisik.toLocaleString('id-ID');
 
         // 2. Format Tanggal Transaksi (Tanggal Pembelian)
         const paymentDate = new Date().toLocaleDateString('id-ID', {
@@ -216,7 +218,7 @@ async function generateBookingPDF(data, paxes) {
             <div class="section-title">Pembayaran</div>
             <div style="font-size: 11px; color: #475569; padding: 0 12px;">
                 Voucher Berlaku Untuk Layanan yang Tertera di Atas. Tambahan Layanan Harus Berdasarkan Permintaan.<br>
-                <b>Status: LUNAS (Paid via Koin Aplikasi) Rp. ${totalHargaFisik}</b>
+                <b>Status: LUNAS (Paid via Koin Aplikasi) Rp. ${totalFormatted}</b>
             </div>
 
             <div class="footer">
@@ -463,20 +465,25 @@ router.post('/booking-detail', async (req, res) => {
                 );
 
                 // PERBAIKAN DI SINI: Lengkapi properti untuk PDF
-                const pdfData = {
-                    reservationNo: detail.reservationNo,
-                    osRefNo: detail.osRefNo || localData.os_ref_no,
-                    hotelName: detail.hotelName || localData.hotel_name,
-                    hotelAddress: detail.hotelAddress || localData.hotel_address,
-                    roomName: detail.roomName || localData.room_name,
-                    totalPrice: detail.totalPrice || localData.total_price,
-                    contactEmail: localData.contact_email,
-                    contactPhone: localData.contact_phone,
-                    checkInDate: detail.checkInDate || localData.check_in_date,
-                    checkOutDate: detail.checkOutDate || localData.check_out_date,
-                    specialRequests: localData.special_requests || "-",
-                    breakfastType: detail.breakfast || localData.breakfast_type
-                };
+               // Di dalam router.post('/booking-detail', ...)
+// ... setelah blok const [paxes] ...
+
+const pdfData = {
+    reservationNo: detail.reservationNo,
+    osRefNo: detail.osRefNo || localData.os_ref_no,
+    hotelName: detail.hotelName || localData.hotel_name,
+    hotelAddress: detail.hotelAddress || localData.hotel_address,
+    roomName: detail.roomName || localData.room_name,
+    // Mengambil dari database agar akurat
+    totalPrice: localData.total_price, 
+    handlingFee: localData.handling_fee, // Tambahkan ini
+    contactEmail: localData.contact_email,
+    contactPhone: localData.contact_phone,
+    checkInDate: detail.checkInDate || localData.check_in_date,
+    checkOutDate: detail.checkOutDate || localData.check_out_date,
+    specialRequests: localData.special_requests || "-",
+    breakfastType: detail.breakfast || localData.breakfast_type
+};
 
                 const isTransition = (localData.booking_status !== 'Accept');
                 const isForceResend = (b.forceResend === true);
