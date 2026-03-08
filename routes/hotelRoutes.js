@@ -29,8 +29,9 @@ async function generateBookingPDF(data, paxes) {
         const page = await browser.newPage();
 
         // 1. Pembulatan Harga
-        const totalHargaFisik = Math.ceil(Number(data.totalPrice || 0));
-        const totalFormatted = totalHargaFisik.toLocaleString('id-ID');
+        const hargaDasar = Number(data.totalPrice || 0);
+        const biayaHandling = Number(data.handling_fee || 0); // Ambil dari data baru
+        const totalHargaFisik = Math.ceil(hargaDasar + biayaHandling);
 
         // 2. Format Tanggal Transaksi (Tanggal Pembelian)
         const paymentDate = new Date().toLocaleDateString('id-ID', {
@@ -215,7 +216,7 @@ async function generateBookingPDF(data, paxes) {
             <div class="section-title">Pembayaran</div>
             <div style="font-size: 11px; color: #475569; padding: 0 12px;">
                 Voucher Berlaku Untuk Layanan yang Tertera di Atas. Tambahan Layanan Harus Berdasarkan Permintaan.<br>
-                <b>Status: LUNAS (Paid via Koin Aplikasi)</b>
+                <b>Status: LUNAS (Paid via Koin Aplikasi) Rp. ${totalHargaFisik}</b>
             </div>
 
             <div class="footer">
@@ -597,45 +598,49 @@ router.post('/booking', async (req, res) => {
             connection = await db.getConnection();
             await connection.beginTransaction();
 
-         // 1. Ambil nilai totalPrice dari price-info (yang dikirim frontend)
-// Kita bulatkan agar tidak ada angka desimal .6667 di database
-const finalModalDariPriceInfo = Math.round(parseFloat(b.totalPrice || resData.totalPrice || 0));
-const komisiTercatat = Math.round(parseFloat(b.commission || 0));
+            // 1. Ambil nilai totalPrice dari price-info (yang dikirim frontend)
+            // Kita bulatkan agar tidak ada angka desimal .6667 di database
+            // 1. Ambil nilai dari body request (b = req.body)
+            const finalModalDariPriceInfo = Math.round(parseFloat(b.totalPrice || resData.totalPrice || 0));
+            const komisiTercatat = Math.round(parseFloat(b.commission || 0));
+            // Ambil handlingFee dari frontend, jika kosong otomatis 0
+            const handlingFeeTercatat = Math.round(parseFloat(b.handlingFee || 0));
 
-const [bookingResult] = await connection.execute(
-    `INSERT INTO hotel_bookings 
+            const [bookingResult] = await connection.execute(
+                `INSERT INTO hotel_bookings 
     (
         reservation_no, voucher_no, os_ref_no, agent_os_ref, hotel_id, 
         hotel_name, hotel_address, internal_code, check_in_date, check_out_date, 
         city_id, room_id, room_name, breakfast_type, contact_email, 
-        contact_phone, total_price, commission, booking_status, username, 
-        special_requests
+        contact_phone, total_price, commission, handling_fee, booking_status, 
+        username, special_requests
     ) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-        resData.reservationNo, 
-        resData.voucherNo, 
-        resData.osRefNo, 
-        payload.agentOsRef,
-        String(resData.hotelID || b.hotelID), 
-        resData.hotelName || b.hotelName || "Hotel",
-        resData.hotelAddress || "", 
-        b.internalCode,
-        resData.checkInDate || b.checkInDate.replace('Z', ''),
-        resData.checkOutDate || b.checkOutDate.replace('Z', ''),
-        String(b.cityID), 
-        String(b.roomID), 
-        resData.roomName || b.roomName || "",
-        b.breakfast || "", 
-        b.roomRequest[0].email, 
-        b.roomRequest[0].phone,
-        finalModalDariPriceInfo, // Menyimpan 163288 (Sesuai Price-Info)
-        komisiTercatat,          // Menyimpan 15000 (Sebagai catatan saja)
-        currentStatus, 
-        username,
-        payload.roomRequest[0].requestDescription
-    ]
-);
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    resData.reservationNo,
+                    resData.voucherNo,
+                    resData.osRefNo,
+                    payload.agentOsRef,
+                    String(resData.hotelID || b.hotelID),
+                    resData.hotelName || b.hotelName || "Hotel",
+                    resData.hotelAddress || "",
+                    b.internalCode,
+                    resData.checkInDate || b.checkInDate.replace('Z', ''),
+                    resData.checkOutDate || b.checkOutDate.replace('Z', ''),
+                    String(b.cityID),
+                    String(b.roomID),
+                    resData.roomName || b.roomName || "",
+                    b.breakfast || "",
+                    b.roomRequest[0].email,
+                    b.roomRequest[0].phone,
+                    finalModalDariPriceInfo, // Contoh: 163288
+                    komisiTercatat,          // Contoh: 15000
+                    handlingFeeTercatat,     // Contoh: 5000 (Sesuai input user)
+                    currentStatus,
+                    username,
+                    payload.roomRequest[0].requestDescription
+                ]
+            );
 
             const newBookingId = bookingResult.insertId;
             for (const room of b.roomRequest) {
@@ -768,6 +773,7 @@ router.get('/history', async (req, res) => {
                 hb.room_count,
                 hb.booking_date,
                 hb.commission,
+                hb.handling_fee,
                 hb.username
             FROM hotel_bookings hb
             WHERE hb.username = ?
