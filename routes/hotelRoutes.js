@@ -245,6 +245,40 @@ async function generateBookingPDF(data, paxes) {
         if (browser) await browser.close();
     }
 }
+
+router.post('/city', async (req, res) => {
+    try {
+        const token = await getConsistentToken();
+        const b = req.body;
+
+        // Payload disesuaikan dengan spesifikasi API /Hotel/City
+        const payload = {
+            countryID: b.countryID || "ID",
+            cityNameFilter: b.cityNameFilter || "",
+            userID: USER_CONFIG.userID,
+            accessToken: token
+        };
+
+        logger.debug("REQ_HOTEL_CITY", payload);
+
+        // Memanggil endpoint /Hotel/City
+        const response = await axios.post(`${BASE_URL}/Hotel/City`, payload, {
+            httpsAgent: agent,
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        logger.debug("RES_HOTEL_CITY", response.data);
+        
+        // Mengirimkan data kembali ke client
+        res.json(response.data);
+    } catch (error) {
+        logger.error("Hotel City Error: " + error.message);
+        res.status(500).json({ 
+            status: "ERROR", 
+            respMessage: error.message 
+        });
+    }
+});
 // 1. HOTEL SEARCH
 router.post('/search', async (req, res) => {
     try {
