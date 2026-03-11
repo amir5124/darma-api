@@ -251,32 +251,23 @@ router.post('/city', async (req, res) => {
         const token = await getConsistentToken();
         const b = req.body;
 
-        // Payload disesuaikan dengan spesifikasi API /Hotel/City
+        // Pastikan field mandatory (userID & accessToken) masuk ke dalam payload utama
         const payload = {
             countryID: b.countryID || "ID",
             cityNameFilter: b.cityNameFilter || "",
-            userID: USER_CONFIG.userID,
-            accessToken: token
+            userID: USER_CONFIG.userID, // Pastikan ini tidak null
+            accessToken: token          // Pastikan ini tidak null
         };
 
-        logger.debug("REQ_HOTEL_CITY", payload);
+        logger.debug("SENDING_TO_VENDOR", payload);
 
-        // Memanggil endpoint /Hotel/City
         const response = await axios.post(`${BASE_URL}/Hotel/City`, payload, {
-            httpsAgent: agent,
             headers: { 'Content-Type': 'application/json' }
         });
 
-        logger.debug("RES_HOTEL_CITY", response.data);
-        
-        // Mengirimkan data kembali ke client
         res.json(response.data);
     } catch (error) {
-        logger.error("Hotel City Error: " + error.message);
-        res.status(500).json({ 
-            status: "ERROR", 
-            respMessage: error.message 
-        });
+        res.status(500).json({ status: "FAILED", respMessage: error.message });
     }
 });
 // 1. HOTEL SEARCH

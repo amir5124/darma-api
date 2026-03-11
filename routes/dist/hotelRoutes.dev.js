@@ -159,19 +159,19 @@ router.post('/city', function _callee(req, res) {
 
         case 3:
           token = _context2.sent;
-          b = req.body; // Payload disesuaikan dengan spesifikasi API /Hotel/City
+          b = req.body; // Pastikan field mandatory (userID & accessToken) masuk ke dalam payload utama
 
           payload = {
             countryID: b.countryID || "ID",
             cityNameFilter: b.cityNameFilter || "",
             userID: USER_CONFIG.userID,
-            accessToken: token
-          };
-          logger.debug("REQ_HOTEL_CITY", payload); // Memanggil endpoint /Hotel/City
+            // Pastikan ini tidak null
+            accessToken: token // Pastikan ini tidak null
 
+          };
+          logger.debug("SENDING_TO_VENDOR", payload);
           _context2.next = 9;
           return regeneratorRuntime.awrap(axios.post("".concat(BASE_URL, "/Hotel/City"), payload, {
-            httpsAgent: agent,
             headers: {
               'Content-Type': 'application/json'
             }
@@ -179,27 +179,24 @@ router.post('/city', function _callee(req, res) {
 
         case 9:
           response = _context2.sent;
-          logger.debug("RES_HOTEL_CITY", response.data); // Mengirimkan data kembali ke client
-
           res.json(response.data);
-          _context2.next = 18;
+          _context2.next = 16;
           break;
 
-        case 14:
-          _context2.prev = 14;
+        case 13:
+          _context2.prev = 13;
           _context2.t0 = _context2["catch"](0);
-          logger.error("Hotel City Error: " + _context2.t0.message);
           res.status(500).json({
-            status: "ERROR",
+            status: "FAILED",
             respMessage: _context2.t0.message
           });
 
-        case 18:
+        case 16:
         case "end":
           return _context2.stop();
       }
     }
-  }, null, null, [[0, 14]]);
+  }, null, null, [[0, 13]]);
 }); // 1. HOTEL SEARCH
 
 router.post('/search', function _callee2(req, res) {
