@@ -261,7 +261,7 @@ router.post('/city', async (req, res) => {
 
         logger.debug("SENDING_TO_VENDOR", payload);
 
-        const response = await axios.post(`${BASE_URL}/Hotel/City`, payload, {
+        const response = await axios.post(`${BASE_URL}/Hotel/city5`, payload, {
             headers: { 'Content-Type': 'application/json' }
         });
 

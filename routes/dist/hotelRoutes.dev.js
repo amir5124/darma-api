@@ -171,7 +171,7 @@ router.post('/city', function _callee(req, res) {
           };
           logger.debug("SENDING_TO_VENDOR", payload);
           _context2.next = 9;
-          return regeneratorRuntime.awrap(axios.post("".concat(BASE_URL, "/Hotel/City"), payload, {
+          return regeneratorRuntime.awrap(axios.post("".concat(BASE_URL, "/Hotel/city5"), payload, {
             headers: {
               'Content-Type': 'application/json'
             }
