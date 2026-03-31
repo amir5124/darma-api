@@ -2,9 +2,9 @@ const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const db = require('../config/db');
-// const puppeteer = require('puppeteer');
-// const QRCode = require('qrcode');
-const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('../helpers/darmaToken');
+const puppeteer = require('puppeteer');
+const QRCode = require('qrcode');
+const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('../helpers/darmaHelper');
 const flightController = require('../controllers/flightController');
 const { sendBookingEmail } = require('../utils/mailer');
 const moment = require('moment-timezone');
@@ -901,9 +901,7 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
     }
 });
 
-/**
- * --- 2. FUNGSI: KIRIM EMAIL DENGAN PDF IDENTIK ---
- */
+
 async function sendTicketEmail(bookingCode) {
     try {
         const [rows] = await db.execute("SELECT customer_email FROM bookings WHERE booking_code = ?", [bookingCode]);
