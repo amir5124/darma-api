@@ -854,7 +854,7 @@ const eticketNumber = booking.reference_no || '-';
                     </td>
                     <td align="right" style="vertical-align: top;">
                         <img src="${qrDataUrl}" width="75">
-                        // Cari bagian di dalam template literal yang merender Booking Code, lalu ubah menjadi:
+                       
 <div style="margin-top: 5px; text-align: center; width: 85px;">
     <div style="font-size: 8px; color: #666; text-transform: uppercase;">Booking Code</div>
     <div style="font-size: 14px; font-weight: bold; color: #24b3ae; letter-spacing: 1px;">${response.bookingCodeAirline || booking.booking_code}</div>
@@ -889,7 +889,7 @@ const eticketNumber = booking.reference_no || '-';
                     <tbody>${paxRows}</tbody>
                 </table>
             </div>
-            // Cari bagian <div class="fare-section"> dan ganti isinya menjadi:
+          
 <div class="fare-section">
     <div class="fare-title">Fares Detail | Detail Harga</div>
     
