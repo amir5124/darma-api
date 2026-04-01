@@ -680,6 +680,7 @@ async function getTicketHtmlContent(bookingCode, db) {
     const ticketPrice = Number(booking.total_price) || 0;
 const adminFee = Number(booking.admin_fee) || 0;
 const totalAmount = ticketPrice + adminFee;
+console.log(ticketPrice, "ui")
 const eticketNumber = booking.reference_no || '-';
     const payload = typeof booking.payload_request === 'string' ? JSON.parse(booking.payload_request) : booking.payload_request;
     const response = typeof booking.raw_response === 'string' ? JSON.parse(booking.raw_response) : booking.raw_response;
@@ -860,7 +861,7 @@ const eticketNumber = booking.reference_no || '-';
     <div style="font-size: 14px; font-weight: bold; color: #24b3ae; letter-spacing: 1px;">${response.bookingCodeAirline || booking.booking_code}</div>
     
     <div style="font-size: 7px; color: #666; text-transform: uppercase; margin-top: 4px;">Eticket Number</div>
-    <div style="font-size: 9px; font-weight: bold; color: #333;">${eticketNumber}</div>
+    <div style="font-size: 7px; font-weight: bold; color: #333;">${eticketNumber}</div>
 </div>
                     </td>
                 </tr>
@@ -991,8 +992,8 @@ async function sendTicketEmail(bookingCode) {
         Terima kasih atas kepercayaan Anda ❤️
     </p>
 
-    <p style="font-style: italic; color: #24b3ae; font-weight: bold;">
-        *LinkU* – Satu aplikasi semua kebutuhan 🚀
+    <p style="font-style: color: #24b3ae; font-weight: bold;">
+        LinkU – Satu aplikasi semua kebutuhan 🚀
     </p>
 </div>
         <div style="margin-top: 20px; border-top: 1px solid #eee; padding-top: 10px; font-size: 13px;">
