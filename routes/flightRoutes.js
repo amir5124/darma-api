@@ -351,27 +351,39 @@ router.post('/get-seats', async (req, res) => {
 
 
 router.post('/create-booking', async (req, res) => {
-    // Menggunakan connection untuk mendukung Transaction agar data antar tabel sinkron
     const connection = await db.getConnection(); 
 
     try {
         const token = await getConsistentToken();
-        const { usernameFromFrontend, ...cleanBody } = req.body;
         
+        // 1. Ambil data khusus dari frontend
+        const { usernameFromFrontend, admin_fee, ...cleanBody } = req.body;
+        
+        // Pastikan admin_fee adalah angka untuk log dan database
+        const finalAdminFee = Number(admin_fee) || 0;
+        const operator = usernameFromFrontend || 'Guest';
+
         const fullPhone = cleanBody.contactRemainingPhoneNo 
             ? `+${cleanBody.contactCountryCodePhone || '62'}${cleanBody.contactRemainingPhoneNo}`
             : (cleanBody.contactPhone || cleanBody.customer_phone || '-');
 
+        // 2. Masukkan kembali admin_fee ke dalam objek payload agar tersimpan di database
         const payload = {
             ...cleanBody,
+            admin_fee: finalAdminFee, // PENTING: Agar saveBooking bisa membaca ini
+            usernameFromFrontend: operator,
             customer_phone: fullPhone,
             airlineAccessCode: cleanBody.airlineAccessCode || cleanBody.airlineID,
             userID: USER_CONFIG.userID,
             accessToken: token
         };
 
+        // --- LOGGING SECTION ---
         console.log("--------------------------------------------------");
-        console.log("📤 [STEP 1] Sending Booking to Vendor...");
+        console.log(`🚀 [NEW BOOKING] Operator: ${operator}`);
+        console.log(`💰 [FEE] Admin Fee: Rp ${finalAdminFee.toLocaleString('id-ID')}`);
+        console.log(`📦 [PAYLOAD] Airline: ${payload.airlineID}, Route: ${payload.origin} -> ${payload.destination}`);
+        console.log("--------------------------------------------------");
 
         // 1. Panggil API Vendor
         const response = await axios.post(`${BASE_URL}/Airline/Booking`, payload, {
@@ -390,36 +402,38 @@ router.post('/create-booking', async (req, res) => {
                 await connection.beginTransaction();
 
                 // --- A. INSERT KE TABEL bookings ---
-                const [resBooking] = await connection.execute(
-                    `INSERT INTO bookings (
-                        booking_code, reference_no, airline_id, airline_name, 
-                        trip_type, origin, destination, origin_port, destination_port,
-                        depart_date, ticket_status, total_price, sales_price, time_limit, 
-                        user_id, pengguna, customer_email, access_token, payload_request, raw_response
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                    [
-                        response.data.bookingCode,
-                        response.data.referenceNo,
-                        payload.airlineID,
-                        payload.airlineName || payload.airlineID,
-                        payload.tripType || "OneWay",
-                        payload.origin,
-                        payload.destination,
-                        response.data.origin || payload.origin_port || null,
-                        response.data.destination || payload.destination_port || null,
-                        payload.departDate ? payload.departDate.replace('T', ' ').replace('Z', '').split('.')[0] : null,
-                        response.data.ticketStatus || "HOLD",
-                        response.data.ticketPrice || 0,
-                        response.data.salesPrice || 0,
-                        response.data.timeLimit ? response.data.timeLimit.replace('T', ' ').substring(0, 19) : null,
-                        response.data.userID,
-                        usernameFromFrontend || 'Guest',
-                        payload.contactEmail,
-                        payload.accessToken,
-                        JSON.stringify(payload),
-                        JSON.stringify(response.data)
-                    ]
-                );
+               const [resBooking] = await connection.execute(
+    `INSERT INTO bookings (
+        booking_code, reference_no, airline_id, airline_name, 
+        trip_type, origin, destination, origin_port, destination_port,
+        depart_date, ticket_status, total_price, sales_price, admin_fee, 
+        time_limit, user_id, pengguna, customer_email, access_token, 
+        payload_request, raw_response
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, 
+    [
+        response.data.bookingCode,
+        response.data.referenceNo,
+        payload.airlineID,
+        payload.airlineName || payload.airlineID,
+        payload.tripType || "OneWay",
+        payload.origin,
+        payload.destination,
+        response.data.origin || payload.origin_port || null,
+        response.data.destination || payload.destination_port || null,
+        payload.departDate ? payload.departDate.replace('T', ' ').replace('Z', '').split('.')[0] : null,
+        response.data.ticketStatus || "HOLD",
+        response.data.ticketPrice || 0,
+        response.data.salesPrice || 0,
+        payload.admin_fee || 0, // Ambil dari payload yang dikirim frontend
+        response.data.timeLimit ? response.data.timeLimit.replace('T', ' ').substring(0, 19) : null,
+        response.data.userID,
+        usernameFromFrontend || 'Guest',
+        payload.contactEmail,
+        payload.accessToken,
+        JSON.stringify(payload),
+        JSON.stringify(response.data)
+    ]
+);
 
                 const internalId = resBooking.insertId;
 
@@ -568,6 +582,21 @@ router.post('/create-booking', async (req, res) => {
         if (connection) connection.release();
     }
 });
+
+router.post('/update-admin-fee', async (req, res) => {
+    const { bookingCode, admin_fee } = req.body;
+    console.log(admin_fee,"fee")
+    try {
+        await db.execute(
+            `UPDATE bookings SET admin_fee = ? WHERE booking_code = ?`,
+            [admin_fee, bookingCode]
+        );
+        res.json({ status: "SUCCESS" });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+});
+
 // 8. BOOKING DETAIL + AUTO SYNC PRICE
 router.post('/booking-detail', async (req, res) => {
     try {
@@ -648,6 +677,10 @@ async function getTicketHtmlContent(bookingCode, db) {
     if (rows.length === 0) throw new Error("Booking tidak ditemukan");
 
     const booking = rows[0];
+    const ticketPrice = Number(booking.total_price) || 0;
+const adminFee = Number(booking.admin_fee) || 0;
+const totalAmount = ticketPrice + adminFee;
+const eticketNumber = booking.reference_no || '-';
     const payload = typeof booking.payload_request === 'string' ? JSON.parse(booking.payload_request) : booking.payload_request;
     const response = typeof booking.raw_response === 'string' ? JSON.parse(booking.raw_response) : booking.raw_response;
 
@@ -665,7 +698,19 @@ async function getTicketHtmlContent(bookingCode, db) {
     const baggageMap = { "PBAA": "15kg", "PBAB": "20kg", "PBAC": "25kg", "PBAD": "30kg", "PBAF": "40kg" };
     const mealMap = { "NPCB": "Nasi Padang", "NLCB": "Pak Nasser", "NKCB": "Nasi Kuning", "GCCB": "Thai Green", "CRCB": "Uncle Chin" };
     const airlineNames = { "QZ": "AirAsia", "ID": "Batik Air", "GA": "Garuda Indonesia", "JT": "Lion Air", "QG": "Citilink" };
-    const defaultBaggage = { "QG": "20kg", "JT": "0kg", "ID": "20kg", "GA": "20kg", "QZ": "0kg" };
+   const defaultBaggage = {
+  "GA": "20kg",
+  "ID": "20kg",
+  "QG": "15kg",
+  "JT": "0kg",
+  "IW": "0kg",
+  "QZ": "0kg",
+  "SJ": "20kg",
+  "IN": "20kg",
+  "IU": "20kg",
+  "IP": "20kg",
+  "TN": "10kg"
+};
 
     const qrDataUrl = await QRCode.toDataURL(response.bookingCodeAirline || booking.booking_code);
 
@@ -742,7 +787,7 @@ async function getTicketHtmlContent(bookingCode, db) {
         return `<tr><td style="text-align:center">${pIdx + 1}</td><td><b>${p.title} ${p.firstName} ${p.lastName}</b></td><td>${typeLabel}</td><td style="text-align:center">${seatInfo}</td><td style="text-align:center; font-size:8.5px;">${bagInfo}</td><td style="font-size:8.5px;">${mealsInfo}</td></tr>`;
     }).join('');
 
-    const ticketPrice = Number(booking.total_price);
+   
 
     // TEMPLATE HTML LENGKAP DENGAN CSS
     return `
@@ -809,10 +854,14 @@ async function getTicketHtmlContent(bookingCode, db) {
                     </td>
                     <td align="right" style="vertical-align: top;">
                         <img src="${qrDataUrl}" width="75">
-                        <div style="margin-top: 5px; text-align: center; width: 85px;">
-                            <div style="font-size: 8px; color: #666; text-transform: uppercase;">Booking Code</div>
-                            <div style="font-size: 14px; font-weight: bold; color: #24b3ae; letter-spacing: 1px;">${response.bookingCodeAirline || booking.booking_code}</div>
-                        </div>
+                        // Cari bagian di dalam template literal yang merender Booking Code, lalu ubah menjadi:
+<div style="margin-top: 5px; text-align: center; width: 85px;">
+    <div style="font-size: 8px; color: #666; text-transform: uppercase;">Booking Code</div>
+    <div style="font-size: 14px; font-weight: bold; color: #24b3ae; letter-spacing: 1px;">${response.bookingCodeAirline || booking.booking_code}</div>
+    
+    <div style="font-size: 7px; color: #666; text-transform: uppercase; margin-top: 4px;">Eticket Number</div>
+    <div style="font-size: 9px; font-weight: bold; color: #333;">${eticketNumber}</div>
+</div>
                     </td>
                 </tr>
             </table>
@@ -840,17 +889,22 @@ async function getTicketHtmlContent(bookingCode, db) {
                     <tbody>${paxRows}</tbody>
                 </table>
             </div>
-            <div class="fare-section">
-                <div class="fare-title">Fares Detail | Detail Harga</div>
-                <div class="fare-row">
-                    <span>Ticket for ${passengers.length} Passenger <br><small style="font-weight:normal; color:#666;">Tiket untuk ${passengers.length} penumpang</small></span>
-                    <span>IDR ${ticketPrice.toLocaleString('id-ID')},-</span>
-                </div>
-                <div class="total-row">
-                    <div style="text-align:right"><b>Total Amount</b><br><small style="color:#666">Total Pembayaran</small></div>
-                    <div class="total-amount">IDR ${ticketPrice.toLocaleString('id-ID')},-</div>
-                </div>
-            </div>
+            // Cari bagian <div class="fare-section"> dan ganti isinya menjadi:
+<div class="fare-section">
+    <div class="fare-title">Fares Detail | Detail Harga</div>
+    
+    <div class="fare-row" style="background: none; border-bottom: 1px solid #eee;">
+        <span>Ticket for ${passengers.length} Passenger <br><small style="font-weight:normal; color:#666;">Tiket untuk ${passengers.length} penumpang</small></span>
+        <span>IDR ${totalAmount.toLocaleString('id-ID')},-</span>
+    </div>
+
+ 
+
+    <div class="total-row">
+        <div style="text-align:right"><b>Total Amount</b><br><small style="color:#666">Total Pembayaran</small></div>
+        <div class="total-amount">IDR ${totalAmount.toLocaleString('id-ID')},-</div>
+    </div>
+</div>
             <div class="important-note">
                 <div class="note-header">Important Note | Catatan Penting</div>
                 <ul class="note-content">
@@ -920,13 +974,27 @@ async function sendTicketEmail(bookingCode) {
     <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
         <h3>Tiket Anda <b>${bookingCode}</b> sudah terbit!</h3>
         
-        <p>Terima kasih telah memesan melalui <b>LinkU</b> IKN. 
-        E-Tiket resmi Anda telah kami lampirkan pada email ini dalam format PDF.</p>
-        
-        <p>Mohon simpan dan tunjukkan tiket tersebut saat keberangkatan.</p>
-        
-        <p><b>LinkU</b>, satu aplikasi semua kebutuhan</p>
+       <div style="font-family: sans-serif; color: #333; line-height: 1.6;">
+    <p style="margin-bottom: 16px;">
+        Terima kasih telah memesan melalui <b>LinkU</b> 🙏✨
+    </p>
 
+    <p style="margin-bottom: 16px;">
+        🎫 E-Tiket resmi Anda telah kami lampirkan pada email ini dalam format <b>PDF</b> 📩
+    </p>
+
+    <p style="margin-bottom: 16px;">
+        Mohon disimpan dengan baik 💾 dan ditunjukkan saat keberangkatan 🛫
+    </p>
+
+    <p style="margin-top: 24px; margin-bottom: 8px;">
+        Terima kasih atas kepercayaan Anda ❤️
+    </p>
+
+    <p style="font-style: italic; color: #24b3ae; font-weight: bold;">
+        *LinkU* – Satu aplikasi semua kebutuhan 🚀
+    </p>
+</div>
         <div style="margin-top: 20px; border-top: 1px solid #eee; padding-top: 10px; font-size: 13px;">
             <p style="margin: 2px 0;">WA : 081347423737</p>
             <p style="margin: 2px 0;">Email : linkuikn@gmail.com</p>

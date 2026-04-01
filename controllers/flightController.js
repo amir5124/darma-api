@@ -23,6 +23,7 @@ exports.getMyBookings = async (req, res) => {
 
 exports.saveBooking = async (req, res) => {
     const { payload, response, username } = req.body;
+    console.log(payload,"data book")
 
     if (!response || response.status !== "SUCCESS") {
         return res.status(400).json({ 
@@ -41,39 +42,44 @@ exports.saveBooking = async (req, res) => {
             return dateStr.replace('T', ' ').replace('Z', '').split('.')[0];
         };
 
-        const finalTotalPrice = response.ticketPrice || response.totalPrice || payload.totalPrice || 0;
-        const finalSalesPrice = response.salesPrice || 0;
+        const finalAdminFee = payload.admin_fee || 0; 
 
-        // --- A. INSERT KE TABEL UTAMA (bookings) ---
-        const [resBooking] = await connection.execute(
-            `INSERT INTO bookings (
-                booking_code, reference_no, airline_id, airline_name, 
-                trip_type, origin, destination, origin_port, destination_port,
-                depart_date, ticket_status, total_price, sales_price, time_limit, 
-                user_id, pengguna, access_token, payload_request, raw_response
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                response.bookingCode || response.booking_code,
-                response.referenceNo || response.reference_no,
-                payload.airlineID || response.airline_name,
-                payload.airlineName || payload.airlineID || response.airline_name,
-                payload.tripType || "OneWay",
-                payload.origin,
-                payload.destination,
-                response.origin || payload.origin_port || null,
-                response.destination || payload.destination_port || null,
-                formatDBDate(payload.departDate || response.depart_date),
-                response.ticketStatus || response.ticket_status || "HOLD",
-                finalTotalPrice,
-                finalSalesPrice,
-                formatDBDate(response.timeLimit || response.time_limit),
-                response.userID || payload.userID,
-                username || 'Guest',
-                payload.accessToken,
-                JSON.stringify(payload),
-                JSON.stringify(response)
-            ]
-        );
+const finalTotalPrice = response.ticketPrice || response.totalPrice || payload.totalPrice || 0;
+const finalSalesPrice = response.salesPrice || 0;
+
+
+const [resBooking] = await connection.execute(
+    `INSERT INTO bookings (
+        booking_code, reference_no, airline_id, airline_name, 
+        trip_type, origin, destination, origin_port, destination_port,
+        depart_date, ticket_status, total_price, sales_price, 
+        admin_fee, 
+        time_limit, 
+        user_id, pengguna, access_token, payload_request, raw_response
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, // Tambah satu tanda tanya (?)
+    [
+        response.bookingCode || response.booking_code,
+        response.referenceNo || response.reference_no,
+        payload.airlineID || response.airline_name,
+        payload.airlineName || payload.airlineID || response.airline_name,
+        payload.tripType || "OneWay",
+        payload.origin,
+        payload.destination,
+        response.origin || payload.origin_port || null,
+        response.destination || payload.destination_port || null,
+        formatDBDate(payload.departDate || response.depart_date),
+        response.ticketStatus || response.ticket_status || "HOLD",
+        finalTotalPrice,
+        finalSalesPrice,
+        finalAdminFee, 
+        formatDBDate(response.timeLimit || response.time_limit),
+        response.userID || payload.userID,
+        username || 'Guest',
+        payload.accessToken,
+        JSON.stringify(payload),
+        JSON.stringify(response)
+    ]
+);
 
         const bookingId = resBooking.insertId;
 
