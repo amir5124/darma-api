@@ -29,12 +29,12 @@ const config = {
 function generateSignature(path, method, data) {
     const rawValue = Object.values(data).join('') + config.clientId;
     const cleaned = rawValue.replace(/[^0-9a-zA-Z]/g, "").toLowerCase();
-    
+
     // Log untuk keperluan debug signature (Hanya aktifkan saat development)
     // console.log(`--- DEBUG SIGNATURE ---`);
     // console.log(`Path+Method: ${path}${method}`);
     // console.log(`Raw Cleaned Data: ${cleaned}`);
-    
+
     return crypto.createHmac("sha256", config.serverKey)
         .update(path + method + cleaned)
         .digest("hex");
@@ -99,14 +99,14 @@ const HotelPaymentController = {
             // Menentukan Signature berdasarkan Endpoint
             if (method === 'VA') {
                 payloadLinkQu.bank_code = bank_code;
-                const signatureData = { 
-                    amount: finalAmount, 
-                    expired, 
-                    bank_code, 
-                    partner_reff, 
-                    customer_id: formattedPhone, 
-                    customer_name: finalCustomerName, 
-                    customer_email: finalCustomerEmail 
+                const signatureData = {
+                    amount: finalAmount,
+                    expired,
+                    bank_code,
+                    partner_reff,
+                    customer_id: formattedPhone,
+                    customer_name: finalCustomerName,
+                    customer_email: finalCustomerEmail
                 };
                 payloadLinkQu.signature = generateSignature(endpoint, 'POST', signatureData);
             } else {
@@ -167,7 +167,7 @@ const HotelPaymentController = {
                     </div>
                 </div>
             </div>`;
-            
+
             sendBookingEmail(finalCustomerEmail, `Bayar Hotel - ${b.reservation_no}`, emailHtml).catch(e => console.error("Email Error:", e.message));
 
             return res.json({
@@ -195,77 +195,118 @@ const HotelPaymentController = {
         }
     },
 
-   handleCallback: async (req, res) => {
-    console.log("📥 [HTL CALLBACK]", req.body);
-    try {
-        const { partner_reff, status } = req.body;
-        
-        // Gunakan toUpperCase untuk keamanan
-        const statusUpper = status ? status.toUpperCase() : "";
+    handleCallback: async (req, res) => {
+        console.log("📥 [HTL CALLBACK]", req.body);
+        try {
+            const { partner_reff, status } = req.body;
 
-        if (statusUpper === "SUCCESS" || statusUpper === "SETTLED") {
-            // 1. Update Payment
-            await db.query(
-                `UPDATE hotel_payments SET payment_status = 'SETTLED', payment_date = NOW() WHERE payment_reff = ?`,
-                [partner_reff]
-            );
+            // Gunakan toUpperCase untuk keamanan
+            const statusUpper = status ? status.toUpperCase() : "";
 
-            // 2. Ambil Booking ID
-            const [rows] = await db.query(
-                `SELECT b.id FROM hotel_bookings b 
+            if (statusUpper === "SUCCESS" || statusUpper === "SETTLED") {
+                // 1. Update Payment
+                await db.query(
+                    `UPDATE hotel_payments SET payment_status = 'SETTLED', payment_date = NOW() WHERE payment_reff = ?`,
+                    [partner_reff]
+                );
+
+                // 2. Ambil Booking ID
+                const [rows] = await db.query(
+                    `SELECT b.id FROM hotel_bookings b 
                  JOIN hotel_payments p ON b.id = p.booking_id 
                  WHERE p.payment_reff = ?`, [partner_reff]
+                );
+
+                if (rows.length > 0) {
+                    // 3. Update Booking ke 'Success' (Sesuaikan case-nya dengan UI kamu)
+                    await db.query(`UPDATE hotel_bookings SET booking_status = 'Success' WHERE id = ?`, [rows[0].id]);
+                    console.log(`✅ [HTL CALLBACK] Reff ${partner_reff} updated to Success`);
+                }
+            }
+
+            // LinkQu butuh response OK agar tidak kirim callback berulang-ulang
+            return res.json({ message: "OK" });
+        } catch (err) {
+            console.error("❌ HTL Callback Error:", err.message);
+            return res.status(500).json({ status: "ERROR" });
+        }
+    },
+
+    checkStatus: async (req, res) => {
+        const { reff } = req.params;
+        try {
+            // 1. CEK DATABASE LOKAL DULU
+            // Mengambil status pembayaran dan status booking hotel
+            const [rows] = await db.query(
+                `SELECT p.payment_status, b.booking_status, b.id as booking_id 
+             FROM hotel_payments p
+             JOIN hotel_bookings b ON p.booking_id = b.id
+             WHERE p.payment_reff = ?`,
+                [reff]
             );
 
             if (rows.length > 0) {
-                // 3. Update Booking ke 'Success' (Sesuaikan case-nya dengan UI kamu)
-                await db.query(`UPDATE hotel_bookings SET booking_status = 'Success' WHERE id = ?`, [rows[0].id]);
-                console.log(`✅ [HTL CALLBACK] Reff ${partner_reff} updated to Success`);
+                const data = rows[0];
+                const pStatus = data.payment_status ? data.payment_status.toUpperCase() : "";
+                const bStatus = data.booking_status ? data.booking_status.toUpperCase() : "";
+
+                // Jika di DB lokal sudah lunas (karena callback sukses duluan)
+                if (pStatus === 'SETTLED' || pStatus === 'SUCCESS' || bStatus === 'SUCCESS') {
+                    console.log(`✅ [POLLING DB] Hotel Reff ${reff} sudah lunas di Database.`);
+                    return res.json({
+                        status: 'SUCCESS',
+                        payment_status: 'SETTLED'
+                    });
+                }
             }
-        }
-        
-        // LinkQu butuh response OK agar tidak kirim callback berulang-ulang
-        return res.json({ message: "OK" });
-    } catch (err) {
-        console.error("❌ HTL Callback Error:", err.message);
-        return res.status(500).json({ status: "ERROR" });
-    }
-},
 
-checkStatus: async (req, res) => {
-    const { reff } = req.params;
-    try {
-        const [rows] = await db.query("SELECT payment_status FROM hotel_payments WHERE payment_reff = ?", [reff]);
-        
-        // Cek database lokal dulu dengan toUpperCase
-        if (rows.length > 0) {
-            const currentStatus = rows[0].payment_status.toUpperCase();
-            if (currentStatus === 'SETTLED' || currentStatus === 'SUCCESS') {
-                return res.json({ status: 'SUCCESS' });
+            // 2. JIKA DI DB BELUM SUKSES, TANYA KE API LINKQU
+            console.log(`🔍 [POLLING VENDOR] Memeriksa status LinkQu untuk Hotel Reff: ${reff}`);
+
+            const resp = await axios.get(`${config.baseUrl}/transaction/check-status`, {
+                params: {
+                    partner_reff: reff,
+                    username: config.username,
+                    pin: config.pin
+                },
+                headers: {
+                    'client-id': config.clientId,
+                    'client-secret': config.clientSecret
+                },
+                // Agar tidak langsung lempar ke 'catch' jika LinkQu kirim 404/400
+                validateStatus: (status) => status < 500
+            });
+
+            const statusFromServer = resp.data.status ? resp.data.status.toUpperCase() : 'PENDING';
+
+            // 3. JIKA VENDOR BILANG SUKSES (Backup jika callback telat/gagal)
+            if (statusFromServer === 'SUCCESS' || statusFromServer === 'SETTLED') {
+                console.log(`✅ [POLLING VENDOR SUCCESS] Hotel ${reff} lunas via API Vendor.`);
+
+                // Update Payment Hotel
+                await db.query(
+                    `UPDATE hotel_payments SET payment_status = 'SETTLED', payment_date = NOW() WHERE payment_reff = ?`,
+                    [reff]
+                );
+
+                // Update Booking Hotel (Cari ID-nya dulu untuk sinkronisasi)
+                if (rows.length > 0) {
+                    await db.query(`UPDATE hotel_bookings SET booking_status = 'Success' WHERE id = ?`, [rows[0].booking_id]);
+                }
+
+                return res.json({ status: 'SUCCESS', payment_status: 'SETTLED' });
             }
+
+            // 4. JIKA MASIH PENDING
+            console.log(`⏳ [POLLING PENDING] Hotel Reff ${reff} masih menunggu pembayaran.`);
+            return res.json(resp.data);
+
+        } catch (err) {
+            // Jika API LinkQu 404 atau Error, tetap kembalikan PENDING ke frontend agar polling tidak mati
+            console.error(`❌ [POLLING ERROR] ${reff}:`, err.message);
+            return res.status(200).json({ status: 'PENDING' });
         }
-
-        // Jika di lokal belum sukses, tanya ke LinkQu
-        const resp = await axios.get(`${config.baseUrl}/transaction/check-status`, {
-            params: { partner_reff: reff, username: config.username, pin: config.pin },
-            headers: { 'client-id': config.clientId, 'client-secret': config.clientSecret }
-        });
-
-        // SINKRONISASI: Jika di LinkQu sudah sukses tapi di lokal belum
-        if (resp.data.status === 'SUCCESS') {
-            await db.query(
-                `UPDATE hotel_payments SET payment_status = 'SETTLED', payment_date = NOW() WHERE payment_reff = ?`,
-                [reff]
-            );
-            return res.json({ status: 'SUCCESS' });
-        }
-
-        return res.json(resp.data);
-    } catch (err) {
-        console.error("❌ Check Status Error:", err.message);
-        res.status(200).json({ status: 'PENDING' });
     }
-}
 };
 
 module.exports = HotelPaymentController;
