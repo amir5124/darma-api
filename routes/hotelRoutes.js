@@ -34,7 +34,7 @@ async function generateBookingPDF(data, paxes) {
         // Total Akhir
         const totalHargaFisik = Math.ceil(hargaDasar + biayaHandling);
         const totalFormatted = totalHargaFisik.toLocaleString('id-ID');
-        console.log(totalFormatted,"ted")
+        console.log(totalFormatted, "ted")
 
         // 2. Format Tanggal Transaksi (Tanggal Pembelian)
         const paymentDate = new Date().toLocaleDateString('id-ID', {
@@ -780,7 +780,7 @@ router.post('/web-create-draft', async (req, res) => {
     try {
         const b = req.body;
         connection = await db.getConnection();
-        
+
         // Generate nomor bayar sementara
         const draftNo = `WEB-${Date.now()}`;
 
@@ -820,7 +820,7 @@ router.post('/web-create-draft', async (req, res) => {
 
 // 2. Eksekusi Vendor (Dipanggil Web setelah Status LinkQu = SETTLED)
 router.post('/web-booking-final', async (req, res) => {
-     let connection;
+    let connection;
     try {
         const token = await getConsistentToken();
         const b = req.body;
@@ -828,12 +828,12 @@ router.post('/web-booking-final', async (req, res) => {
         const { booking_id } = req.body;
 
         const [rows] = await db.execute("SELECT * FROM hotel_bookings WHERE id = ?", [booking_id]);
-const bookingData = rows[0];
+        const bookingData = rows[0];
 
-if (!bookingData) throw new Error("Data booking tidak ditemukan");
+        if (!bookingData) throw new Error("Data booking tidak ditemukan");
 
-// Gunakan email dari database untuk kirim ke vendor & kirim email e-tiket
-const userEmail = bookingData.contact_email;
+        // Gunakan email dari database untuk kirim ke vendor & kirim email e-tiket
+        const userEmail = bookingData.contact_email;
 
         // 1. Konstruksi Payload untuk Vendor (Darmawisata)
         const payload = {
