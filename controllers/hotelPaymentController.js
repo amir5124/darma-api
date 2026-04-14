@@ -233,12 +233,11 @@ const HotelPaymentController = {
     },
 
     checkStatus: async (req, res) => {
-        const { reff } = req.params; // reff ini adalah payment_reff
+        const { reff } = req.params;
         try {
-            // 1. CEK DATABASE LOKAL DULU
-            // Menggunakan kolom sesuai hasil DESCRIBE kamu
+            // 1. CEK DATABASE LOKAL DENGAN VALIDASI LEBIH KUAT
             const [rows] = await db.query(
-                `SELECT p.payment_status, p.ticket_status, b.booking_status, b.reservation_no, b.id as booking_id
+                `SELECT p.payment_status, b.booking_status, b.reservation_no 
              FROM hotel_payments p
              JOIN hotel_bookings b ON p.booking_id = b.id
              WHERE p.payment_reff = ?`,
@@ -247,12 +246,12 @@ const HotelPaymentController = {
 
             if (rows.length > 0) {
                 const b = rows[0];
-                const pStatus = b.payment_status ? b.payment_status.toUpperCase() : "";
-                const bStatus = b.booking_status ? b.booking_status.toUpperCase() : "";
+                const pStatus = (b.payment_status || "").toUpperCase();
+                const bStatus = (b.booking_status || "").toUpperCase();
 
-                // Berhenti polling jika status sudah SETTLED/SUCCESS di salah satu tabel
-                if (pStatus === 'SETTLED' || pStatus === 'SUCCESS' || bStatus === 'SUCCESS') {
-                    console.log(`✅ [POLLING DB] Hotel Reff ${reff} sudah lunas.`);
+                // Jika di DB sudah sukses/settled, langsung cut off, jangan tanya vendor lagi
+                if (['SUCCESS', 'SETTLED', 'PAID'].includes(pStatus) || bStatus === 'SUCCESS') {
+                    console.log(`✅ [POLLING DB] Reff ${reff} sudah lunas di database.`);
                     return res.json({
                         status: 'SUCCESS',
                         payment_status: 'SUCCESS',
@@ -261,52 +260,50 @@ const HotelPaymentController = {
                 }
             }
 
-            // 2. JIKA DI DB BELUM SUKSES, TANYA KE API VENDOR (LinkQu)
-            console.log(`🔍 [POLLING VENDOR] Memeriksa status LinkQu untuk Reff: ${reff}`);
+            // 2. TANYA VENDOR (LINKQU)
+            console.log(`🔍 [POLLING VENDOR] Memeriksa Reff: ${reff}`);
             const resp = await axios.get(`${config.baseUrl}/transaction/check-status`, {
-                params: {
-                    partner_reff: reff,
-                    username: config.username,
-                    pin: config.pin
-                },
-                headers: {
-                    'client-id': config.clientId,
-                    'client-secret': config.clientSecret
-                },
+                params: { partner_reff: reff, username: config.username, pin: config.pin },
+                headers: { 'client-id': config.clientId, 'client-secret': config.clientSecret },
                 validateStatus: (status) => status < 500
             });
 
-            const statusFromServer = resp.data.status ? resp.data.status.toUpperCase() : 'PENDING';
+            const data = resp.data;
+            // LinkQu terkadang mengirim status di field berbeda atau response_code
+            const isSuccess =
+                (data.status && (data.status.toUpperCase() === 'SUCCESS' || data.status.toUpperCase() === 'SETTLED')) ||
+                (data.response_code === '00') ||
+                (data.response_desc && data.response_desc.includes('SUCCESS'));
 
-            // 3. JIKA VENDOR BILANG SUKSES, UPDATE KEDUA TABEL
-            if (statusFromServer === 'SUCCESS' || statusFromServer === 'SETTLED') {
-                console.log(`✅ [POLLING VENDOR SUCCESS] Transaksi ${reff} lunas via API.`);
+            // 3. JIKA VENDOR BILANG SUKSES, UPDATE DB & KIRIM RESPONS SUKSES
+            if (isSuccess) {
+                console.log(`✅ [POLLING VENDOR SUCCESS] Transaksi ${reff} VALID.`);
 
-                // Update Tabel Payments (Set ke SETTLED sesuai default LinkQu)
+                // Update Sinkron ke tabel Payments & Bookings
                 await db.query(
-                    "UPDATE hotel_payments SET payment_status = 'SETTLED', payment_date = NOW() WHERE payment_reff = ?",
-                    [reff]
-                );
-
-                // Update Tabel Bookings (Set ke Success agar sinkron dengan UI)
-                await db.query(
-                    `UPDATE hotel_bookings b 
-                 JOIN hotel_payments p ON b.id = p.booking_id 
-                 SET b.booking_status = 'Success' 
+                    `UPDATE hotel_payments p
+                 JOIN hotel_bookings b ON p.booking_id = b.id
+                 SET p.payment_status = 'SETTLED', 
+                     p.payment_date = NOW(),
+                     b.booking_status = 'Success'
                  WHERE p.payment_reff = ?`,
                     [reff]
                 );
 
-                return res.json({ ...resp.data, status: 'SUCCESS' });
+                return res.json({
+                    status: 'SUCCESS',
+                    message: 'Pembayaran Berhasil',
+                    data: data
+                });
             }
 
-            console.log(`⏳ [POLLING PENDING] Hotel ${reff} masih menunggu.`);
-            return res.json(resp.data);
+            // 4. JIKA MASIH PENDING
+            console.log(`⏳ [POLLING PENDING] Reff ${reff} belum dibayar.`);
+            return res.json({ status: 'PENDING', message: 'Menunggu pembayaran' });
 
         } catch (err) {
             console.error(`❌ [POLLING ERROR] ${reff}:`, err.message);
-            // Tetap balikkan status PENDING supaya aplikasi tidak crash/berhenti polling
-            return res.status(200).json({ status: 'PENDING' });
+            return res.json({ status: 'PENDING', error: err.message });
         }
     }
 };
