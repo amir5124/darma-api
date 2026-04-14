@@ -825,6 +825,15 @@ router.post('/web-booking-final', async (req, res) => {
         const token = await getConsistentToken();
         const b = req.body;
         const username = b.username || "guest";
+        const { booking_id } = req.body;
+
+        const [rows] = await db.execute("SELECT * FROM hotel_bookings WHERE id = ?", [booking_id]);
+const bookingData = rows[0];
+
+if (!bookingData) throw new Error("Data booking tidak ditemukan");
+
+// Gunakan email dari database untuk kirim ke vendor & kirim email e-tiket
+const userEmail = bookingData.contact_email;
 
         // 1. Konstruksi Payload untuk Vendor (Darmawisata)
         const payload = {
@@ -969,6 +978,7 @@ router.post('/web-booking-final', async (req, res) => {
                             contactPhone: b.roomRequest[0]?.phone,
                             checkInDate: resData.checkInDate || b.checkInDate,
                             checkOutDate: resData.checkOutDate || b.checkOutDate,
+                            contactEmail: userEmail,
                             specialRequests: payload.roomRequest[0]?.requestDescription || "-"
                         };
 
@@ -995,6 +1005,7 @@ LinkU 💙<br>
 Layanan terbaikmu 🚀</p>`,
                             attachments: [{ filename: `E-Tiket-${resData.reservationNo}.pdf`, content: pdfBuffer }]
                         });
+                        console.log(`✅ Email e-tiket terkirim ke: ${userEmail}`);
                     } catch (err) {
                         console.error("Background Mail Error: ", err);
                     }
