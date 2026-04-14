@@ -195,47 +195,77 @@ const HotelPaymentController = {
         }
     },
 
-    handleCallback: async (req, res) => {
-        console.log("📥 [HTL CALLBACK]", req.body);
-        try {
-            const { partner_reff, status } = req.body;
-            if (status === "SUCCESS" || status === "SETTLED") {
-                await db.query(
-                    `UPDATE hotel_payments SET payment_status = 'SETTLED', payment_date = NOW() WHERE payment_reff = ?`,
-                    [partner_reff]
-                );
-                const [rows] = await db.query(
-                    `SELECT b.id, b.reservation_no FROM hotel_bookings b 
-                     JOIN hotel_payments p ON b.id = p.booking_id 
-                     WHERE p.payment_reff = ?`, [partner_reff]
-                );
-                if (rows.length > 0) {
-                    await db.query(`UPDATE hotel_bookings SET booking_status = 'Success' WHERE id = ?`, [rows[0].id]);
-                }
-            }
-            return res.json({ message: "OK" });
-        } catch (err) {
-            console.error("❌ HTL Callback Error:", err.message);
-            return res.status(500).json({ status: "ERROR" });
-        }
-    },
+   handleCallback: async (req, res) => {
+    console.log("📥 [HTL CALLBACK]", req.body);
+    try {
+        const { partner_reff, status } = req.body;
+        
+        // Gunakan toUpperCase untuk keamanan
+        const statusUpper = status ? status.toUpperCase() : "";
 
-    checkStatus: async (req, res) => {
-        const { reff } = req.params;
-        try {
-            const [rows] = await db.query("SELECT payment_status FROM hotel_payments WHERE payment_reff = ?", [reff]);
-            if (rows.length > 0 && (rows[0].payment_status === 'SETTLED' || rows[0].payment_status === 'SUCCESS')) {
+        if (statusUpper === "SUCCESS" || statusUpper === "SETTLED") {
+            // 1. Update Payment
+            await db.query(
+                `UPDATE hotel_payments SET payment_status = 'SETTLED', payment_date = NOW() WHERE payment_reff = ?`,
+                [partner_reff]
+            );
+
+            // 2. Ambil Booking ID
+            const [rows] = await db.query(
+                `SELECT b.id FROM hotel_bookings b 
+                 JOIN hotel_payments p ON b.id = p.booking_id 
+                 WHERE p.payment_reff = ?`, [partner_reff]
+            );
+
+            if (rows.length > 0) {
+                // 3. Update Booking ke 'Success' (Sesuaikan case-nya dengan UI kamu)
+                await db.query(`UPDATE hotel_bookings SET booking_status = 'Success' WHERE id = ?`, [rows[0].id]);
+                console.log(`✅ [HTL CALLBACK] Reff ${partner_reff} updated to Success`);
+            }
+        }
+        
+        // LinkQu butuh response OK agar tidak kirim callback berulang-ulang
+        return res.json({ message: "OK" });
+    } catch (err) {
+        console.error("❌ HTL Callback Error:", err.message);
+        return res.status(500).json({ status: "ERROR" });
+    }
+},
+
+checkStatus: async (req, res) => {
+    const { reff } = req.params;
+    try {
+        const [rows] = await db.query("SELECT payment_status FROM hotel_payments WHERE payment_reff = ?", [reff]);
+        
+        // Cek database lokal dulu dengan toUpperCase
+        if (rows.length > 0) {
+            const currentStatus = rows[0].payment_status.toUpperCase();
+            if (currentStatus === 'SETTLED' || currentStatus === 'SUCCESS') {
                 return res.json({ status: 'SUCCESS' });
             }
-            const resp = await axios.get(`${config.baseUrl}/transaction/check-status`, {
-                params: { partner_reff: reff, username: config.username, pin: config.pin },
-                headers: { 'client-id': config.clientId, 'client-secret': config.clientSecret }
-            });
-            res.json(resp.data);
-        } catch (err) {
-            res.status(200).json({ status: 'PENDING' });
         }
+
+        // Jika di lokal belum sukses, tanya ke LinkQu
+        const resp = await axios.get(`${config.baseUrl}/transaction/check-status`, {
+            params: { partner_reff: reff, username: config.username, pin: config.pin },
+            headers: { 'client-id': config.clientId, 'client-secret': config.clientSecret }
+        });
+
+        // SINKRONISASI: Jika di LinkQu sudah sukses tapi di lokal belum
+        if (resp.data.status === 'SUCCESS') {
+            await db.query(
+                `UPDATE hotel_payments SET payment_status = 'SETTLED', payment_date = NOW() WHERE payment_reff = ?`,
+                [reff]
+            );
+            return res.json({ status: 'SUCCESS' });
+        }
+
+        return res.json(resp.data);
+    } catch (err) {
+        console.error("❌ Check Status Error:", err.message);
+        res.status(200).json({ status: 'PENDING' });
     }
+}
 };
 
 module.exports = HotelPaymentController;
