@@ -47,7 +47,7 @@ const HotelPaymentController = {
         try {
             const { booking_id, amount, customer_name, customer_phone, customer_email, method, bank_code, admin_fee_applied } = req.body;
 
-            // 1. Finalisasi Data
+            // 1. Finalisasi Data (Agar konsisten antara Payload API & Signature)
             const finalAmount = Math.round(Number(amount));
             const feeAdmin = Number(admin_fee_applied || 0);
             const finalCustomerName = (customer_name || 'Customer').substring(0, 30).trim();
@@ -57,6 +57,10 @@ const HotelPaymentController = {
             let formattedPhone = customer_phone ? customer_phone.toString().trim().replace(/[^0-9]/g, '') : '';
             if (formattedPhone.startsWith('0')) {
                 formattedPhone = '+62' + formattedPhone.substring(1);
+            } else if (formattedPhone.startsWith('8')) {
+                formattedPhone = '+62' + formattedPhone;
+            } else if (formattedPhone.startsWith('62') && !formattedPhone.startsWith('+')) {
+                formattedPhone = '+' + formattedPhone;
             } else if (!formattedPhone.startsWith('+')) {
                 formattedPhone = '+62' + formattedPhone;
             }
@@ -75,7 +79,7 @@ const HotelPaymentController = {
             connection = await db.getConnection();
 
             // Ambil Data Booking Hotel
-            const [rows] = await connection.query("SELECT hotel_name, reservation_no FROM hotel_bookings WHERE id = ?", [booking_id]);
+            const [rows] = await connection.query("SELECT * FROM hotel_bookings WHERE id = ?", [booking_id]);
             if (rows.length === 0) return res.status(404).json({ error: "Data booking hotel tidak ditemukan" });
             const b = rows[0];
 
@@ -92,42 +96,66 @@ const HotelPaymentController = {
             let endpoint = method === 'VA' ? '/transaction/create/va' : '/transaction/create/qris';
             let payloadLinkQu = { ...commonData, username: config.username, pin: config.pin, url_callback };
 
+            // Menentukan Signature berdasarkan Endpoint
             if (method === 'VA') {
                 payloadLinkQu.bank_code = bank_code;
-                payloadLinkQu.signature = generateSignature(endpoint, 'POST', { ...commonData, bank_code });
+                const signatureData = {
+                    amount: finalAmount,
+                    expired,
+                    bank_code,
+                    partner_reff,
+                    customer_id: formattedPhone,
+                    customer_name: finalCustomerName,
+                    customer_email: finalCustomerEmail
+                };
+                payloadLinkQu.signature = generateSignature(endpoint, 'POST', signatureData);
             } else {
                 payloadLinkQu.signature = generateSignature(endpoint, 'POST', commonData);
             }
+
+            // LOGGING DEBUG SEBELUM KIRIM
+            console.log(`🚀 [LINKQU REQ] Sending to ${endpoint} with Reff: ${partner_reff}`);
+            console.log(`📦 Payload:`, JSON.stringify(payloadLinkQu));
 
             const resp = await axios.post(`${config.baseUrl}${endpoint}`, payloadLinkQu, {
                 headers: { 'client-id': config.clientId, 'client-secret': config.clientSecret }
             });
 
             const linkquData = resp.data;
-            
-            // Ekstraksi Data VA / QRIS yang lebih kuat
-            const vaNumber = linkquData.virtual_account || linkquData.va_number || (linkquData.data && (linkquData.data.va_number || linkquData.data.virtual_account));
-            const qrisImage = linkquData.imageqris || linkquData.qr_url || (linkquData.data && (linkquData.data.qr_url || linkquData.data.imageqris));
+            console.log(`✅ [LINKQU RESP] Success:`, JSON.stringify(linkquData));
+
+            // Ekstraksi Data VA / QRIS
+            const vaNumber = linkquData.virtual_account || linkquData.va_number || (linkquData.data ? linkquData.data.va_number : null);
+            const qrisImage = linkquData.imageqris || linkquData.qr_url || (linkquData.data ? linkquData.data.qr_url : null);
 
             if (!vaNumber && !qrisImage) {
                 throw new Error("Gagal mendapatkan instruksi pembayaran dari LinkQu: " + JSON.stringify(linkquData));
             }
 
-            // 5. Update/Insert Tabel hotel_payments (Mencegah data tidak ditemukan)
-            await connection.query(
-                `INSERT INTO hotel_payments 
-                    (booking_id, payment_reff, payment_method, va_number, qris_url, admin_fee, amount, payment_status, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', NOW())
-                 ON DUPLICATE KEY UPDATE 
-                    payment_reff = VALUES(payment_reff),
-                    payment_method = VALUES(payment_method),
-                    va_number = VALUES(va_number),
-                    qris_url = VALUES(qris_url),
-                    admin_fee = VALUES(admin_fee),
-                    amount = VALUES(amount),
-                    payment_status = 'PENDING'`,
-                [booking_id, partner_reff, method === 'VA' ? `VA-${bankName}` : 'QRIS', vaNumber, qrisImage, feeAdmin, finalAmount]
-            );
+            // 5. Update Tabel hotel_payments
+           await connection.query(
+    `INSERT INTO hotel_payments 
+        (booking_id, payment_reff, payment_method, va_number, qris_url, admin_fee, amount, payment_status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', NOW())
+     ON DUPLICATE KEY UPDATE 
+        payment_reff = VALUES(payment_reff),
+        payment_method = VALUES(payment_method),
+        va_number = VALUES(va_number),
+        qris_url = VALUES(qris_url),
+        admin_fee = VALUES(admin_fee),
+        amount = VALUES(amount),
+        payment_status = 'PENDING'`,
+    [
+        booking_id, 
+        partner_reff, 
+        method === 'VA' ? `VA-${bankName}` : 'QRIS', 
+        vaNumber, 
+        qrisImage, 
+        feeAdmin, 
+        finalAmount, 
+        booking_id
+    ]
+);
 
             // 6. Kirim Email (Non-blocking)
             const formatIDR = (num) => new Intl.NumberFormat('id-ID').format(num);
