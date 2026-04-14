@@ -836,12 +836,24 @@ router.post('/web-booking-final', async (req, res) => {
         const userEmail = bookingData.contact_email;
 
         // 1. Konstruksi Payload untuk Vendor (Darmawisata)
+       // 1. Konstruksi Payload untuk Vendor (Darmawisata)
+        // Gunakan data dari database (bookingData) sebagai cadangan jika req.body (b) kosong
+        const checkInRaw = b.checkInDate || bookingData.check_in_date || "";
+        const checkOutRaw = b.checkOutDate || bookingData.check_out_date || "";
+
+        // Fungsi pembantu untuk memastikan format Z (UTC) tanpa error undefined
+        const ensureZ = (dateStr) => {
+            if (!dateStr) return ""; 
+            const str = String(dateStr);
+            return str.endsWith('Z') ? str : str + 'Z';
+        };
+
         const payload = {
             paxPassport: b.paxPassport || "ID",
             countryID: b.countryID || "ID",
-            cityID: String(b.cityID || ""),
-            checkInDate: b.checkInDate.endsWith('Z') ? b.checkInDate : b.checkInDate + 'Z',
-            checkOutDate: b.checkOutDate.endsWith('Z') ? b.checkOutDate : b.checkOutDate + 'Z',
+            cityID: String(b.cityID || bookingData.city_id || ""),
+            checkInDate: ensureZ(checkInRaw),
+            checkOutDate: ensureZ(checkOutRaw),
             roomRequest: (b.roomRequest || []).map(room => ({
                 paxes: (room.paxes && room.paxes.length > 0) ? room.paxes.map(pax => ({
                     title: pax.title || 'Mr.',
@@ -849,19 +861,19 @@ router.post('/web-booking-final', async (req, res) => {
                     lastName: (pax.lastName || 'User').trim()
                 })) : [{ title: 'Mr.', firstName: 'Guest', lastName: 'User' }],
                 isSmokingRoom: Boolean(room.isSmokingRoom),
-                phone: String(room.phone || '08123456789'),
-                email: String(room.email || 'guest@mail.com'),
+                phone: String(room.phone || bookingData.contact_phone || '08123456789'),
+                email: String(room.email || bookingData.contact_email || 'guest@mail.com'),
                 specialRequestArray: room.specialRequestArray || [],
                 requestDescription: room.requestDescription || "",
-                roomType: parseInt(room.roomType) || 0,
+                roomType: parseInt(room.roomType) || parseInt(bookingData.room_id) || 0,
                 isRequestChildBed: room.isRequestChildBed !== undefined ? Boolean(room.isRequestChildBed) : false,
                 childNum: parseInt(room.childNum) || 0,
                 childAges: (room.childAges && room.childAges.length > 0) ? room.childAges : [0]
             })),
-            internalCode: b.internalCode,
-            hotelID: b.hotelID,
-            breakfast: b.breakfast,
-            roomID: b.roomID,
+            internalCode: b.internalCode || bookingData.internal_code,
+            hotelID: b.hotelID || bookingData.hotel_id,
+            breakfast: b.breakfast || bookingData.breakfast_type,
+            roomID: b.roomID || bookingData.room_id,
             bedType: {
                 ID: (b.bedType && b.bedType.ID) ? String(b.bedType.ID) : "",
                 bed: (b.bedType && b.bedType.bed) ? String(b.bedType.bed) : ""
