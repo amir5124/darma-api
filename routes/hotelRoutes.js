@@ -837,11 +837,9 @@ router.post('/web-booking-final', async (req, res) => {
 
         // 1. Konstruksi Payload untuk Vendor (Darmawisata)
        // 1. Konstruksi Payload untuk Vendor (Darmawisata)
-        // Gunakan data dari database (bookingData) sebagai cadangan jika req.body (b) kosong
         const checkInRaw = b.checkInDate || bookingData.check_in_date || "";
         const checkOutRaw = b.checkOutDate || bookingData.check_out_date || "";
 
-        // Fungsi pembantu untuk memastikan format Z (UTC) tanpa error undefined
         const ensureZ = (dateStr) => {
             if (!dateStr) return ""; 
             const str = String(dateStr);
@@ -870,7 +868,9 @@ router.post('/web-booking-final', async (req, res) => {
                 childNum: parseInt(room.childNum) || 0,
                 childAges: (room.childAges && room.childAges.length > 0) ? room.childAges : [0]
             })),
-            internalCode: b.internalCode || bookingData.internal_code,
+            // PASTIKAN internalCode tidak boleh undefined/null. 
+            // Vendor Darmawisata biasanya butuh kode supplier seperti 'SUP' atau kode khusus hotel.
+            internalCode: b.internalCode || bookingData.internal_code || "SUP", 
             hotelID: b.hotelID || bookingData.hotel_id,
             breakfast: b.breakfast || bookingData.breakfast_type,
             roomID: b.roomID || bookingData.room_id,
@@ -882,6 +882,9 @@ router.post('/web-booking-final', async (req, res) => {
             userID: USER_CONFIG.userID,
             accessToken: token
         };
+
+        // DEBUG: Cek isi payload sebelum dikirim ke vendor
+        console.log("🚀 [FINAL BOOKING PAYLOAD]:", JSON.stringify(payload));
 
         // 2. Kirim Request ke Vendor
         const response = await axios.post(`${BASE_URL}/Hotel/BookingAllSupplier`, payload, {
