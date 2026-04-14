@@ -196,51 +196,54 @@ const HotelPaymentController = {
     },
 
     handleCallback: async (req, res) => {
-        console.log("📥 [HTL CALLBACK]", req.body);
+        console.log("📥 [HTL CALLBACK] Received Data:", JSON.stringify(req.body));
         try {
-            const { partner_reff, status } = req.body;
+            const { partner_reff, status, response_code } = req.body;
 
-            // Gunakan toUpperCase untuk keamanan
-            const statusUpper = status ? status.toUpperCase() : "";
+            // 1. Indikator Sukses yang lebih luas
+            const isSuccess = 
+                (status && (status.toUpperCase() === 'SUCCESS' || status.toUpperCase() === 'SETTLED')) || 
+                (response_code === '00');
 
-            if (statusUpper === "SUCCESS" || statusUpper === "SETTLED") {
-                // 1. Update Payment
-                await db.query(
-                    `UPDATE hotel_payments SET payment_status = 'SETTLED', payment_date = NOW() WHERE payment_reff = ?`,
+            if (isSuccess) {
+                // Gunakan Single Query Update JOIN agar atomis (keduanya terupdate bersamaan)
+                const [result] = await db.query(
+                    `UPDATE hotel_payments p
+                     JOIN hotel_bookings b ON p.booking_id = b.id
+                     SET p.payment_status = 'SETTLED', 
+                         p.payment_date = NOW(),
+                         b.booking_status = 'Success'
+                     WHERE p.payment_reff = ?`,
                     [partner_reff]
                 );
 
-                // 2. Ambil Booking ID
-                const [rows] = await db.query(
-                    `SELECT b.id FROM hotel_bookings b 
-                 JOIN hotel_payments p ON b.id = p.booking_id 
-                 WHERE p.payment_reff = ?`, [partner_reff]
-                );
-
-                if (rows.length > 0) {
-                    // 3. Update Booking ke 'Success' (Sesuaikan case-nya dengan UI kamu)
-                    await db.query(`UPDATE hotel_bookings SET booking_status = 'Success' WHERE id = ?`, [rows[0].id]);
-                    console.log(`✅ [HTL CALLBACK] Reff ${partner_reff} updated to Success`);
+                if (result.affectedRows > 0) {
+                    console.log(`✅ [HTL CALLBACK] Reff ${partner_reff} marked as SUCCESS in Database.`);
+                } else {
+                    console.log(`⚠️ [HTL CALLBACK] Reff ${partner_reff} success but no rows updated (check if Reff exists).`);
                 }
+            } else {
+                console.log(`ℹ️ [HTL CALLBACK] Reff ${partner_reff} status is not success (${status}).`);
             }
 
-            // LinkQu butuh response OK agar tidak kirim callback berulang-ulang
+            // LinkQu WAJIB menerima respon JSON OK agar tidak mengirim ulang callback
             return res.json({ message: "OK" });
         } catch (err) {
             console.error("❌ HTL Callback Error:", err.message);
-            return res.status(500).json({ status: "ERROR" });
+            // Tetap berikan 200/OK ke vendor agar mereka berhenti mencoba, tapi log error di kita
+            return res.status(200).json({ status: "ERROR", message: err.message });
         }
     },
 
     checkStatus: async (req, res) => {
         const { reff } = req.params;
         try {
-            // 1. CEK DATABASE LOKAL DENGAN VALIDASI LEBIH KUAT
+            // 1. CEK DATABASE LOKAL DULU
             const [rows] = await db.query(
                 `SELECT p.payment_status, b.booking_status, b.reservation_no 
-             FROM hotel_payments p
-             JOIN hotel_bookings b ON p.booking_id = b.id
-             WHERE p.payment_reff = ?`,
+                 FROM hotel_payments p
+                 JOIN hotel_bookings b ON p.booking_id = b.id
+                 WHERE p.payment_reff = ?`,
                 [reff]
             );
 
@@ -249,9 +252,9 @@ const HotelPaymentController = {
                 const pStatus = (b.payment_status || "").toUpperCase();
                 const bStatus = (b.booking_status || "").toUpperCase();
 
-                // Jika di DB sudah sukses/settled, langsung cut off, jangan tanya vendor lagi
+                // Jika di DB lokal sudah lunas (hasil update dari callback), langsung berhenti polling
                 if (['SUCCESS', 'SETTLED', 'PAID'].includes(pStatus) || bStatus === 'SUCCESS') {
-                    console.log(`✅ [POLLING DB] Reff ${reff} sudah lunas di database.`);
+                    console.log(`✅ [POLLING DB] Reff ${reff} detected as PAID in local DB.`);
                     return res.json({
                         status: 'SUCCESS',
                         payment_status: 'SUCCESS',
@@ -260,8 +263,8 @@ const HotelPaymentController = {
                 }
             }
 
-            // 2. TANYA VENDOR (LINKQU)
-            console.log(`🔍 [POLLING VENDOR] Memeriksa Reff: ${reff}`);
+            // 2. TANYA VENDOR (JIKA DB LOKAL MASIH PENDING)
+            console.log(`🔍 [POLLING VENDOR] Checking API LinkQu for Reff: ${reff}`);
             const resp = await axios.get(`${config.baseUrl}/transaction/check-status`, {
                 params: { partner_reff: reff, username: config.username, pin: config.pin },
                 headers: { 'client-id': config.clientId, 'client-secret': config.clientSecret },
@@ -269,24 +272,28 @@ const HotelPaymentController = {
             });
 
             const data = resp.data;
-            // LinkQu terkadang mengirim status di field berbeda atau response_code
-            const isSuccess =
-                (data.status && (data.status.toUpperCase() === 'SUCCESS' || data.status.toUpperCase() === 'SETTLED')) ||
-                (data.response_code === '00') ||
-                (data.response_desc && data.response_desc.includes('SUCCESS'));
+            
+            // LOGIKA PENGECEKAN STATUS DARI VENDOR (Sangat Krusial)
+            // LinkQu seringkali meletakkan status di root atau di dalam object 'data'
+            const vendorStatus = (data.status || (data.data && data.data.status) || "").toUpperCase();
+            const vendorCode = data.response_code || (data.data && data.data.response_code);
+            
+            const isVendorSuccess = 
+                vendorStatus === 'SUCCESS' || 
+                vendorStatus === 'SETTLED' || 
+                vendorCode === '00';
 
-            // 3. JIKA VENDOR BILANG SUKSES, UPDATE DB & KIRIM RESPONS SUKSES
-            if (isSuccess) {
-                console.log(`✅ [POLLING VENDOR SUCCESS] Transaksi ${reff} VALID.`);
+            if (isVendorSuccess) {
+                console.log(`✅ [POLLING VENDOR SUCCESS] Reff ${reff} is PAID on Vendor side. Syncing DB...`);
 
-                // Update Sinkron ke tabel Payments & Bookings
+                // Sinkronkan Database jika ternyata di vendor sudah sukses
                 await db.query(
                     `UPDATE hotel_payments p
-                 JOIN hotel_bookings b ON p.booking_id = b.id
-                 SET p.payment_status = 'SETTLED', 
-                     p.payment_date = NOW(),
-                     b.booking_status = 'Success'
-                 WHERE p.payment_reff = ?`,
+                     JOIN hotel_bookings b ON p.booking_id = b.id
+                     SET p.payment_status = 'SETTLED', 
+                         p.payment_date = NOW(),
+                         b.booking_status = 'Success'
+                     WHERE p.payment_reff = ?`,
                     [reff]
                 );
 
@@ -297,12 +304,13 @@ const HotelPaymentController = {
                 });
             }
 
-            // 4. JIKA MASIH PENDING
-            console.log(`⏳ [POLLING PENDING] Reff ${reff} belum dibayar.`);
+            // 4. JIKA SEMUA MASIH PENDING
+            console.log(`⏳ [POLLING PENDING] Reff ${reff} is still waiting for payment.`);
             return res.json({ status: 'PENDING', message: 'Menunggu pembayaran' });
 
         } catch (err) {
             console.error(`❌ [POLLING ERROR] ${reff}:`, err.message);
+            // Kembalikan PENDING agar frontend tetap melakukan polling (retry)
             return res.json({ status: 'PENDING', error: err.message });
         }
     }
