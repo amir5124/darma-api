@@ -133,28 +133,31 @@ const HotelPaymentController = {
             }
 
             // 5. Update Tabel hotel_payments
-           await connection.query(
-    `INSERT INTO hotel_payments 
-        (booking_id, payment_reff, payment_method, va_number, qris_url, admin_fee, amount, payment_status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', NOW())
-     ON DUPLICATE KEY UPDATE 
-        payment_reff = VALUES(payment_reff),
-        payment_method = VALUES(payment_method),
-        va_number = VALUES(va_number),
-        qris_url = VALUES(qris_url),
-        admin_fee = VALUES(admin_fee),
-        amount = VALUES(amount),
-        payment_status = 'PENDING'`,
-    [
-        booking_id, 
-        partner_reff, 
-        method === 'VA' ? `VA-${bankName}` : 'QRIS', 
-        vaNumber, 
-        qrisImage, 
-        feeAdmin, 
-        finalAmount, 
-        booking_id
-    ]
+          const mysqlExpired = moment(expired, 'YYYYMMDDHHmmss').format('YYYY-MM-DD HH:mm:ss');
+
+            await connection.query(
+                `INSERT INTO hotel_payments 
+                    (booking_id, payment_reff, payment_method, va_number, qris_url, admin_fee, amount, payment_status, expired_date, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, NOW())
+                 ON DUPLICATE KEY UPDATE 
+                    payment_reff = VALUES(payment_reff),
+                    payment_method = VALUES(payment_method),
+                    va_number = VALUES(va_number),
+                    qris_url = VALUES(qris_url),
+                    admin_fee = VALUES(admin_fee),
+                    amount = VALUES(amount),
+                    payment_status = 'PENDING',
+                    expired_date = VALUES(expired_date)`,
+                [
+                    booking_id, 
+                    partner_reff, 
+                    method === 'VA' ? `VA-${bankName}` : 'QRIS', 
+                    vaNumber, 
+                    qrisImage, 
+                    feeAdmin, 
+                    finalAmount,
+                    mysqlExpired // Masukkan nilai expired ke sini
+                ]
 );
 
             // 6. Kirim Email (Non-blocking)
