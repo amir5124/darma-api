@@ -72,9 +72,9 @@ const HotelPaymentController = {
                 "013": "PERMATA", "022": "CIMB", "441": "DANAMON", "016": "MAYBANK", "451": "BSI"
             };
             const bankName = bankMap[bank_code] || bank_code;
-            const partner_reff = `PAY-HTL-${Date.now()}`;
+            const partner_reff = `PAY-HOTEL-${Date.now()}`;
             const expired = moment.tz('Asia/Jakarta').add(2, 'hours').format('YYYYMMDDHHmmss');
-            const url_callback = "https://darma.siappgo.id/api/callback";
+            const url_callback = "https://darma.siappgo.id/api/hotel-payments/callback";
 
             connection = await db.getConnection();
 
@@ -196,84 +196,84 @@ const HotelPaymentController = {
     },
 
     handleCallback: async (req, res) => {
-    console.log("📥 [HTL CALLBACK] Raw Data:", JSON.stringify(req.body));
-    try {
-        const { partner_reff, status, response_code } = req.body;
+        console.log("📥 [HTL CALLBACK] Raw Data:", JSON.stringify(req.body));
+        try {
+            const { partner_reff, status, response_code } = req.body;
 
-        // Jangan pakai pengecekan "Sudah Success sebelumnya" dulu untuk memastikan update masuk
-        const isSuccess = (status && status.toUpperCase() === 'SUCCESS') || response_code === '00';
+            // Jangan pakai pengecekan "Sudah Success sebelumnya" dulu untuk memastikan update masuk
+            const isSuccess = (status && status.toUpperCase() === 'SUCCESS') || response_code === '00';
 
-        if (isSuccess) {
-            const [result] = await db.query(
-                `UPDATE hotel_payments p
+            if (isSuccess) {
+                const [result] = await db.query(
+                    `UPDATE hotel_payments p
                  JOIN hotel_bookings b ON p.booking_id = b.id
                  SET p.payment_status = 'SETTLED', 
                      p.payment_date = NOW(),
                      b.booking_status = 'Success'
                  WHERE p.payment_reff = ?`,
-                [partner_reff]
-            );
-            console.log(`✅ [HTL CALLBACK] DB Updated. Affected Rows: ${result.affectedRows}`);
+                    [partner_reff]
+                );
+                console.log(`✅ [HTL CALLBACK] DB Updated. Affected Rows: ${result.affectedRows}`);
+            }
+
+            return res.json({ message: "OK" });
+        } catch (err) {
+            console.error("❌ HTL Callback Error:", err.message);
+            return res.status(200).json({ message: "Error but OK" });
         }
+    },
 
-        return res.json({ message: "OK" });
-    } catch (err) {
-        console.error("❌ HTL Callback Error:", err.message);
-        return res.status(200).json({ message: "Error but OK" });
-    }
-},
-
-checkStatus: async (req, res) => {
-    const { reff } = req.params;
-    try {
-        // 1. Prioritaskan Database Lokal (Jika callback sudah masuk, ini akan langsung lunas)
-        const [rows] = await db.query(
-            `SELECT p.payment_status, b.booking_status, b.reservation_no 
+    checkStatus: async (req, res) => {
+        const { reff } = req.params;
+        try {
+            // 1. Prioritaskan Database Lokal (Jika callback sudah masuk, ini akan langsung lunas)
+            const [rows] = await db.query(
+                `SELECT p.payment_status, b.booking_status, b.reservation_no 
              FROM hotel_payments p
              JOIN hotel_bookings b ON p.booking_id = b.id
              WHERE p.payment_reff = ?`, [reff]
-        );
+            );
 
-        if (rows.length > 0) {
-            const b = rows[0];
-            if (['SETTLED', 'SUCCESS'].includes(b.payment_status?.toUpperCase()) || b.booking_status?.toUpperCase() === 'SUCCESS') {
-                console.log(`✅ [POLLING] Stop! Reff ${reff} lunas di DB Lokal.`);
-                return res.json({ status: 'SUCCESS', reservation_no: b.reservation_no });
+            if (rows.length > 0) {
+                const b = rows[0];
+                if (['SETTLED', 'SUCCESS'].includes(b.payment_status?.toUpperCase()) || b.booking_status?.toUpperCase() === 'SUCCESS') {
+                    console.log(`✅ [POLLING] Stop! Reff ${reff} lunas di DB Lokal.`);
+                    return res.json({ status: 'SUCCESS', reservation_no: b.reservation_no });
+                }
             }
-        }
 
-        // 2. Jika DB Lokal masih pending, tanya Vendor
-        const resp = await axios.get(`${config.baseUrl}/transaction/check-status`, {
-            params: { partner_reff: reff, username: config.username, pin: config.pin },
-            headers: { 'client-id': config.clientId, 'client-secret': config.clientSecret }
-        });
+            // 2. Jika DB Lokal masih pending, tanya Vendor
+            const resp = await axios.get(`${config.baseUrl}/transaction/check-status`, {
+                params: { partner_reff: reff, username: config.username, pin: config.pin },
+                headers: { 'client-id': config.clientId, 'client-secret': config.clientSecret }
+            });
 
-        // DEBUG: Lihat ini di log console kamu!
-        console.log(`🔍 [VENDOR DATA for ${reff}]:`, JSON.stringify(resp.data));
+            // DEBUG: Lihat ini di log console kamu!
+            console.log(`🔍 [VENDOR DATA for ${reff}]:`, JSON.stringify(resp.data));
 
-        const d = resp.data;
-        // Cek sukses di root atau di dalam d.data
-        const isVendorSuccess = 
-            (d.status?.toUpperCase() === 'SUCCESS') || 
-            (d.data?.status?.toUpperCase() === 'SUCCESS') ||
-            (d.response_code === '00') ||
-            (d.data?.response_code === '00');
+            const d = resp.data;
+            // Cek sukses di root atau di dalam d.data
+            const isVendorSuccess =
+                (d.status?.toUpperCase() === 'SUCCESS') ||
+                (d.data?.status?.toUpperCase() === 'SUCCESS') ||
+                (d.response_code === '00') ||
+                (d.data?.response_code === '00');
 
-        if (isVendorSuccess) {
-            console.log(`✅ [POLLING] Vendor says SUCCESS, updating DB.`);
-            await db.query(
-                `UPDATE hotel_payments p JOIN hotel_bookings b ON p.booking_id = b.id
+            if (isVendorSuccess) {
+                console.log(`✅ [POLLING] Vendor says SUCCESS, updating DB.`);
+                await db.query(
+                    `UPDATE hotel_payments p JOIN hotel_bookings b ON p.booking_id = b.id
                  SET p.payment_status = 'SETTLED', b.booking_status = 'Success'
                  WHERE p.payment_reff = ?`, [reff]
-            );
-            return res.json({ status: 'SUCCESS' });
-        }
+                );
+                return res.json({ status: 'SUCCESS' });
+            }
 
-        return res.json({ status: 'PENDING' });
-    } catch (err) {
-        return res.json({ status: 'PENDING' });
+            return res.json({ status: 'PENDING' });
+        } catch (err) {
+            return res.json({ status: 'PENDING' });
+        }
     }
-}
 
 };
 
