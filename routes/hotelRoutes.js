@@ -820,38 +820,19 @@ router.post('/web-create-draft', async (req, res) => {
 
 // 2. Eksekusi Vendor (Dipanggil Web setelah Status LinkQu = SETTLED)
 router.post('/web-booking-final', async (req, res) => {
-    let connection;
+   let connection;
     try {
         const token = await getConsistentToken();
         const b = req.body;
         const username = b.username || "guest";
-        const { booking_id } = req.body;
-
-        const [rows] = await db.execute("SELECT * FROM hotel_bookings WHERE id = ?", [booking_id]);
-        const bookingData = rows[0];
-
-        if (!bookingData) throw new Error("Data booking tidak ditemukan");
-
-        // Gunakan email dari database untuk kirim ke vendor & kirim email e-tiket
-        const userEmail = bookingData.contact_email;
 
         // 1. Konstruksi Payload untuk Vendor (Darmawisata)
-       // 1. Konstruksi Payload untuk Vendor (Darmawisata)
-        const checkInRaw = b.checkInDate || bookingData.check_in_date || "";
-        const checkOutRaw = b.checkOutDate || bookingData.check_out_date || "";
-
-        const ensureZ = (dateStr) => {
-            if (!dateStr) return ""; 
-            const str = String(dateStr);
-            return str.endsWith('Z') ? str : str + 'Z';
-        };
-
         const payload = {
             paxPassport: b.paxPassport || "ID",
             countryID: b.countryID || "ID",
-            cityID: String(b.cityID || bookingData.city_id || ""),
-            checkInDate: ensureZ(checkInRaw),
-            checkOutDate: ensureZ(checkOutRaw),
+            cityID: String(b.cityID || ""),
+            checkInDate: b.checkInDate.endsWith('Z') ? b.checkInDate : b.checkInDate + 'Z',
+            checkOutDate: b.checkOutDate.endsWith('Z') ? b.checkOutDate : b.checkOutDate + 'Z',
             roomRequest: (b.roomRequest || []).map(room => ({
                 paxes: (room.paxes && room.paxes.length > 0) ? room.paxes.map(pax => ({
                     title: pax.title || 'Mr.',
@@ -859,21 +840,19 @@ router.post('/web-booking-final', async (req, res) => {
                     lastName: (pax.lastName || 'User').trim()
                 })) : [{ title: 'Mr.', firstName: 'Guest', lastName: 'User' }],
                 isSmokingRoom: Boolean(room.isSmokingRoom),
-                phone: String(room.phone || bookingData.contact_phone || '08123456789'),
-                email: String(room.email || bookingData.contact_email || 'guest@mail.com'),
+                phone: String(room.phone || '08123456789'),
+                email: String(room.email || 'guest@mail.com'),
                 specialRequestArray: room.specialRequestArray || [],
                 requestDescription: room.requestDescription || "",
-                roomType: parseInt(room.roomType) || parseInt(bookingData.room_id) || 0,
+                roomType: parseInt(room.roomType) || 0,
                 isRequestChildBed: room.isRequestChildBed !== undefined ? Boolean(room.isRequestChildBed) : false,
                 childNum: parseInt(room.childNum) || 0,
                 childAges: (room.childAges && room.childAges.length > 0) ? room.childAges : [0]
             })),
-            // PASTIKAN internalCode tidak boleh undefined/null. 
-            // Vendor Darmawisata biasanya butuh kode supplier seperti 'SUP' atau kode khusus hotel.
-            internalCode: b.internalCode || bookingData.internal_code || "SUP", 
-            hotelID: b.hotelID || bookingData.hotel_id,
-            breakfast: b.breakfast || bookingData.breakfast_type,
-            roomID: b.roomID || bookingData.room_id,
+            internalCode: b.internalCode,
+            hotelID: b.hotelID,
+            breakfast: b.breakfast,
+            roomID: b.roomID,
             bedType: {
                 ID: (b.bedType && b.bedType.ID) ? String(b.bedType.ID) : "",
                 bed: (b.bedType && b.bedType.bed) ? String(b.bedType.bed) : ""
@@ -882,9 +861,6 @@ router.post('/web-booking-final', async (req, res) => {
             userID: USER_CONFIG.userID,
             accessToken: token
         };
-
-        // DEBUG: Cek isi payload sebelum dikirim ke vendor
-        console.log("🚀 [FINAL BOOKING PAYLOAD]:", JSON.stringify(payload));
 
         // 2. Kirim Request ke Vendor
         const response = await axios.post(`${BASE_URL}/Hotel/BookingAllSupplier`, payload, {
@@ -993,7 +969,6 @@ router.post('/web-booking-final', async (req, res) => {
                             contactPhone: b.roomRequest[0]?.phone,
                             checkInDate: resData.checkInDate || b.checkInDate,
                             checkOutDate: resData.checkOutDate || b.checkOutDate,
-                            contactEmail: userEmail,
                             specialRequests: payload.roomRequest[0]?.requestDescription || "-"
                         };
 
@@ -1020,7 +995,6 @@ LinkU 💙<br>
 Layanan terbaikmu 🚀</p>`,
                             attachments: [{ filename: `E-Tiket-${resData.reservationNo}.pdf`, content: pdfBuffer }]
                         });
-                        console.log(`✅ Email e-tiket terkirim ke: ${userEmail}`);
                     } catch (err) {
                         console.error("Background Mail Error: ", err);
                     }
