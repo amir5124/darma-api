@@ -196,124 +196,85 @@ const HotelPaymentController = {
     },
 
     handleCallback: async (req, res) => {
-        console.log("📥 [HTL CALLBACK] Received Data:", JSON.stringify(req.body));
-        try {
-            const { partner_reff, status, response_code } = req.body;
+    console.log("📥 [HTL CALLBACK] Raw Data:", JSON.stringify(req.body));
+    try {
+        const { partner_reff, status, response_code } = req.body;
 
-            // 1. Indikator Sukses yang lebih luas
-            const isSuccess = 
-                (status && (status.toUpperCase() === 'SUCCESS' || status.toUpperCase() === 'SETTLED')) || 
-                (response_code === '00');
+        // Jangan pakai pengecekan "Sudah Success sebelumnya" dulu untuk memastikan update masuk
+        const isSuccess = (status && status.toUpperCase() === 'SUCCESS') || response_code === '00';
 
-            if (isSuccess) {
-                // Gunakan Single Query Update JOIN agar atomis (keduanya terupdate bersamaan)
-                const [result] = await db.query(
-                    `UPDATE hotel_payments p
-                     JOIN hotel_bookings b ON p.booking_id = b.id
-                     SET p.payment_status = 'SETTLED', 
-                         p.payment_date = NOW(),
-                         b.booking_status = 'Success'
-                     WHERE p.payment_reff = ?`,
-                    [partner_reff]
-                );
-
-                if (result.affectedRows > 0) {
-                    console.log(`✅ [HTL CALLBACK] Reff ${partner_reff} marked as SUCCESS in Database.`);
-                } else {
-                    console.log(`⚠️ [HTL CALLBACK] Reff ${partner_reff} success but no rows updated (check if Reff exists).`);
-                }
-            } else {
-                console.log(`ℹ️ [HTL CALLBACK] Reff ${partner_reff} status is not success (${status}).`);
-            }
-
-            // LinkQu WAJIB menerima respon JSON OK agar tidak mengirim ulang callback
-            return res.json({ message: "OK" });
-        } catch (err) {
-            console.error("❌ HTL Callback Error:", err.message);
-            // Tetap berikan 200/OK ke vendor agar mereka berhenti mencoba, tapi log error di kita
-            return res.status(200).json({ status: "ERROR", message: err.message });
-        }
-    },
-
-    checkStatus: async (req, res) => {
-        const { reff } = req.params;
-        try {
-            // 1. CEK DATABASE LOKAL DULU
-            const [rows] = await db.query(
-                `SELECT p.payment_status, b.booking_status, b.reservation_no 
-                 FROM hotel_payments p
+        if (isSuccess) {
+            const [result] = await db.query(
+                `UPDATE hotel_payments p
                  JOIN hotel_bookings b ON p.booking_id = b.id
+                 SET p.payment_status = 'SETTLED', 
+                     p.payment_date = NOW(),
+                     b.booking_status = 'Success'
                  WHERE p.payment_reff = ?`,
-                [reff]
+                [partner_reff]
             );
-
-            if (rows.length > 0) {
-                const b = rows[0];
-                const pStatus = (b.payment_status || "").toUpperCase();
-                const bStatus = (b.booking_status || "").toUpperCase();
-
-                // Jika di DB lokal sudah lunas (hasil update dari callback), langsung berhenti polling
-                if (['SUCCESS', 'SETTLED', 'PAID'].includes(pStatus) || bStatus === 'SUCCESS') {
-                    console.log(`✅ [POLLING DB] Reff ${reff} detected as PAID in local DB.`);
-                    return res.json({
-                        status: 'SUCCESS',
-                        payment_status: 'SUCCESS',
-                        reservation_no: b.reservation_no
-                    });
-                }
-            }
-
-            // 2. TANYA VENDOR (JIKA DB LOKAL MASIH PENDING)
-            console.log(`🔍 [POLLING VENDOR] Checking API LinkQu for Reff: ${reff}`);
-            const resp = await axios.get(`${config.baseUrl}/transaction/check-status`, {
-                params: { partner_reff: reff, username: config.username, pin: config.pin },
-                headers: { 'client-id': config.clientId, 'client-secret': config.clientSecret },
-                validateStatus: (status) => status < 500
-            });
-
-            const data = resp.data;
-            
-            // LOGIKA PENGECEKAN STATUS DARI VENDOR (Sangat Krusial)
-            // LinkQu seringkali meletakkan status di root atau di dalam object 'data'
-            const vendorStatus = (data.status || (data.data && data.data.status) || "").toUpperCase();
-            const vendorCode = data.response_code || (data.data && data.data.response_code);
-            
-            const isVendorSuccess = 
-                vendorStatus === 'SUCCESS' || 
-                vendorStatus === 'SETTLED' || 
-                vendorCode === '00';
-
-            if (isVendorSuccess) {
-                console.log(`✅ [POLLING VENDOR SUCCESS] Reff ${reff} is PAID on Vendor side. Syncing DB...`);
-
-                // Sinkronkan Database jika ternyata di vendor sudah sukses
-                await db.query(
-                    `UPDATE hotel_payments p
-                     JOIN hotel_bookings b ON p.booking_id = b.id
-                     SET p.payment_status = 'SETTLED', 
-                         p.payment_date = NOW(),
-                         b.booking_status = 'Success'
-                     WHERE p.payment_reff = ?`,
-                    [reff]
-                );
-
-                return res.json({
-                    status: 'SUCCESS',
-                    message: 'Pembayaran Berhasil',
-                    data: data
-                });
-            }
-
-            // 4. JIKA SEMUA MASIH PENDING
-            console.log(`⏳ [POLLING PENDING] Reff ${reff} is still waiting for payment.`);
-            return res.json({ status: 'PENDING', message: 'Menunggu pembayaran' });
-
-        } catch (err) {
-            console.error(`❌ [POLLING ERROR] ${reff}:`, err.message);
-            // Kembalikan PENDING agar frontend tetap melakukan polling (retry)
-            return res.json({ status: 'PENDING', error: err.message });
+            console.log(`✅ [HTL CALLBACK] DB Updated. Affected Rows: ${result.affectedRows}`);
         }
+
+        return res.json({ message: "OK" });
+    } catch (err) {
+        console.error("❌ HTL Callback Error:", err.message);
+        return res.status(200).json({ message: "Error but OK" });
     }
+},
+
+checkStatus: async (req, res) => {
+    const { reff } = req.params;
+    try {
+        // 1. Prioritaskan Database Lokal (Jika callback sudah masuk, ini akan langsung lunas)
+        const [rows] = await db.query(
+            `SELECT p.payment_status, b.booking_status, b.reservation_no 
+             FROM hotel_payments p
+             JOIN hotel_bookings b ON p.booking_id = b.id
+             WHERE p.payment_reff = ?`, [reff]
+        );
+
+        if (rows.length > 0) {
+            const b = rows[0];
+            if (['SETTLED', 'SUCCESS'].includes(b.payment_status?.toUpperCase()) || b.booking_status?.toUpperCase() === 'SUCCESS') {
+                console.log(`✅ [POLLING] Stop! Reff ${reff} lunas di DB Lokal.`);
+                return res.json({ status: 'SUCCESS', reservation_no: b.reservation_no });
+            }
+        }
+
+        // 2. Jika DB Lokal masih pending, tanya Vendor
+        const resp = await axios.get(`${config.baseUrl}/transaction/check-status`, {
+            params: { partner_reff: reff, username: config.username, pin: config.pin },
+            headers: { 'client-id': config.clientId, 'client-secret': config.clientSecret }
+        });
+
+        // DEBUG: Lihat ini di log console kamu!
+        console.log(`🔍 [VENDOR DATA for ${reff}]:`, JSON.stringify(resp.data));
+
+        const d = resp.data;
+        // Cek sukses di root atau di dalam d.data
+        const isVendorSuccess = 
+            (d.status?.toUpperCase() === 'SUCCESS') || 
+            (d.data?.status?.toUpperCase() === 'SUCCESS') ||
+            (d.response_code === '00') ||
+            (d.data?.response_code === '00');
+
+        if (isVendorSuccess) {
+            console.log(`✅ [POLLING] Vendor says SUCCESS, updating DB.`);
+            await db.query(
+                `UPDATE hotel_payments p JOIN hotel_bookings b ON p.booking_id = b.id
+                 SET p.payment_status = 'SETTLED', b.booking_status = 'Success'
+                 WHERE p.payment_reff = ?`, [reff]
+            );
+            return res.json({ status: 'SUCCESS' });
+        }
+
+        return res.json({ status: 'PENDING' });
+    } catch (err) {
+        return res.json({ status: 'PENDING' });
+    }
+}
+
 };
 
 module.exports = HotelPaymentController;
