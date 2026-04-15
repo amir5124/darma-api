@@ -863,110 +863,158 @@ router.post('/web-booking-final', async (req, res) => {
     let connection;
     try {
         const { booking_id, paymentReff } = req.body;
+        
+        // Pastikan token valid
         const token = await getConsistentToken();
         connection = await db.getConnection();
 
-        // 1. Ambil data draft & paxes
+        // 1. Ambil data draft & paxes dari database
         const [drafts] = await connection.execute(`SELECT * FROM hotel_bookings WHERE id = ?`, [booking_id]);
-        if (drafts.length === 0) return res.status(404).json({ status: "ERROR", respMessage: "Booking tidak ditemukan." });
-        
+        if (drafts.length === 0) {
+            return res.status(404).json({ status: "ERROR", respMessage: "Data booking tidak ditemukan di database." });
+        }
+
         const b = drafts[0];
         const [paxes] = await connection.execute(`SELECT * FROM hotel_booking_paxes WHERE booking_id = ?`, [booking_id]);
 
-        // 2. HELPER: Penyeragaman Data (Anti Different Request)
+        // 2. HELPER: Sanitasi & Format Data
         const clean = (str) => (str ? str.toString().trim() : "");
+        
+        // Format tanggal ke YYYY-MM-DDZ (Sesuai spek Darmawisata)
         const toISOZ = (dateInput) => {
             const d = new Date(dateInput);
-            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}Z`;
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}T12:00:00Z`; // Tambahkan jam standar untuk keamanan
         };
 
-        // 3. KONSTRUKSI PAYLOAD
+        // 3. KONSTRUKSI PAYLOAD (Sangat Sensitif)
         const payload = {
             paxPassport: "ID",
             countryID: "ID",
             cityID: clean(b.city_id),
             hotelID: clean(b.hotel_id),
-            roomID: clean(b.room_id), 
+            roomID: clean(b.room_id),
             internalCode: clean(b.internal_code),
             checkInDate: toISOZ(b.check_in_date),
             checkOutDate: toISOZ(b.check_out_date),
-            breakfast: clean(b.breakfast_type),
+            breakfast: clean(b.breakfast_type) || "Room Only",
             roomRequest: [{
                 paxes: paxes.map(p => ({
                     title: clean(p.title) || 'Mr.',
                     firstName: clean(p.first_name),
-                    lastName: clean(p.last_name)
+                    lastName: clean(p.last_name) || clean(p.first_name) // Fallback jika lastName kosong
                 })),
-                phone: clean(b.contact_phone),
-                email: clean(b.contact_email),
-                requestDescription: clean(b.special_requests),
+                phone: clean(b.contact_phone) || "08123456789",
+                email: clean(b.contact_email) || "guest@mail.com",
                 isSmokingRoom: false,
-                roomType: 0, // Gunakan 0 sebagai default aman vendor
+                // PERBAIKAN: Jangan kirim null, kirim array kosong
+                specialRequestArray: [], 
+                // PERBAIKAN: Jangan kirim null, kirim string kosong
+                requestDescription: clean(b.special_requests) || "", 
+                roomType: 0,
+                isRequestChildBed: false,
                 childNum: 0,
                 childAges: [0]
             }],
-            bedType: null, // Jangan kirim objek kosong {}, gunakan null atau tiadakan
+            // SOLUSI ERROR: "bedType can't null"
+            // Jangan kirim null pada properti di dalamnya
+            bedType: {
+                ID: "",
+                bed: ""
+            },
             agentOsRef: `WEB-${Date.now()}`,
             userID: USER_CONFIG.userID,
             accessToken: token
         };
 
-        console.log(`🚀 Sending to Vendor [ID: ${booking_id}]:`, JSON.stringify(payload));
+        console.log(`🚀 Sending Final Booking [ID: ${booking_id}]:`, JSON.stringify(payload));
 
         // 4. EKSEKUSI API VENDOR
         const response = await axios.post(`${BASE_URL}/Hotel/BookingAllSupplier`, payload, {
             headers: { 'Content-Type': 'application/json' },
-            timeout: 80000 // Vendor hotel butuh timeout lebih lama
+            timeout: 90000 // Booking hotel butuh waktu lama untuk konfirmasi supplier
         });
 
         const resData = response.data;
-        const msg = (resData.respMessage || "").toUpperCase();
         
-        // Cek apakah status 'Accept' atau 'Processed' (antrean vendor)
+        // 5. EVALUASI RESPONS VENDOR
+        const msg = (resData.respMessage || "").toUpperCase();
         const isAccepted = resData.bookingStatus === "Accept" || resData.status === "SUCCESS";
-        const isProcessed = msg.includes("PROCESSED") || msg.includes("IN PROGRESS");
+        const isProcessed = msg.includes("PROCESSED") || msg.includes("IN PROGRESS") || msg.includes("SUCCESS");
 
         if (isAccepted || isProcessed) {
-            const finalStatus = isProcessed ? 'Processed' : 'Accept';
-            
+            const finalStatus = isProcessed && !isAccepted ? 'Processed' : 'Accept';
+
+            // Jika diproses (antrean), buat nomor reservasi sementara jika tidak ada
+            const resNo = resData.reservationNo || (isProcessed ? `PRC-${Date.now()}` : null);
+            const vouchNo = resData.voucherNo || resNo || "-";
+
             await connection.beginTransaction();
-            await connection.execute(
-                `UPDATE hotel_bookings SET 
-                    reservation_no = ?, voucher_no = ?, os_ref_no = ?, 
-                    agent_os_ref = ?, booking_status = ?, hotel_address = ?,
-                    payment_reff = ?
-                 WHERE id = ?`,
-                [
-                    resData.reservationNo || `PRC-${Date.now()}`,
-                    resData.voucherNo || resData.reservationNo || "-",
-                    resData.osRefNo || "-",
-                    payload.agentOsRef,
-                    finalStatus,
-                    resData.hotelAddress || "",
-                    paymentReff || null,
-                    booking_id
-                ]
-            );
-            await connection.commit();
-
-            console.log(`✅ Final Success [${finalStatus}]: ID ${booking_id}`);
-
-            // 5. Background Job: Email (Hanya jika Accept/Issued)
-            if (finalStatus === 'Accept') {
-                sendVoucherEmail(b, resData, paxes, payload); 
+            try {
+                await connection.execute(
+                    `UPDATE hotel_bookings SET 
+                        reservation_no = ?, 
+                        voucher_no = ?, 
+                        os_ref_no = ?, 
+                        agent_os_ref = ?, 
+                        booking_status = ?, 
+                        hotel_address = ?,
+                        payment_reff = ?
+                     WHERE id = ?`,
+                    [
+                        resNo,
+                        vouchNo,
+                        resData.osRefNo || "-",
+                        payload.agentOsRef,
+                        finalStatus,
+                        resData.hotelAddress || "",
+                        paymentReff || null,
+                        booking_id
+                    ]
+                );
+                await connection.commit();
+            } catch (dbErr) {
+                await connection.rollback();
+                throw dbErr;
             }
 
-            return res.json({ status: "SUCCESS", internalStatus: finalStatus, ...resData });
+            console.log(`✅ Success: ${booking_id} | Status: ${finalStatus} | Ref: ${resNo}`);
+
+            // 6. Background Job: Email (Hanya jika status 'Accept')
+            if (finalStatus === 'Accept') {
+                // Memanggil fungsi eksternal agar tidak block response user
+                sendVoucherEmail(b, resData, paxes, payload).catch(e => console.error("Email Error:", e));
+            }
+
+            return res.json({ 
+                status: "SUCCESS", 
+                internalStatus: finalStatus, 
+                reservationNo: resNo,
+                ...resData 
+            });
 
         } else {
+            // Vendor menolak (Kamar habis atau data tidak valid)
             console.error(`❌ Vendor Rejected: ${resData.respMessage}`);
-            return res.status(400).json({ status: "ERROR", respMessage: resData.respMessage });
+            return res.status(400).json({ 
+                status: "ERROR", 
+                respMessage: resData.respMessage || "Kamar sudah tidak tersedia (Rejected by Vendor)." 
+            });
         }
 
     } catch (error) {
+        // Rollback jika terjadi error pada database
         if (connection) await connection.rollback();
-        console.error("❌ Final Booking Fatal Error:", error.response?.data || error.message);
-        res.status(500).json({ status: "ERROR", respMessage: "Vendor Timeout/Error: " + error.message });
+        
+        const errorDetail = error.response?.data || error.message;
+        console.error("❌ Final Booking Fatal Error:", errorDetail);
+
+        res.status(500).json({ 
+            status: "ERROR", 
+            respMessage: "Terjadi kesalahan sistem: " + (error.message || "Timeout") 
+        });
     } finally {
         if (connection) connection.release();
     }
@@ -975,25 +1023,77 @@ router.post('/web-booking-final', async (req, res) => {
 // Fungsi Email Terpisah agar tidak menghambat response
 async function sendVoucherEmail(b, resData, paxes, payload) {
     try {
-        const pdfBuffer = await generateBookingPDF({
-            reservationNo: resData.reservationNo,
-            hotelName: b.hotel_name,
-            roomName: b.room_name,
-            checkIn: payload.checkInDate,
-            checkOut: payload.checkOutDate
-            // ...data lainnya
-        }, paxes);
+        // 1. Konsolidasi Data untuk PDF
+        // Kita prioritaskan resData (vendor), jika kosong ambil dari b (database)
+        const pdfData = {
+            reservationNo: resData.reservationNo || b.reservation_no,
+            osRefNo: resData.osRefNo || "-",
+            hotelName: b.hotel_name || resData.hotelName || "Hotel",
+            hotelAddress: resData.hotelAddress || "-",
+            roomName: b.room_name || resData.roomName || "Room",
+            // Perhitungan harga total (Harga Kamar + Handling Fee)
+            totalPrice: Number(b.total_price || 0) + Number(b.handling_fee || 0),
+            contactEmail: b.contact_email || (payload.roomRequest && payload.roomRequest[0]?.email),
+            contactPhone: b.contact_phone || (payload.roomRequest && payload.roomRequest[0]?.phone),
+            checkInDate: payload.checkInDate || b.check_in_date,
+            checkOutDate: payload.checkOutDate || b.check_out_date,
+            specialRequests: b.special_requests || payload.roomRequest[0]?.requestDescription || "-"
+        };
 
+        // 2. Generate Buffer PDF
+        // Pastikan fungsi generateBookingPDF menerima (dataObject, paxesArray)
+        const pdfBuffer = await generateBookingPDF(pdfData, paxes);
+
+        // 3. Konfigurasi Konten Email (HTML)
+        const emailHtml = `
+            <div style="font-family: sans-serif; line-height: 1.6; color: #333;">
+                <h2 style="color: #2c3e50;">Booking Berhasil!</h2>
+                <p>Halo <b>${paxes[0]?.first_name || 'Pelanggan'}</b>,</p>
+                <p>Terima kasih telah melakukan pemesanan hotel melalui <b>LinkU Travel</b>. 
+                E-Voucher hotel Anda telah berhasil diterbitkan dengan nomor reservasi: <b>${pdfData.reservationNo}</b>.</p>
+                
+                <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee;"><b>Hotel</b></td>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee;">: ${pdfData.hotelName}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee;"><b>Tipe Kamar</b></td>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee;">: ${pdfData.roomName}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee;"><b>Check-In</b></td>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee;">: ${pdfData.checkInDate}</td>
+                    </tr>
+                </table>
+
+                <p>Silakan gunakan file PDF yang terlampir pada email ini sebagai bukti saat melakukan check-in di hotel.</p>
+                <br>
+                <p>Salam hangat,<br><b>LinkU Travel Support</b></p>
+            </div>
+        `;
+
+        // 4. Kirim Email
         await transporter.sendMail({
             from: '"LinkU Travel" <noreply@rtsindonesia.biz.id>',
-            to: b.contact_email,
-            subject: `E-Voucher Hotel: ${resData.reservationNo} - ${b.hotel_name}`,
-            html: `<p>Halo, booking hotel Anda berhasil diterbitkan.</p>`,
-            attachments: [{ filename: `Voucher-${resData.reservationNo}.pdf`, content: pdfBuffer }]
+            to: pdfData.contactEmail,
+            subject: `E-Voucher Hotel: ${pdfData.reservationNo} - ${pdfData.hotelName}`,
+            html: emailHtml,
+            attachments: [
+                { 
+                    filename: `Voucher-${pdfData.reservationNo}.pdf`, 
+                    content: pdfBuffer 
+                }
+            ]
         });
-    } catch (e) { console.error("📧 Email Background Error:", e.message); }
-}
 
+        console.log(`📧 Email Voucher terkirim ke: ${pdfData.contactEmail} [Ref: ${pdfData.reservationNo}]`);
+        
+    } catch (e) { 
+        console.error("❌ 📧 Email Background Error:", e.message); 
+        // Jangan throw error di sini agar tidak mematikan flow utama API
+    }
+}
 
 router.get('/history', async (req, res) => {
     let connection;
