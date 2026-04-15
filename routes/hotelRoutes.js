@@ -774,25 +774,43 @@ Layanan terbaikmu 🚀</p>`,
 
 // POST /api/hotel-bookings/draft
 router.post('/hotel-bookings/draft', async (req, res) => {
+    // Destructuring dengan mencocokkan nama dari frontend
     const { 
-        hotel_id, hotel_name, check_in, check_out, 
-        room_id, room_name, contact_email, total_price, handling_fee 
+        hotel_id, 
+        hotel_name, 
+        check_in_date, // Sesuaikan dengan payload frontend
+        check_out_date, // Sesuaikan dengan payload frontend
+        room_id, 
+        room_name, 
+        contact_email, 
+        total_price, 
+        handling_fee 
     } = req.body;
 
-    // 1. Generate Nomor Reservasi Unik
     const reservationNo = 'RES-' + Date.now();
 
     try {
-        // 2. Insert ke tabel hotel_bookings (sebagai Draft)
+        // Gunakan operator || null untuk memastikan tidak ada 'undefined'
+        const values = [
+            reservationNo,
+            hotel_id || null,
+            hotel_name || null,
+            check_in_date || null,
+            check_out_date || null,
+            room_id || null,
+            room_name || null,
+            contact_email || null,
+            total_price || 0,
+            handling_fee || 0,
+            'PENDING'
+        ];
+
         const [result] = await db.execute(
             `INSERT INTO hotel_bookings 
             (reservation_no, hotel_id, hotel_name, check_in_date, check_out_date, 
              room_id, room_name, contact_email, total_price, handling_fee, booking_status) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                reservationNo, hotel_id, hotel_name, check_in, check_out,
-                room_id, room_name, contact_email, total_price, handling_fee, 'PENDING'
-            ]
+            values
         );
 
         res.json({
@@ -801,6 +819,7 @@ router.post('/hotel-bookings/draft', async (req, res) => {
             reservation_no: reservationNo
         });
     } catch (err) {
+        console.error("SQL Error:", err);
         res.status(500).json({ status: "Error", message: err.message });
     }
 });
