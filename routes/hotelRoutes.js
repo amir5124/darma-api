@@ -946,7 +946,7 @@ router.post('/web-booking-final', async (req, res) => {
         };
 
         // --- DEBUGGING (Opsional: Cek di console log sebelum tembak API) ---
-        // console.log("Final Payload:", JSON.stringify(payload, null, 2));
+        console.log("Final Payload:", JSON.stringify(payload, null, 2));
 
         // 4. KIRIM REQUEST KE VENDOR
         const response = await axios.post(`${BASE_URL}/Hotel/BookingAllSupplier`, payload, {
