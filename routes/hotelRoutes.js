@@ -902,14 +902,22 @@ router.post('/web-booking-final', async (req, res) => {
             [booking_id]
         );
 
+        const formatDateToVendor = (dateInput) => {
+    const d = new Date(dateInput);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}Z`; 
+};
+
         // 3. KONSTRUKSI PAYLOAD UNTUK VENDOR (DARMAWISATA)
         // Note: Kita kembalikan format ISO 'Z' hanya saat menembak API Darma
         const payload = {
             paxPassport: "ID",
             countryID: "ID",
             cityID: String(b.city_id || ""),
-            checkInDate: b.check_in_date.toISOString().split('T')[0] + 'Z',
-            checkOutDate: b.check_out_date.toISOString().split('T')[0] + 'Z',
+            checkInDate: formatDateToVendor(b.check_in_date),
+    checkOutDate: formatDateToVendor(b.check_out_date),
             roomRequest: [{
                 paxes: paxes.map(pax => ({
                     title: pax.title || 'Mr.',
