@@ -772,87 +772,238 @@ Layanan terbaikmu 🚀</p>`,
     }
 });
 
-// --- KHUSUS VERSI WEB (SISTEM VA / QRIS) ---
+// POST /api/hotel-bookings/draft
+app.post('/hotel-bookings/draft', async (req, res) => {
+    const { 
+        hotel_id, hotel_name, check_in, check_out, 
+        room_id, room_name, contact_email, total_price, handling_fee 
+    } = req.body;
 
-// 1. Simpan Draft (Dipanggil saat user klik "Konfirmasi Pembayaran" di Web)
-router.post('/web-create-draft', async (req, res) => {
-    let connection;
+    // 1. Generate Nomor Reservasi Unik
+    const reservationNo = 'RES-' + Date.now();
+
     try {
-        const b = req.body;
-        connection = await db.getConnection();
-
-        // 1. Validasi Input Dasar
-        if (!b.hotel_id || !b.room_id || !b.city_id) {
-            return res.status(400).json({ status: "ERROR", respMessage: "Data hotel/room/city ID wajib diisi." });
-        }
-
-        const draftNo = `DFT-${Date.now()}`;
-        await connection.beginTransaction();
-
-        // 2. Insert ke hotel_bookings
-        // Gunakan nilai default yang aman untuk field opsional
-        const [result] = await connection.execute(
-            `INSERT INTO hotel_bookings (
-                reservation_no, hotel_id, hotel_name, total_price, commission, 
-                handling_fee, check_in_date, check_out_date, city_id, room_id, 
-                room_name, breakfast_type, contact_email, contact_phone, 
-                booking_status, username, special_requests, internal_code
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_PAYMENT', ?, ?, ?)`,
+        // 2. Insert ke tabel hotel_bookings (sebagai Draft)
+        const [result] = await db.execute(
+            `INSERT INTO hotel_bookings 
+            (reservation_no, hotel_id, hotel_name, check_in_date, check_out_date, 
+             room_id, room_name, contact_email, total_price, handling_fee, booking_status) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
-                draftNo,
-                b.hotel_id,
-                b.hotel_name || "Unknown Hotel",
-                b.total_price || 0,
-                b.commission || 0,
-                b.handlingFee || 0,
-                b.check_in_date,
-                b.check_out_date,
-                b.city_id,
-                b.room_id, // Pastikan kolom di DB tipe TEXT agar tidak terpotong
-                b.room_name || "",
-                b.breakfast_type || "Room Only",
-                (b.customer_email || "guest@mail.com").trim().toLowerCase(),
-                (b.customer_phone || "08123456789").replace(/\D/g, ''),
-                b.username || 'guest_web',
-                (b.special_requests || "").trim(),
-                b.internal_code || "SUP"
+                reservationNo, hotel_id, hotel_name, check_in, check_out,
+                room_id, room_name, contact_email, total_price, handling_fee, 'PENDING'
             ]
         );
 
-        const newBookingId = result.insertId;
-
-        // 3. Simpan data tamu (Paxes)
-        // PENTING: Jangan ubah case (UpperCase) di sini, simpan apa adanya agar konsisten
-        if (b.paxes && b.paxes.length > 0) {
-            const paxValues = b.paxes.map(pax => [
-                newBookingId,
-                'ADULT',
-                pax.title || 'Mr.',
-                (pax.firstName || 'GUEST').trim(),
-                (pax.lastName || pax.firstName || 'USER').trim()
-            ]);
-
-            for (const val of paxValues) {
-                await connection.execute(
-                    `INSERT INTO hotel_booking_paxes (booking_id, pax_type, title, first_name, last_name) 
-                     VALUES (?, ?, ?, ?, ?)`,
-                    val
-                );
-            }
-        }
-
-        await connection.commit();
-        console.log(`✅ Draft Created: ID ${newBookingId} | Ref ${draftNo}`);
-
         res.json({
-            status: "SUCCESS",
-            booking_id: newBookingId,
-            reservationNo: draftNo
+            status: "Success",
+            booking_id: result.insertId,
+            reservation_no: reservationNo
+        });
+    } catch (err) {
+        res.status(500).json({ status: "Error", message: err.message });
+    }
+});
+
+// 1. Simpan Draft (Dipanggil saat user klik "Konfirmasi Pembayaran" di Web)
+router.post('/web-create-draft', async (req, res) => {
+     let connection;
+    try {
+        const token = await getConsistentToken();
+        const b = req.body;
+        const username = b.username || "guest";
+
+        // 1. Konstruksi Payload untuk Vendor (Darmawisata)
+        const payload = {
+            paxPassport: b.paxPassport || "ID",
+            countryID: b.countryID || "ID",
+            cityID: String(b.cityID || ""),
+            checkInDate: b.checkInDate.endsWith('Z') ? b.checkInDate : b.checkInDate + 'Z',
+            checkOutDate: b.checkOutDate.endsWith('Z') ? b.checkOutDate : b.checkOutDate + 'Z',
+            roomRequest: (b.roomRequest || []).map(room => ({
+                paxes: (room.paxes && room.paxes.length > 0) ? room.paxes.map(pax => ({
+                    title: pax.title || 'Mr.',
+                    firstName: (pax.firstName || 'Guest').trim(),
+                    lastName: (pax.lastName || 'User').trim()
+                })) : [{ title: 'Mr.', firstName: 'Guest', lastName: 'User' }],
+                isSmokingRoom: Boolean(room.isSmokingRoom),
+                phone: String(room.phone || '08123456789'),
+                email: String(room.email || 'guest@mail.com'),
+                specialRequestArray: room.specialRequestArray || [],
+                requestDescription: room.requestDescription || "",
+                roomType: parseInt(room.roomType) || 0,
+                isRequestChildBed: room.isRequestChildBed !== undefined ? Boolean(room.isRequestChildBed) : false,
+                childNum: parseInt(room.childNum) || 0,
+                childAges: (room.childAges && room.childAges.length > 0) ? room.childAges : [0]
+            })),
+            internalCode: b.internalCode,
+            hotelID: b.hotelID,
+            breakfast: b.breakfast,
+            roomID: b.roomID,
+            bedType: {
+                ID: (b.bedType && b.bedType.ID) ? String(b.bedType.ID) : "",
+                bed: (b.bedType && b.bedType.bed) ? String(b.bedType.bed) : ""
+            },
+            agentOsRef: b.agentOsRef || `LC-${Date.now()}`,
+            userID: USER_CONFIG.userID,
+            accessToken: token
+        };
+
+        // 2. Kirim Request ke Vendor
+        const response = await axios.post(`${BASE_URL}/Hotel/BookingAllSupplier`, payload, {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 60000
         });
 
+        const resData = response.data;
+        const msg = (resData.respMessage || "").toUpperCase();
+        const isProcessed = (resData.status === "FAILED" || resData.status === "ERROR") && msg.includes("PROCESSED");
+        const isAccepted = resData.bookingStatus && resData.bookingStatus.trim() === "Accept";
+
+        // 3. Jika Berhasil (Accept atau Processed)
+        if (resData.status === "SUCCESS" || isAccepted || isProcessed) {
+            let currentStatus = isProcessed ? 'Processed' : 'Accept';
+
+            if (isProcessed) {
+                resData.reservationNo = resData.reservationNo || "PRC-" + Date.now();
+                resData.voucherNo = resData.voucherNo || resData.reservationNo;
+            }
+
+            connection = await db.getConnection();
+            await connection.beginTransaction();
+
+            const finalModalDariPriceInfo = Math.round(parseFloat(b.totalPrice || resData.totalPrice || 0));
+            const komisiTercatat = Math.round(parseFloat(b.commission || 0));
+            const handlingFeeTercatat = Math.round(parseFloat(b.handlingFee || 0));
+
+            // Simpan ke tabel hotel_bookings (Gunakan || null atau || "" untuk cegah undefined)
+            const bookingParams = [
+                resData.reservationNo ?? null,
+                resData.voucherNo ?? null,
+                resData.osRefNo ?? null,
+                payload.agentOsRef ?? null,
+                String(resData.hotelID || b.hotelID || ""),
+                resData.hotelName || b.hotelName || "Hotel",
+                resData.hotelAddress || "",
+                b.internalCode || "SUP",
+                resData.checkInDate || b.checkInDate?.replace('Z', '') || null,
+                resData.checkOutDate || b.checkOutDate?.replace('Z', '') || null,
+                String(b.cityID || ""),
+                String(b.roomID || ""),
+                resData.roomName || b.roomName || "",
+                b.breakfast || "",
+                (b.roomRequest && b.roomRequest[0]?.email) || "guest@mail.com",
+                (b.roomRequest && b.roomRequest[0]?.phone) || "08123456789",
+                finalModalDariPriceInfo || 0,
+                komisiTercatat || 0,
+                handlingFeeTercatat || 0,
+                currentStatus || 'Accept',
+                username || "guest",
+                payload.roomRequest[0]?.requestDescription || ""
+            ].map(item => item === undefined ? null : item); // Double check terakhir
+
+            const [bookingResult] = await connection.execute(
+                `INSERT INTO hotel_bookings 
+    (
+        reservation_no, voucher_no, os_ref_no, agent_os_ref, hotel_id, 
+        hotel_name, hotel_address, internal_code, check_in_date, check_out_date, 
+        city_id, room_id, room_name, breakfast_type, contact_email, 
+        contact_phone, total_price, commission, handling_fee, booking_status, 
+        username, special_requests
+    ) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                bookingParams
+            );
+
+            const newBookingId = bookingResult.insertId;
+
+            // Simpan Data Tamu
+            for (const room of (b.roomRequest || [])) {
+                if (!room.paxes) continue;
+                for (const pax of room.paxes) {
+                    await connection.execute(
+                        `INSERT INTO hotel_booking_paxes (booking_id, pax_type, title, first_name, last_name) 
+                        VALUES (?, 'ADULT', ?, ?, ?)`,
+                        [
+                            newBookingId,
+                            pax.title || 'Mr.',
+                            (pax.firstName || 'Guest').trim(),
+                            (pax.lastName || 'User').trim()
+                        ]
+                    );
+                }
+            }
+
+            await connection.commit();
+
+            // 4. Background Job: Kirim Email (Hanya jika status Accept)
+            if (currentStatus === 'Accept') {
+                (async () => {
+                    try {
+                        const [paxesForPdf] = await db.execute(
+                            "SELECT title, first_name as firstName, last_name as lastName FROM hotel_booking_paxes WHERE booking_id = ?",
+                            [newBookingId]
+                        );
+
+                        const pdfData = {
+                            reservationNo: resData.reservationNo,
+                            osRefNo: resData.osRefNo || "-",
+                            hotelName: resData.hotelName || b.hotelName || "Hotel",
+                            hotelAddress: resData.hotelAddress || "-",
+                            roomName: resData.roomName || b.roomName || "Room",
+                            totalPrice: finalModalDariPriceInfo + handlingFeeTercatat,
+                            contactEmail: b.roomRequest[0]?.email,
+                            contactPhone: b.roomRequest[0]?.phone,
+                            checkInDate: resData.checkInDate || b.checkInDate,
+                            checkOutDate: resData.checkOutDate || b.checkOutDate,
+                            specialRequests: payload.roomRequest[0]?.requestDescription || "-"
+                        };
+
+                        const pdfBuffer = await generateBookingPDF(pdfData, paxesForPdf);
+
+                        await transporter.sendMail({
+                            from: '"LinkU Travel" <linkutransport@gmail.com>',
+                            to: b.roomRequest[0].email,
+                            subject: `E-Tiket Hotel - ${resData.reservationNo}`,
+                            html: `<p>Halo Bapak/Ibu 😊</p>
+
+<p>🏨 Booking hotel Anda telah berhasil dikonfirmasi 🎉</p>
+
+<p>Silakan menggunakan voucher yang terlampir pada email ini 📩 untuk proses check-in di hotel.</p>
+
+<p>📄 Detail reservasi dapat dilihat pada voucher yang terlampir.</p>
+
+<p>Terima kasih telah menggunakan layanan LinkU 🙏✨</p>
+
+<p>Jika membutuhkan bantuan, silakan hubungi layanan pelanggan kami 📞💬</p>
+
+<p>Salam hangat,<br>
+LinkU 💙<br>
+Layanan terbaikmu 🚀</p>`,
+                            attachments: [{ filename: `E-Tiket-${resData.reservationNo}.pdf`, content: pdfBuffer }]
+                        });
+                    } catch (err) {
+                        console.error("Background Mail Error: ", err);
+                    }
+                })();
+            }
+
+            return res.json({
+                status: "SUCCESS",
+                booking_id: newBookingId,
+                internalStatus: currentStatus,
+                ...resData
+            });
+
+        } else {
+            return res.status(400).json({
+                status: "ERROR",
+                respMessage: resData.respMessage || "Kamar tidak tersedia atau permintaan ditolak vendor."
+            });
+        }
     } catch (error) {
         if (connection) await connection.rollback();
-        console.error("❌ Draft Error:", error.message);
+        console.error("Booking Error Detail: ", error);
         res.status(500).json({ status: "ERROR", respMessage: error.message });
     } finally {
         if (connection) connection.release();
