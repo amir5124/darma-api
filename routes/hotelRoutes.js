@@ -811,21 +811,21 @@ router.post('/web-create-draft', async (req, res) => {
                 internal_code
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_PAYMENT', ?, ?, ?)`,
             [
-                draftNo, 
-                b.hotel_id, 
-                b.hotel_name, 
+                draftNo,
+                b.hotel_id,
+                b.hotel_name,
                 b.total_price,
-                b.commission || 0, 
-                b.handlingFee || 0, 
-                b.check_in_date, 
+                b.commission || 0,
+                b.handlingFee || 0,
+                b.check_in_date,
                 b.check_out_date,
-                b.city_id, 
-                b.room_id, 
-                b.room_name, 
-                b.breakfast_type, 
+                b.city_id,
+                b.room_id,
+                b.room_name,
+                b.breakfast_type,
                 b.customer_email,
-                b.customer_phone, 
-                b.username || 'guest_web', 
+                b.customer_phone,
+                b.username || 'guest_web',
                 b.special_requests || "",
                 b.internal_code || "SUP" // Pastikan internal_code tersimpan
             ]
@@ -844,9 +844,9 @@ router.post('/web-create-draft', async (req, res) => {
                     `INSERT INTO hotel_booking_paxes (booking_id, pax_type, title, first_name, last_name) 
                      VALUES (?, 'ADULT', ?, ?, ?)`,
                     [
-                        newBookingId, 
-                        pax.title || 'Mr.', 
-                        fName, 
+                        newBookingId,
+                        pax.title || 'Mr.',
+                        fName,
                         lName
                     ]
                 );
@@ -856,19 +856,19 @@ router.post('/web-create-draft', async (req, res) => {
         // Commit transaksi jika semua berhasil
         await connection.commit();
 
-        res.json({ 
-            status: "SUCCESS", 
-            booking_id: newBookingId, 
-            reservationNo: draftNo 
+        res.json({
+            status: "SUCCESS",
+            booking_id: newBookingId,
+            reservationNo: draftNo
         });
 
     } catch (error) {
         // Rollback jika terjadi error di tengah jalan
         if (connection) await connection.rollback();
         console.error("Draft Error:", error.message);
-        res.status(500).json({ 
-            status: "ERROR", 
-            respMessage: "Gagal membuat draft: " + error.message 
+        res.status(500).json({
+            status: "ERROR",
+            respMessage: "Gagal membuat draft: " + error.message
         });
     } finally {
         if (connection) connection.release();
@@ -881,10 +881,9 @@ router.post('/web-booking-final', async (req, res) => {
     try {
         const { booking_id, paymentReff } = req.body;
         const token = await getConsistentToken();
-        
         connection = await db.getConnection();
 
-        // 1. AMBIL DATA DRAFT DARI DATABASE
+        // 1. Ambil data draft
         const [drafts] = await connection.execute(
             `SELECT * FROM hotel_bookings WHERE id = ?`, 
             [booking_id]
@@ -894,54 +893,60 @@ router.post('/web-booking-final', async (req, res) => {
             return res.status(404).json({ status: "ERROR", respMessage: "Data booking tidak ditemukan." });
         }
 
-        const b = drafts[0]; // Ini data dari kolom database kamu
+        const b = drafts[0];
 
-        // 2. AMBIL DATA TAMU (PAXES) DARI DATABASE
+        // 2. Ambil data tamu
         const [paxes] = await connection.execute(
             `SELECT * FROM hotel_booking_paxes WHERE booking_id = ?`,
             [booking_id]
         );
 
+        // --- HELPER UNTUK VALIDASI DATA ---
+        const cleanString = (str) => (str ? str.toString().trim() : "");
+        
         const formatDateToVendor = (dateInput) => {
-    const d = new Date(dateInput);
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}Z`; 
-};
+            // Karena dari MySQL bertipe Datetime, kita ambil hanya YYYY-MM-DD
+            // untuk menghindari offset jam (seperti jam 14:00 di data ID 125)
+            const d = new Date(dateInput);
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}Z`; // Wajib akhiran Z sesuai spek Darmawisata
+        };
 
-        // 3. KONSTRUKSI PAYLOAD UNTUK VENDOR (DARMAWISATA)
-        // Note: Kita kembalikan format ISO 'Z' hanya saat menembak API Darma
+        // 3. KONSTRUKSI PAYLOAD (Sangat Sensitif)
         const payload = {
             paxPassport: "ID",
             countryID: "ID",
-            cityID: String(b.city_id || ""),
+            cityID: cleanString(b.city_id),
+            hotelID: cleanString(b.hotel_id),
+            roomID: cleanString(b.room_id), // Mengambil string panjang utuh
+            internalCode: cleanString(b.internal_code),
             checkInDate: formatDateToVendor(b.check_in_date),
-    checkOutDate: formatDateToVendor(b.check_out_date),
+            checkOutDate: formatDateToVendor(b.check_out_date),
+            breakfast: cleanString(b.breakfast_type),
             roomRequest: [{
                 paxes: paxes.map(pax => ({
-                    title: pax.title || 'Mr.',
-                    firstName: pax.first_name,
-                    lastName: pax.last_name
+                    title: cleanString(pax.title) || 'Mr.',
+                    firstName: cleanString(pax.first_name),
+                    lastName: cleanString(pax.last_name)
                 })),
-                phone: b.contact_phone || '08123456789',
-                email: b.contact_email || 'guest@mail.com',
-                requestDescription: b.special_requests || "",
-                // Default value untuk field teknis lainnya
+                phone: cleanString(b.contact_phone) || '08123456789',
+                email: cleanString(b.contact_email) || 'guest@mail.com',
+                requestDescription: cleanString(b.special_requests),
                 isSmokingRoom: false,
                 roomType: 0,
                 childNum: 0,
                 childAges: [0]
             }],
-            internalCode: b.internal_code,
-            hotelID: b.hotel_id,
-            breakfast: b.breakfast_type,
-            roomID: b.room_id,
             bedType: { ID: "", bed: "" },
             agentOsRef: `WEB-${Date.now()}`,
             userID: USER_CONFIG.userID,
             accessToken: token
         };
+
+        // --- DEBUGGING (Opsional: Cek di console log sebelum tembak API) ---
+        // console.log("Final Payload:", JSON.stringify(payload, null, 2));
 
         // 4. KIRIM REQUEST KE VENDOR
         const response = await axios.post(`${BASE_URL}/Hotel/BookingAllSupplier`, payload, {
@@ -976,10 +981,10 @@ router.post('/web-booking-final', async (req, res) => {
                     hotel_address = ?
                  WHERE id = ?`,
                 [
-                    resData.reservationNo, 
-                    resData.voucherNo, 
-                    resData.osRefNo, 
-                    payload.agentOsRef, 
+                    resData.reservationNo,
+                    resData.voucherNo,
+                    resData.osRefNo,
+                    payload.agentOsRef,
                     currentStatus,
                     resData.hotelAddress || "",
                     booking_id
