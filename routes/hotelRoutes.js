@@ -773,7 +773,7 @@ Layanan terbaikmu 🚀</p>`,
 });
 
 // POST /api/hotel-bookings/draft
-app.post('/hotel-bookings/draft', async (req, res) => {
+router.post('/hotel-bookings/draft', async (req, res) => {
     const { 
         hotel_id, hotel_name, check_in, check_out, 
         room_id, room_name, contact_email, total_price, handling_fee 
