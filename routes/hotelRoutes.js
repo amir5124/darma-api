@@ -781,38 +781,95 @@ router.post('/web-create-draft', async (req, res) => {
         const b = req.body;
         connection = await db.getConnection();
 
-        // Generate nomor bayar sementara
+        // 1. Generate nomor sementara agar kolom UNIQUE & NOT NULL terpenuhi
         const draftNo = `WEB-${Date.now()}`;
 
+        // Mulai Transaksi (karena ada INSERT ke dua tabel berbeda)
+        await connection.beginTransaction();
+
+        // 2. Insert ke tabel hotel_bookings
+        // PENTING: internal_code ditambahkan di sini
         const [result] = await connection.execute(
             `INSERT INTO hotel_bookings (
-                reservation_no, hotel_id, hotel_name, total_price, 
-                commission, handling_fee, check_in_date, check_out_date, 
-                city_id, room_id, room_name, breakfast_type, contact_email, 
-                contact_phone, booking_status, username, special_requests
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_PAYMENT', ?, ?)`,
+                reservation_no, 
+                hotel_id, 
+                hotel_name, 
+                total_price, 
+                commission, 
+                handling_fee, 
+                check_in_date, 
+                check_out_date, 
+                city_id, 
+                room_id, 
+                room_name, 
+                breakfast_type, 
+                contact_email, 
+                contact_phone, 
+                booking_status, 
+                username, 
+                special_requests,
+                internal_code
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_PAYMENT', ?, ?, ?)`,
             [
-                draftNo, b.hotel_id, b.hotel_name, b.total_price,
-                b.commission, b.handlingFee || 0, b.check_in_date, b.check_out_date,
-                b.city_id, b.room_id, b.room_name, b.breakfast_type, b.customer_email,
-                b.customer_phone, b.username, b.special_requests || ""
+                draftNo, 
+                b.hotel_id, 
+                b.hotel_name, 
+                b.total_price,
+                b.commission || 0, 
+                b.handlingFee || 0, 
+                b.check_in_date, 
+                b.check_out_date,
+                b.city_id, 
+                b.room_id, 
+                b.room_name, 
+                b.breakfast_type, 
+                b.customer_email,
+                b.customer_phone, 
+                b.username || 'guest_web', 
+                b.special_requests || "",
+                b.internal_code || "SUP" // Pastikan internal_code tersimpan
             ]
         );
 
-        // Simpan paxes
+        const newBookingId = result.insertId;
+
+        // 3. Simpan data tamu (Paxes)
         if (b.paxes && b.paxes.length > 0) {
             for (const pax of b.paxes) {
+                // Pastikan first_name dan last_name tidak kosong
+                const fName = (pax.firstName || 'Guest').trim();
+                const lName = (pax.lastName || 'User').trim();
+
                 await connection.execute(
                     `INSERT INTO hotel_booking_paxes (booking_id, pax_type, title, first_name, last_name) 
                      VALUES (?, 'ADULT', ?, ?, ?)`,
-                    [result.insertId, pax.title || 'Mr.', pax.firstName, pax.lastName]
+                    [
+                        newBookingId, 
+                        pax.title || 'Mr.', 
+                        fName, 
+                        lName
+                    ]
                 );
             }
         }
 
-        res.json({ status: "SUCCESS", booking_id: result.insertId, reservationNo: draftNo });
+        // Commit transaksi jika semua berhasil
+        await connection.commit();
+
+        res.json({ 
+            status: "SUCCESS", 
+            booking_id: newBookingId, 
+            reservationNo: draftNo 
+        });
+
     } catch (error) {
-        res.status(500).json({ status: "ERROR", respMessage: error.message });
+        // Rollback jika terjadi error di tengah jalan
+        if (connection) await connection.rollback();
+        console.error("Draft Error:", error.message);
+        res.status(500).json({ 
+            status: "ERROR", 
+            respMessage: "Gagal membuat draft: " + error.message 
+        });
     } finally {
         if (connection) connection.release();
     }
