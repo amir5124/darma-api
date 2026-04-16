@@ -404,12 +404,12 @@ router.post('/create-booking', async (req, res) => {
                 // --- A. INSERT KE TABEL bookings ---
                 const [resBooking] = await connection.execute(
                     `INSERT INTO bookings (
-        booking_code, reference_no, airline_id, airline_name, 
-        trip_type, origin, destination, origin_port, destination_port,
-        depart_date, ticket_status, total_price, sales_price, admin_fee, 
-        time_limit, user_id, pengguna, customer_email, access_token, 
-        payload_request, raw_response
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        booking_code, reference_no, airline_id, airline_name, 
+                        trip_type, origin, destination, origin_port, destination_port,
+                        depart_date, ticket_status, total_price, sales_price, admin_fee, 
+                        time_limit, user_id, pengguna, customer_email, access_token, 
+                        payload_request, raw_response
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     [
                         response.data.bookingCode,
                         response.data.referenceNo,
@@ -424,7 +424,7 @@ router.post('/create-booking', async (req, res) => {
                         response.data.ticketStatus || "HOLD",
                         response.data.ticketPrice || 0,
                         response.data.salesPrice || 0,
-                        payload.admin_fee || 0, // Ambil dari payload yang dikirim frontend
+                        payload.admin_fee || 0, 
                         response.data.timeLimit ? response.data.timeLimit.replace('T', ' ').substring(0, 19) : null,
                         response.data.userID,
                         usernameFromFrontend || 'Guest',
@@ -437,7 +437,7 @@ router.post('/create-booking', async (req, res) => {
 
                 const internalId = resBooking.insertId;
 
-                // --- B. INSERT KE TABEL flight_itinerary (Agar jam tidak muncul --:--) ---
+                // --- B. INSERT KE TABEL flight_itinerary (FIX: Ambil jam dari schDeparts) ---
                 const itineraryData = (payload.schDeparts && payload.schDeparts.length > 0) ? payload.schDeparts : [];
                 for (const f of itineraryData) {
                     await connection.execute(
@@ -447,14 +447,14 @@ router.post('/create-booking', async (req, res) => {
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                         [
                             internalId, 'Departure', f.flightNumber, f.schOrigin, f.schDestination,
-                            f.schDepartTime ? f.schDepartTime.replace('T', ' ').substring(0, 19) : null,
+                            f.schDepartTime ? f.schDepartTime.replace('T', ' ').substring(0, 19) : (payload.departDate ? payload.departDate.replace('T', ' ').substring(0, 19) : null),
                             f.schArrivalTime ? f.schArrivalTime.replace('T', ' ').substring(0, 19) : null,
                             f.flightClass, usernameFromFrontend || 'Guest'
                         ]
                     );
                 }
 
-                // --- C. INSERT KE TABEL passengers (Agar nama muncul di riwayat) ---
+                // --- C. INSERT KE TABEL passengers ---
                 const passengers = payload.paxDetails || [];
                 for (const p of passengers) {
                     await connection.execute(
@@ -472,7 +472,7 @@ router.post('/create-booking', async (req, res) => {
                 console.log(`✅ [STEP 4] Success! Booking ${response.data.bookingCode} saved with details.`);
 
                 // ======================================================
-                // --- LOGIKA PENGIRIMAN EMAIL (FORMAT SESUAI GAMBAR) ---
+                // --- LOGIKA PENGIRIMAN EMAIL ---
                 // ======================================================
                 const customerEmail = payload.contactEmail;
                 if (customerEmail) {
@@ -518,13 +518,13 @@ router.post('/create-booking', async (req, res) => {
                                             <b style="color: #24b3ae;">${payload.airlineName || payload.airlineID}</b><br>
                                             <small>${itineraryData[0]?.flightNumber || ''}</small>
                                         </td>
-                                       <td style="padding: 15px 10px;">
-    <b>${itineraryData[0]?.schDepartTime ? moment(itineraryData[0].schDepartTime).format('DD MMM 2026 HH:mm') : moment(payload.departDate).format('DD MMM 2026 HH:mm')}</b><br>
-    ${payload.originName || payload.origin} (${payload.origin})<br><br>
-    
-    <b>${itineraryData[0]?.schArrivalTime ? moment(itineraryData[0].schArrivalTime).format('DD MMM 2026 HH:mm') : moment(payload.departDate).add(2, 'hours').format('DD MMM 2026 HH:mm')}</b><br>
-    ${payload.destinationName || payload.destination} (${payload.destination})
-</td>
+                                        <td style="padding: 15px 10px;">
+                                            <b>${itineraryData[0]?.schDepartTime ? moment(itineraryData[0].schDepartTime).format('DD MMM YYYY HH:mm') : moment(payload.departDate).format('DD MMM YYYY HH:mm')}</b><br>
+                                            ${payload.originName || payload.origin} (${payload.origin})<br><br>
+                                            
+                                            <b>${itineraryData[0]?.schArrivalTime ? moment(itineraryData[0].schArrivalTime).format('DD MMM YYYY HH:mm') : '-'}</b><br>
+                                            ${payload.destinationName || payload.destination} (${payload.destination})
+                                        </td>
                                         <td style="padding: 15px 10px; text-align: right; vertical-align: top;">
                                             <b style="font-size: 16px;">${response.data.bookingCode}</b>
                                         </td>
@@ -532,7 +532,7 @@ router.post('/create-booking', async (req, res) => {
                                 </tbody>
                             </table>
 
-                            <div style="background: #24b3ae; color: white; padding: 8px 15px; font-weight: bold; margin-top: 20px;">Data Penumpang [${payload.paxDetails?.length || 1} Dewasa]</div>
+                            <div style="background: #24b3ae; color: white; padding: 8px 15px; font-weight: bold; margin-top: 20px;">Data Penumpang [${payload.paxDetails?.length || 1} Penumpang]</div>
                             <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
                                 <thead style="background: #f9f9f9;">
                                     <tr>
