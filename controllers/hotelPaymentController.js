@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const moment = require('moment-timezone');
 const db = require('../config/db');
 const { sendBookingEmail } = require('../utils/mailer');
+const { sendBookingEmails } = require('../utils/hotelMailer');
 
 // const config = {
 //     clientId: "5f5aa496-7e16-4ca1-9967-33c768dac6c7",
@@ -30,10 +31,6 @@ function generateSignature(path, method, data) {
     const rawValue = Object.values(data).join('') + config.clientId;
     const cleaned = rawValue.replace(/[^0-9a-zA-Z]/g, "").toLowerCase();
 
-    // Log untuk keperluan debug signature (Hanya aktifkan saat development)
-    // console.log(`--- DEBUG SIGNATURE ---`);
-    // console.log(`Path+Method: ${path}${method}`);
-    // console.log(`Raw Cleaned Data: ${cleaned}`);
 
     return crypto.createHmac("sha256", config.serverKey)
         .update(path + method + cleaned)
@@ -209,42 +206,43 @@ const HotelPaymentController = {
         }
     },
 
-    handleCallback: async (req, res) => {
-        console.log("📥 [HTL CALLBACK]", req.body);
-        try {
-            const { partner_reff, status } = req.body;
+   handleCallback: async (req, res) => {
+    console.log("📥 [HTL CALLBACK]", req.body);
+    try {
+        const { partner_reff, status } = req.body;
+        const statusUpper = status ? status.toUpperCase() : "";
 
-            // Gunakan toUpperCase untuk keamanan
-            const statusUpper = status ? status.toUpperCase() : "";
+        if (statusUpper === "SUCCESS" || statusUpper === "SETTLED") {
+            // 1. Ambil data Booking ID sebelum update (untuk keperluan email)
+            const [rows] = await db.query(
+                `SELECT p.booking_id FROM hotel_payments p WHERE p.payment_reff = ?`, 
+                [partner_reff]
+            );
 
-            if (statusUpper === "SUCCESS" || statusUpper === "SETTLED") {
-                // 1. Update Payment
+            if (rows.length > 0) {
+                const bookingId = rows[0].booking_id;
+
+                // 2. Update status pembayaran & booking di DB
                 await db.query(
                     `UPDATE hotel_payments SET payment_status = 'SETTLED', payment_date = NOW() WHERE payment_reff = ?`,
                     [partner_reff]
                 );
+                await db.query(`UPDATE hotel_bookings SET booking_status = 'Success' WHERE id = ?`, [bookingId]);
 
-                // 2. Ambil Booking ID
-                const [rows] = await db.query(
-                    `SELECT b.id FROM hotel_bookings b 
-                 JOIN hotel_payments p ON b.id = p.booking_id 
-                 WHERE p.payment_reff = ?`, [partner_reff]
-                );
+                // 3. KIRIM EMAIL VOUCHER (Non-blocking)
+                // Kita tidak menggunakan 'await' agar callback LinkQu segera mendapat respons 'OK'
+                sendBookingEmails(bookingId).catch(err => console.error("Email Voucher Error:", err));
 
-                if (rows.length > 0) {
-                    // 3. Update Booking ke 'Success' (Sesuaikan case-nya dengan UI kamu)
-                    await db.query(`UPDATE hotel_bookings SET booking_status = 'Success' WHERE id = ?`, [rows[0].id]);
-                    console.log(`✅ [HTL CALLBACK] Reff ${partner_reff} updated to Success`);
-                }
+                console.log(`✅ [HTL CALLBACK] Reff ${partner_reff} updated & Email sent`);
             }
-
-            // LinkQu butuh response OK agar tidak kirim callback berulang-ulang
-            return res.json({ message: "OK" });
-        } catch (err) {
-            console.error("❌ HTL Callback Error:", err.message);
-            return res.status(500).json({ status: "ERROR" });
         }
-    },
+
+        return res.json({ message: "OK" });
+    } catch (err) {
+        console.error("❌ HTL Callback Error:", err.message);
+        return res.status(500).json({ status: "ERROR" });
+    }
+},
 
     checkStatus: async (req, res) => {
         const { reff } = req.params;
