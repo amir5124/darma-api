@@ -351,19 +351,19 @@ router.post('/get-seats', async (req, res) => {
 
 
 router.post('/create-booking', async (req, res) => {
-    const connection = await db.getConnection(); 
+    const connection = await db.getConnection();
 
     try {
         const token = await getConsistentToken();
-        
+
         // 1. Ambil data khusus dari frontend
         const { usernameFromFrontend, admin_fee, ...cleanBody } = req.body;
-        
+
         // Pastikan admin_fee adalah angka untuk log dan database
         const finalAdminFee = Number(admin_fee) || 0;
         const operator = usernameFromFrontend || 'Guest';
 
-        const fullPhone = cleanBody.contactRemainingPhoneNo 
+        const fullPhone = cleanBody.contactRemainingPhoneNo
             ? `+${cleanBody.contactCountryCodePhone || '62'}${cleanBody.contactRemainingPhoneNo}`
             : (cleanBody.contactPhone || cleanBody.customer_phone || '-');
 
@@ -402,38 +402,38 @@ router.post('/create-booking', async (req, res) => {
                 await connection.beginTransaction();
 
                 // --- A. INSERT KE TABEL bookings ---
-               const [resBooking] = await connection.execute(
-    `INSERT INTO bookings (
+                const [resBooking] = await connection.execute(
+                    `INSERT INTO bookings (
         booking_code, reference_no, airline_id, airline_name, 
         trip_type, origin, destination, origin_port, destination_port,
         depart_date, ticket_status, total_price, sales_price, admin_fee, 
         time_limit, user_id, pengguna, customer_email, access_token, 
         payload_request, raw_response
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, 
-    [
-        response.data.bookingCode,
-        response.data.referenceNo,
-        payload.airlineID,
-        payload.airlineName || payload.airlineID,
-        payload.tripType || "OneWay",
-        payload.origin,
-        payload.destination,
-        response.data.origin || payload.origin_port || null,
-        response.data.destination || payload.destination_port || null,
-        payload.departDate ? payload.departDate.replace('T', ' ').replace('Z', '').split('.')[0] : null,
-        response.data.ticketStatus || "HOLD",
-        response.data.ticketPrice || 0,
-        response.data.salesPrice || 0,
-        payload.admin_fee || 0, // Ambil dari payload yang dikirim frontend
-        response.data.timeLimit ? response.data.timeLimit.replace('T', ' ').substring(0, 19) : null,
-        response.data.userID,
-        usernameFromFrontend || 'Guest',
-        payload.contactEmail,
-        payload.accessToken,
-        JSON.stringify(payload),
-        JSON.stringify(response.data)
-    ]
-);
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [
+                        response.data.bookingCode,
+                        response.data.referenceNo,
+                        payload.airlineID,
+                        payload.airlineName || payload.airlineID,
+                        payload.tripType || "OneWay",
+                        payload.origin,
+                        payload.destination,
+                        response.data.origin || payload.origin_port || null,
+                        response.data.destination || payload.destination_port || null,
+                        payload.departDate ? payload.departDate.replace('T', ' ').replace('Z', '').split('.')[0] : null,
+                        response.data.ticketStatus || "HOLD",
+                        response.data.ticketPrice || 0,
+                        response.data.salesPrice || 0,
+                        payload.admin_fee || 0, // Ambil dari payload yang dikirim frontend
+                        response.data.timeLimit ? response.data.timeLimit.replace('T', ' ').substring(0, 19) : null,
+                        response.data.userID,
+                        usernameFromFrontend || 'Guest',
+                        payload.contactEmail,
+                        payload.accessToken,
+                        JSON.stringify(payload),
+                        JSON.stringify(response.data)
+                    ]
+                );
 
                 const internalId = resBooking.insertId;
 
@@ -461,7 +461,7 @@ router.post('/create-booking', async (req, res) => {
                         `INSERT INTO passengers (booking_id, title, first_name, last_name, pax_type, id_number, birth_date, pengguna) 
                          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
                         [
-                            internalId, p.title, p.firstName, p.lastName, 
+                            internalId, p.title, p.firstName, p.lastName,
                             p.type === 0 ? 'Adult' : 'Child', p.IDNumber || '', p.birthDate || null, usernameFromFrontend || 'Guest'
                         ]
                     );
@@ -518,12 +518,13 @@ router.post('/create-booking', async (req, res) => {
                                             <b style="color: #24b3ae;">${payload.airlineName || payload.airlineID}</b><br>
                                             <small>${itineraryData[0]?.flightNumber || ''}</small>
                                         </td>
-                                        <td style="padding: 15px 10px;">
-                                            <b>${moment(payload.departDate).format('DD MMM 2026 HH:mm')}</b><br>
-                                            ${payload.originName || payload.origin} (${payload.origin})<br><br>
-                                            <b>${moment(payload.departDate).add(2, 'hours').format('DD MMM 2026 HH:mm')}</b><br>
-                                            ${payload.destinationName || payload.destination} (${payload.destination})
-                                        </td>
+                                       <td style="padding: 15px 10px;">
+    <b>${itineraryData[0]?.schDepartTime ? moment(itineraryData[0].schDepartTime).format('DD MMM 2026 HH:mm') : moment(payload.departDate).format('DD MMM 2026 HH:mm')}</b><br>
+    ${payload.originName || payload.origin} (${payload.origin})<br><br>
+    
+    <b>${itineraryData[0]?.schArrivalTime ? moment(itineraryData[0].schArrivalTime).format('DD MMM 2026 HH:mm') : moment(payload.departDate).add(2, 'hours').format('DD MMM 2026 HH:mm')}</b><br>
+    ${payload.destinationName || payload.destination} (${payload.destination})
+</td>
                                         <td style="padding: 15px 10px; text-align: right; vertical-align: top;">
                                             <b style="font-size: 16px;">${response.data.bookingCode}</b>
                                         </td>
@@ -585,7 +586,7 @@ router.post('/create-booking', async (req, res) => {
 
 router.post('/update-admin-fee', async (req, res) => {
     const { bookingCode, admin_fee } = req.body;
-    console.log(admin_fee,"fee")
+    console.log(admin_fee, "fee")
     try {
         await db.execute(
             `UPDATE bookings SET admin_fee = ? WHERE booking_code = ?`,
@@ -642,24 +643,24 @@ router.post('/issued-ticket', async (req, res) => {
     try {
         const token = await getConsistentToken();
         const response = await axios.post(
-            `${BASE_URL}/Airline/Issued`, 
-            { ...req.body, userID: USER_CONFIG.userID, accessToken: token }, 
+            `${BASE_URL}/Airline/Issued`,
+            { ...req.body, userID: USER_CONFIG.userID, accessToken: token },
             { httpsAgent: agent }
         );
 
         if (response.data.status === "SUCCESS") {
             const bCode = req.body.bookingCode;
-            
+
             // Update status dan kirim email
             try {
                 await db.execute(
-                    "UPDATE bookings SET ticket_status = 'Ticketed' WHERE booking_code = ?", 
+                    "UPDATE bookings SET ticket_status = 'Ticketed' WHERE booking_code = ?",
                     [bCode]
                 );
-                
+
                 // Panggil pengiriman email (tanpa await agar user tidak menunggu lama)
                 sendTicketEmail(bCode).catch(e => console.error("Background Email Error:", e.message));
-                
+
             } catch (dbErr) {
                 console.error("DB Update Error during Issued:", dbErr.message);
             }
@@ -678,10 +679,10 @@ async function getTicketHtmlContent(bookingCode, db) {
 
     const booking = rows[0];
     const ticketPrice = Number(booking.total_price) || 0;
-const adminFee = Number(booking.admin_fee) || 0;
-const totalAmount = ticketPrice + adminFee;
-console.log(ticketPrice, "ui")
-const eticketNumber = booking.reference_no || '-';
+    const adminFee = Number(booking.admin_fee) || 0;
+    const totalAmount = ticketPrice + adminFee;
+    console.log(ticketPrice, "ui")
+    const eticketNumber = booking.reference_no || '-';
     const payload = typeof booking.payload_request === 'string' ? JSON.parse(booking.payload_request) : booking.payload_request;
     const response = typeof booking.raw_response === 'string' ? JSON.parse(booking.raw_response) : booking.raw_response;
 
@@ -699,19 +700,19 @@ const eticketNumber = booking.reference_no || '-';
     const baggageMap = { "PBAA": "15kg", "PBAB": "20kg", "PBAC": "25kg", "PBAD": "30kg", "PBAF": "40kg" };
     const mealMap = { "NPCB": "Nasi Padang", "NLCB": "Pak Nasser", "NKCB": "Nasi Kuning", "GCCB": "Thai Green", "CRCB": "Uncle Chin" };
     const airlineNames = { "QZ": "AirAsia", "ID": "Batik Air", "GA": "Garuda Indonesia", "JT": "Lion Air", "QG": "Citilink" };
-   const defaultBaggage = {
-  "GA": "20kg",
-  "ID": "20kg",
-  "QG": "15kg",
-  "JT": "0kg",
-  "IW": "0kg",
-  "QZ": "0kg",
-  "SJ": "20kg",
-  "IN": "20kg",
-  "IU": "20kg",
-  "IP": "20kg",
-  "TN": "10kg"
-};
+    const defaultBaggage = {
+        "GA": "20kg",
+        "ID": "20kg",
+        "QG": "15kg",
+        "JT": "0kg",
+        "IW": "0kg",
+        "QZ": "0kg",
+        "SJ": "20kg",
+        "IN": "20kg",
+        "IU": "20kg",
+        "IP": "20kg",
+        "TN": "10kg"
+    };
 
     const qrDataUrl = await QRCode.toDataURL(response.bookingCodeAirline || booking.booking_code);
 
@@ -788,7 +789,7 @@ const eticketNumber = booking.reference_no || '-';
         return `<tr><td style="text-align:center">${pIdx + 1}</td><td><b>${p.title} ${p.firstName} ${p.lastName}</b></td><td>${typeLabel}</td><td style="text-align:center">${seatInfo}</td><td style="text-align:center; font-size:8.5px;">${bagInfo}</td><td style="font-size:8.5px;">${mealsInfo}</td></tr>`;
     }).join('');
 
-   
+
 
     // TEMPLATE HTML LENGKAP DENGAN CSS
     return `
@@ -969,9 +970,9 @@ async function sendTicketEmail(bookingCode) {
 
         const email = rows[0].customer_email;
         const subject = `[LinkU] E-Ticket Berhasil Terbit - ${bookingCode}`;
-        
+
         // Body email sederhana (karena tiket utama ada di attachment PDF)
-       const emailBody = `
+        const emailBody = `
     <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
         <h3>Tiket Anda <b>${bookingCode}</b> sudah terbit!</h3>
         
