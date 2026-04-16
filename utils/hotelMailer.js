@@ -163,7 +163,7 @@ async function generateBookingPDF(data, paxes) {
             <div class="section-title">Pembayaran</div>
             <div style="font-size: 11px; color: #475569; padding: 0 12px;">
                 Voucher Berlaku Untuk Layanan yang Tertera di Atas.<br>
-                <b>Status: LUNAS (Paid via Koin Aplikasi) Rp. ${totalFormatted}</b>
+                <b>Status: LUNAS Rp. ${totalFormatted}</b>
             </div>
 
             <div class="footer">

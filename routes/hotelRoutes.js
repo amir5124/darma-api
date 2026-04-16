@@ -774,24 +774,30 @@ Layanan terbaikmu 🚀</p>`,
 
 // POST /api/hotel-bookings/draft
 router.post('/hotel-bookings/draft', async (req, res) => {
-    // Destructuring dengan mencocokkan nama dari frontend
+    // 1. Destructuring data utama dan ambil paxes
     const { 
         hotel_id, 
         hotel_name, 
-        check_in_date, // Sesuaikan dengan payload frontend
-        check_out_date, // Sesuaikan dengan payload frontend
+        check_in_date, 
+        check_out_date, 
         room_id, 
         room_name, 
         contact_email, 
         total_price, 
-        handling_fee 
+        handling_fee,
+        paxes // Pastikan frontend mengirimkan array paxes: [{title, firstName, lastName}, ...]
     } = req.body;
 
     const reservationNo = 'RES-' + Date.now();
+    let connection;
 
     try {
-        // Gunakan operator || null untuk memastikan tidak ada 'undefined'
-        const values = [
+        // Mendapatkan koneksi untuk transaction
+        connection = await db.getConnection();
+        await connection.beginTransaction();
+
+        // 2. Insert ke tabel hotel_bookings
+        const bookingValues = [
             reservationNo,
             hotel_id || null,
             hotel_name || null,
@@ -805,22 +811,48 @@ router.post('/hotel-bookings/draft', async (req, res) => {
             'PENDING'
         ];
 
-        const [result] = await db.execute(
+        const [result] = await connection.execute(
             `INSERT INTO hotel_bookings 
             (reservation_no, hotel_id, hotel_name, check_in_date, check_out_date, 
              room_id, room_name, contact_email, total_price, handling_fee, booking_status) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            values
+            bookingValues
         );
+
+        const bookingId = result.insertId;
+
+        // 3. INSERT DATA TAMU (PAXES)
+        // Cek apakah paxes ada dan merupakan array
+        if (paxes && Array.isArray(paxes) && paxes.length > 0) {
+            const paxQuery = `INSERT INTO hotel_booking_paxes (booking_id, title, first_name, last_name) VALUES (?, ?, ?, ?)`;
+            
+            for (const pax of paxes) {
+                await connection.execute(paxQuery, [
+                    bookingId,
+                    pax.title || 'Mr',
+                    pax.firstName || 'Guest',
+                    pax.lastName || ''
+                ]);
+            }
+        }
+
+        // 4. Commit Transaction
+        await connection.commit();
 
         res.json({
             status: "Success",
-            booking_id: result.insertId,
+            booking_id: bookingId,
             reservation_no: reservationNo
         });
+
     } catch (err) {
-        console.error("SQL Error:", err);
+        // Rollback jika terjadi kesalahan di tengah jalan
+        if (connection) await connection.rollback();
+        
+        console.error("SQL Error in Draft:", err);
         res.status(500).json({ status: "Error", message: err.message });
+    } finally {
+        if (connection) connection.release();
     }
 });
 
