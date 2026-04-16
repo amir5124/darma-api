@@ -25,6 +25,7 @@ async function generateBookingPDF(data, paxes) {
         });
         const page = await browser.newPage();
 
+        // 1. Perbaikan Parsing Angka
         const hargaDasar = parseFloat(data.totalPrice || data.total_price || 0);
         const biayaHandling = parseFloat(data.handlingFee || data.handling_fee || 0);
 
@@ -44,19 +45,25 @@ async function generateBookingPDF(data, paxes) {
             });
         };
 
-        // Hitung Durasi Malam
+        // 2. Perbaikan Hitung Durasi Malam (Gunakan Math.max agar tidak nol/minus)
         const checkIn = new Date(data.checkInDate || data.check_in_date);
         const checkOut = new Date(data.checkOutDate || data.check_out_date);
         const diffTime = Math.abs(checkOut - checkIn);
         const nights = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
 
-        // Daftar Tamu
-        const guestNames = paxes && paxes.length > 0
-            ? paxes.map((p) => `${p.title || p.pax_title || ''} ${p.firstName || p.first_name || ''} ${p.lastName || p.last_name || ''}`).join(', ')
+        // 3. Perbaikan Daftar Tamu (Mapping paxes agar mendukung camelCase dan snake_case dari DB)
+        const guestNames = paxes && Array.isArray(paxes) && paxes.length > 0
+            ? paxes.map((p) => {
+                const title = p.title || p.pax_title || '';
+                const fName = p.firstName || p.first_name || '';
+                const lName = p.lastName || p.last_name || '';
+                return `${title} ${fName} ${lName}`.trim();
+            }).join(', ')
             : "Guest";
 
+        // 4. Perbaikan Special Request (Pastikan mengambil dari properti yang benar)
         const requestValue = data.specialRequests || data.special_requests || "";
-        const finalSpecialRequest = (requestValue && requestValue !== "" && requestValue !== "-")
+        const finalSpecialRequest = (requestValue && requestValue !== "" && requestValue !== "-" && requestValue !== "null")
             ? requestValue
             : "Tidak ada permintaan khusus";
 
@@ -103,7 +110,7 @@ async function generateBookingPDF(data, paxes) {
                     </div>
                 </div>
                 <div class="hotel-info" style="text-align: right;">
-                    <div class="hotel-title">${data.hotelName || data.hotel_name}</div>
+                    <div class="hotel-title">${data.hotelName || data.hotel_name || '-'}</div>
                     <div class="hotel-address">${data.hotelAddress || data.hotel_address || 'Alamat hotel tersedia di sistem'}</div>
                 </div>
             </div>
@@ -112,12 +119,12 @@ async function generateBookingPDF(data, paxes) {
 
             <div class="top-info-grid">
                 <div>
-                    <div class="info-row"><div class="label">Voucher No.</div><div class="value">: ${data.voucherNo || data.voucher_no || data.reservationNo || data.reservation_no}</div></div>
+                    <div class="info-row"><div class="label">Voucher No.</div><div class="value">: ${data.voucherNo || data.voucher_no || data.reservationNo || data.reservation_no || '-'}</div></div>
                     <div class="info-row"><div class="label">Tgl Pembelian</div><div class="value">: ${paymentDate}</div></div>
                     <div class="info-row"><div class="label">Dicetak Oleh</div><div class="value">: LinkU</div></div>
                 </div>
                 <div style="text-align: right;">
-                    <div class="info-row" style="justify-content: flex-end;"><div class="label">File No.</div><div class="value">: ${data.reservationNo || data.reservation_no}</div></div>
+                    <div class="info-row" style="justify-content: flex-end;"><div class="label">File No.</div><div class="value">: ${data.reservationNo || data.reservation_no || '-'}</div></div>
                     <div class="info-row" style="justify-content: flex-end;"><div class="label">O/S Ref.</div><div class="value">: ${data.osRefNo || data.os_ref_no || '-'}</div></div>
                 </div>
             </div>
@@ -142,7 +149,7 @@ async function generateBookingPDF(data, paxes) {
                 </div>
                 <div class="detail-item">
                     <div class="label">Tipe Kamar</div>
-                    <div class="value">: ${data.roomName || data.room_name}</div>
+                    <div class="value">: ${data.roomName || data.room_name || '-'}</div>
                 </div>
                 <div class="detail-item">
                     <div class="label">Meals</div>
@@ -190,7 +197,6 @@ async function generateBookingPDF(data, paxes) {
         if (browser) await browser.close();
     }
 }
-
 /**
  * FUNGSI UTAMA: Mengambil data dari DB, buat PDF, dan kirim Email
  * @param {number} bookingId - ID dari tabel hotel_bookings
