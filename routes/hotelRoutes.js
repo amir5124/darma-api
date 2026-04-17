@@ -490,10 +490,6 @@ router.post('/booking-detail', async (req, res) => {
                     [localData.id]
                 );
 
-                // PERBAIKAN DI SINI: Lengkapi properti untuk PDF
-                // Di dalam router.post('/booking-detail', ...)
-                // ... setelah blok const [paxes] ...
-
                 const pdfData = {
                     reservationNo: detail.reservationNo,
                     osRefNo: detail.osRefNo || localData.os_ref_no,
@@ -777,6 +773,7 @@ router.post('/hotel-bookings/draft', async (req, res) => {
     const { 
         hotel_id, 
         hotel_name, 
+        hotel_address, // 1. TAMBAHKAN INI
         check_in_date, 
         check_out_date, 
         room_id, 
@@ -784,7 +781,7 @@ router.post('/hotel-bookings/draft', async (req, res) => {
         contact_email, 
         total_price, 
         handling_fee,
-        special_requests, // Ambil ini dari req.body
+        special_requests,
         paxes 
     } = req.body;
 
@@ -795,11 +792,11 @@ router.post('/hotel-bookings/draft', async (req, res) => {
         connection = await db.getConnection();
         await connection.beginTransaction();
 
-        // Tambahkan kolom special_requests ke query
         const bookingValues = [
             reservationNo,
             hotel_id || null,
             hotel_name || null,
+            hotel_address || null, // 2. MASUKKAN KE ARRAY VALUES
             check_in_date || null,
             check_out_date || null,
             room_id || null,
@@ -807,15 +804,15 @@ router.post('/hotel-bookings/draft', async (req, res) => {
             contact_email || null,
             total_price || 0,
             handling_fee || 0,
-            special_requests || null, // Masukkan ke array values
+            special_requests || null,
             'PENDING'
         ];
 
         const [result] = await connection.execute(
             `INSERT INTO hotel_bookings 
-            (reservation_no, hotel_id, hotel_name, check_in_date, check_out_date, 
+            (reservation_no, hotel_id, hotel_name, hotel_address, check_in_date, check_out_date, 
              room_id, room_name, contact_email, total_price, handling_fee, special_requests, booking_status) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, // 3. TAMBAHKAN SATU TANDA TANYA (?) LAGI
             bookingValues
         );
 

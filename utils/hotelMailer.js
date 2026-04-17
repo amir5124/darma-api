@@ -113,7 +113,7 @@ async function generateBookingPDF(data, paxes) {
                 </div>
                 <div class="hotel-info" style="text-align: right;">
                     <div class="hotel-title">${data.hotelName || data.hotel_name || '-'}</div>
-                    <div class="hotel-address">${alamatHotel}}</div>
+                    <div class="hotel-address">${alamatHotel}</div>
                 </div>
             </div>
 
