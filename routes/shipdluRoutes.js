@@ -387,22 +387,54 @@ router.post('/issued', async (req, res) => {
 });
 
 router.post('/get-eticket', async (req, res) => {
+    const bookingNumber = req.body.bookingNumber;
+    
     try {
         const token = await getConsistentToken();
+        
+        // 1. Log Payload (Data yang dikirim ke Vendor)
+        const payload = {
+            bookingNumber: bookingNumber,
+            userID: USER_CONFIG.userID,
+            accessToken: token ? "TOKEN_EXISTS" : "TOKEN_EMPTY" // Jangan log token asli demi keamanan
+        };
+        console.log(`%c[VEND-REQ] GetEticket | Booking: ${bookingNumber}`, 'color: #00ff00', payload);
+
         const response = await axios.post(`${BASE_URL}/ShipDlu/GetEticket`, {
-            bookingNumber: req.body.bookingNumber,
+            bookingNumber: bookingNumber,
             userID: USER_CONFIG.userID,
             accessToken: token
         }, {
             httpsAgent: agent,
-            responseType: 'arraybuffer' // PENTING: Agar data PDF tidak rusak/terpotong
+            responseType: 'arraybuffer' 
         });
 
-        // Kirim header agar frontend tahu ini adalah PDF
+        // 2. Log Response (Info meta data dari Vendor)
+        console.log(`%c[VEND-RES] GetEticket | Success | Size: ${response.data.byteLength} bytes`, 'color: #00fbff');
+
+        // Validasi jika data kosong
+        if (!response.data || response.data.byteLength === 0) {
+            console.error(`%c[VEND-ERR] GetEticket | PDF Empty!`, 'color: #ff0000');
+            return res.status(404).send("File tiket kosong dari server pusat.");
+        }
+
         res.contentType("application/pdf");
         res.send(response.data);
 
     } catch (error) {
+        // 3. Log Error secara detail
+        console.error(`%c[VEND-ERR] GetEticket | Error: ${error.message}`, 'color: #ff0000');
+        
+        // Jika error dari axios, log detail response-nya (jika bukan binary)
+        if (error.response && error.response.data) {
+            try {
+                const errData = JSON.parse(Buffer.from(error.response.data).toString());
+                console.error("Detail Error Vendor:", errData);
+            } catch (e) {
+                console.error("Gagal parse error vendor (Kemungkinan data tetap binary)");
+            }
+        }
+        
         res.status(500).send("Gagal mengambil tiket");
     }
 });
