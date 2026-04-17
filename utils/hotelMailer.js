@@ -17,6 +17,7 @@ const transporter = nodemailer.createTransport({
  * Fungsi Internal: Menghasilkan Buffer PDF menggunakan Puppeteer
  */
 async function generateBookingPDF(data, paxes) {
+    console.log("Cek Data Masuk ke PDF:", JSON.stringify(data, null, 2));
     let browser;
     try {
         browser = await puppeteer.launch({
@@ -28,6 +29,7 @@ async function generateBookingPDF(data, paxes) {
         // 1. Perbaikan Parsing Angka
         const hargaDasar = parseFloat(data.totalPrice || data.total_price || 0);
         const biayaHandling = parseFloat(data.handlingFee || data.handling_fee || 0);
+         const alamatHotel = data.hotel_address;
 
         // Total Akhir
         const totalHargaFisik = Math.ceil(hargaDasar + biayaHandling);
@@ -111,7 +113,7 @@ async function generateBookingPDF(data, paxes) {
                 </div>
                 <div class="hotel-info" style="text-align: right;">
                     <div class="hotel-title">${data.hotelName || data.hotel_name || '-'}</div>
-                    <div class="hotel-address">${data.hotelAddress || data.hotel_address || 'Alamat hotel tersedia di sistem'}</div>
+                    <div class="hotel-address">${alamatHotel}}</div>
                 </div>
             </div>
 
