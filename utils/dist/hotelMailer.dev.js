@@ -193,7 +193,7 @@ function sendBookingEmails(bookingId) {
         case 17:
           pdfBuffer = _context2.sent;
           // URL ARAHKAN KE FRONTEND (Bukan ke API)
-          statusTrackingUrl = "https://darma.siappgo.id/tracking?no=".concat(bookingData.reservation_no);
+          statusTrackingUrl = "https://siappgo.id/tracking?no=".concat(bookingData.reservation_no);
           mailOptions = {
             from: '"LinkU Travel" <linkutransport@gmail.com>',
             to: bookingData.contact_email,

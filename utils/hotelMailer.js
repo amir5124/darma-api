@@ -232,7 +232,7 @@ async function sendBookingEmails(bookingId) {
         const pdfBuffer = await generateBookingPDF(pdfData, paxes);
 
         // URL ARAHKAN KE FRONTEND (Bukan ke API)
-        const statusTrackingUrl = `https://darma.siappgo.id/tracking?no=${bookingData.reservation_no}`;
+        const statusTrackingUrl = `https://siappgo.id/tracking?no=${bookingData.reservation_no}`;
 
         const mailOptions = {
             from: '"LinkU Travel" <linkutransport@gmail.com>',
