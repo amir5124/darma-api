@@ -158,29 +158,22 @@ function sendBookingEmails(bookingId) {
           rows = _ref2[0];
 
           if (!(rows.length === 0)) {
-            _context2.next = 9;
+            _context2.next = 8;
             break;
           }
 
-          console.error("Booking with ID ".concat(bookingId, " not found."));
           return _context2.abrupt("return");
 
-        case 9:
-          bookingData = rows[0]; // 2. Ambil data tamu
-
-          _context2.next = 12;
+        case 8:
+          bookingData = rows[0];
+          _context2.next = 11;
           return regeneratorRuntime.awrap(db.execute("SELECT title, first_name as firstName, last_name as lastName FROM hotel_booking_paxes WHERE booking_id = ?", [bookingId]));
 
-        case 12:
+        case 11:
           _ref3 = _context2.sent;
           _ref4 = _slicedToArray(_ref3, 1);
           paxes = _ref4[0];
-
-          /**
-           * 3. Penyesuaian Data untuk PDF 
-           * Karena database menggunakan snake_case, kita petakan ke camelCase 
-           * agar fungsi generateBookingPDF tidak bingung.
-           */
+          // Map data untuk PDF
           pdfData = {
             reservationNo: bookingData.reservation_no,
             osRefNo: bookingData.os_ref_no,
@@ -194,47 +187,41 @@ function sendBookingEmails(bookingId) {
             breakfastType: bookingData.breakfast_type,
             specialRequests: bookingData.special_requests || "-"
           };
-          _context2.next = 18;
+          _context2.next = 17;
           return regeneratorRuntime.awrap(generateBookingPDF(pdfData, paxes));
 
-        case 18:
+        case 17:
           pdfBuffer = _context2.sent;
-
-          /**
-           * 4. URL Tracking
-           * Sesuaikan dengan halaman CEK PESANAN di website darma.siappgo.id
-           */
-          statusTrackingUrl = "https://darma.siappgo.id/api/hotels/booking-detail?no=".concat(bookingData.reservation_no); // 5. Konfigurasi Email
-
+          // URL ARAHKAN KE FRONTEND (Bukan ke API)
+          statusTrackingUrl = "https://darma.siappgo.id/tracking?no=".concat(bookingData.reservation_no);
           mailOptions = {
             from: '"LinkU Travel" <linkutransport@gmail.com>',
             to: bookingData.contact_email,
             subject: "E-Tiket Hotel - ".concat(bookingData.reservation_no),
-            html: "\n                <div style=\"font-family: sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: auto;\">\n                    <p>Halo Bapak/Ibu \uD83D\uDE0A</p>\n                    <p>Pemesanan hotel Anda telah kami konfirmasi. Berikut kami lampirkan <b>E-Voucher</b> resmi untuk nomor reservasi: <b>".concat(bookingData.reservation_no, "</b>.</p>\n                    \n                    <div style=\"background-color: #f4f7f9; border-left: 4px solid #007bff; padding: 15px; margin: 20px 0;\">\n                        <p style=\"margin: 0;\"><b>Informasi Penting:</b></p>\n                        <ul style=\"margin: 5px 0 0 0; padding-left: 20px;\">\n                            <li>Tunjukkan voucher (PDF terlampir) saat check-in.</li>\n                            <li>Pastikan identitas tamu sesuai dengan yang tertera di voucher.</li>\n                        </ul>\n                    </div>\n                    \n                    <div style=\"text-align: center; margin: 30px 0;\">\n                        <p style=\"font-size: 14px; color: #666;\">Ingin memantau status pesanan Anda?</p>\n                        <a href=\"").concat(statusTrackingUrl, "\" \n                           style=\"background-color: #007bff; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;\">\n                           Cek Status Booking\n                        </a>\n                    </div>\n\n                    <p>Terima kasih telah mempercayakan perjalanan Anda kepada LinkU Nusantara \uD83D\uDE4F\u2728</p>\n                    <hr style=\"border: none; border-top: 1px solid #eee; margin: 20px 0;\">\n                    <p style=\"font-size: 12px; color: #999; text-align: center;\">\n                        <b>LinkU Nusantara</b><br>\n                        Layanan Terbaikmu \uD83D\uDE80\n                    </p>\n                </div>\n            "),
+            html: "\n                <div style=\"font-family: sans-serif; max-width: 600px; margin: auto;\">\n                    <h2>Booking Berhasil!</h2>\n                    <p>Halo Bapak/Ibu, pesanan Anda sudah dikonfirmasi.</p>\n                    <div style=\"text-align: center; margin: 30px 0;\">\n                        <a href=\"".concat(statusTrackingUrl, "\" \n                           style=\"background-color: #007bff; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold;\">\n                           Cek Status Booking\n                        </a>\n                    </div>\n                    <p>Voucher PDF telah terlampir di email ini.</p>\n                </div>\n            "),
             attachments: [{
-              filename: "E-Tiket-".concat(bookingData.reservation_no, ".pdf"),
+              filename: "Transaksi-".concat(bookingData.reservation_no, ".pdf"),
               content: pdfBuffer
             }]
           };
-          _context2.next = 23;
+          _context2.next = 22;
           return regeneratorRuntime.awrap(transporter.sendMail(mailOptions));
 
-        case 23:
-          console.log("[Email Sent] ID: ".concat(bookingId, " - Email: ").concat(bookingData.contact_email));
-          _context2.next = 29;
+        case 22:
+          _context2.next = 27;
           break;
 
-        case 26:
-          _context2.prev = 26;
+        case 24:
+          _context2.prev = 24;
           _context2.t0 = _context2["catch"](0);
-          console.error("Error in sendBookingEmails:", _context2.t0);
+          console.error("Error kirim email:", _context2.t0);
 
-        case 29:
+        case 27:
         case "end":
           return _context2.stop();
       }
     }
-  }, null, null, [[0, 26]]);
+  }, null, null, [[0, 24]]);
 }
 
 module.exports = {

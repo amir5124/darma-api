@@ -205,27 +205,16 @@ async function generateBookingPDF(data, paxes) {
  */
 async function sendBookingEmails(bookingId) {
     try {
-        // 1. Ambil data booking
         const [rows] = await db.execute("SELECT * FROM hotel_bookings WHERE id = ?", [bookingId]);
-        
-        if (rows.length === 0) {
-            console.error(`Booking with ID ${bookingId} not found.`);
-            return;
-        }
-        
+        if (rows.length === 0) return;
         const bookingData = rows[0];
 
-        // 2. Ambil data tamu
         const [paxes] = await db.execute(
             "SELECT title, first_name as firstName, last_name as lastName FROM hotel_booking_paxes WHERE booking_id = ?",
             [bookingId]
         );
 
-        /**
-         * 3. Penyesuaian Data untuk PDF 
-         * Karena database menggunakan snake_case, kita petakan ke camelCase 
-         * agar fungsi generateBookingPDF tidak bingung.
-         */
+        // Map data untuk PDF
         const pdfData = {
             reservationNo: bookingData.reservation_no,
             osRefNo: bookingData.os_ref_no,
@@ -242,59 +231,32 @@ async function sendBookingEmails(bookingId) {
 
         const pdfBuffer = await generateBookingPDF(pdfData, paxes);
 
-        /**
-         * 4. URL Tracking
-         * Sesuaikan dengan halaman CEK PESANAN di website darma.siappgo.id
-         */
-        const statusTrackingUrl = `https://darma.siappgo.id/api/hotels/booking-detail?no=${bookingData.reservation_no}`;
+        // URL ARAHKAN KE FRONTEND (Bukan ke API)
+        const statusTrackingUrl = `https://darma.siappgo.id/tracking?no=${bookingData.reservation_no}`;
 
-        // 5. Konfigurasi Email
         const mailOptions = {
             from: '"LinkU Travel" <linkutransport@gmail.com>',
             to: bookingData.contact_email,
             subject: `E-Tiket Hotel - ${bookingData.reservation_no}`,
             html: `
-                <div style="font-family: sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: auto;">
-                    <p>Halo Bapak/Ibu 😊</p>
-                    <p>Pemesanan hotel Anda telah kami konfirmasi. Berikut kami lampirkan <b>E-Voucher</b> resmi untuk nomor reservasi: <b>${bookingData.reservation_no}</b>.</p>
-                    
-                    <div style="background-color: #f4f7f9; border-left: 4px solid #007bff; padding: 15px; margin: 20px 0;">
-                        <p style="margin: 0;"><b>Informasi Penting:</b></p>
-                        <ul style="margin: 5px 0 0 0; padding-left: 20px;">
-                            <li>Tunjukkan voucher (PDF terlampir) saat check-in.</li>
-                            <li>Pastikan identitas tamu sesuai dengan yang tertera di voucher.</li>
-                        </ul>
-                    </div>
-                    
+                <div style="font-family: sans-serif; max-width: 600px; margin: auto;">
+                    <h2>Booking Berhasil!</h2>
+                    <p>Halo Bapak/Ibu, pesanan Anda sudah dikonfirmasi.</p>
                     <div style="text-align: center; margin: 30px 0;">
-                        <p style="font-size: 14px; color: #666;">Ingin memantau status pesanan Anda?</p>
                         <a href="${statusTrackingUrl}" 
-                           style="background-color: #007bff; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">
+                           style="background-color: #007bff; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold;">
                            Cek Status Booking
                         </a>
                     </div>
-
-                    <p>Terima kasih telah mempercayakan perjalanan Anda kepada LinkU Nusantara 🙏✨</p>
-                    <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
-                    <p style="font-size: 12px; color: #999; text-align: center;">
-                        <b>LinkU Nusantara</b><br>
-                        Layanan Terbaikmu 🚀
-                    </p>
+                    <p>Voucher PDF telah terlampir di email ini.</p>
                 </div>
             `,
-            attachments: [
-                {
-                    filename: `E-Tiket-${bookingData.reservation_no}.pdf`,
-                    content: pdfBuffer
-                }
-            ]
+            attachments: [{ filename: `Transaksi-${bookingData.reservation_no}.pdf`, content: pdfBuffer }]
         };
 
         await transporter.sendMail(mailOptions);
-        console.log(`[Email Sent] ID: ${bookingId} - Email: ${bookingData.contact_email}`);
-        
     } catch (error) {
-        console.error("Error in sendBookingEmails:", error);
+        console.error("Error kirim email:", error);
     }
 }
 
