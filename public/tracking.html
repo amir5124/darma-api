@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Cek Status Booking - LinkU</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: sans-serif; padding: 20px; text-align: center; }
+        .card { border: 1px solid #ddd; padding: 20px; border-radius: 8px; max-width: 400px; margin: auto; }
+        .status { font-weight: bold; color: green; font-size: 1.2em; }
+        .loading { color: #888; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h3>Detail Reservasi</h3>
+        <div id="content">
+            <p class="loading">Sedang mengambil data...</p>
+        </div>
+    </div>
+
+    <script>
+        async function fetchDetail() {
+            // 1. Ambil nomor reservasi dari URL (?no=RES123)
+            const urlParams = new URLSearchParams(window.location.search);
+            const resNo = urlParams.get('no');
+
+            if (!resNo) {
+                document.getElementById('content').innerHTML = "Nomor reservasi tidak ditemukan.";
+                return;
+            }
+
+            try {
+                // 2. Panggil API Backend (Menggunakan POST sesuai route backend kamu)
+                const response = await fetch('https://api.siappgo.id/api/hotels/booking-detail', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ reservationNo: resNo })
+                });
+
+                const data = await response.json();
+
+                if (data.status === "SUCCESS") {
+                    const detail = data.bookingDetail;
+                    document.getElementById('content').innerHTML = `
+                        <p>No Reservasi: <b>${resNo}</b></p>
+                        <p>Hotel: <br> ${detail.hotelName}</p>
+                        <p>Status: <span class="status">${detail.bookingStatus}</span></p>
+                        <hr>
+                        <small>Silakan cek email untuk download voucher PDF</small>
+                    `;
+                } else {
+                    document.getElementById('content').innerHTML = "Pemesanan tidak ditemukan.";
+                }
+            } catch (error) {
+                document.getElementById('content').innerHTML = "Gagal memuat data. Coba lagi nanti.";
+            }
+        }
+
+        fetchDetail();
+    </script>
+</body>
+</html>

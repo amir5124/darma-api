@@ -205,16 +205,21 @@ async function generateBookingPDF(data, paxes) {
  */
 async function sendBookingEmails(bookingId) {
     try {
+        // 1. Ambil data booking utama
         const [rows] = await db.execute("SELECT * FROM hotel_bookings WHERE id = ?", [bookingId]);
-        if (rows.length === 0) return;
+        if (rows.length === 0) {
+            console.error(`Booking ID ${bookingId} tidak ditemukan.`);
+            return;
+        }
         const bookingData = rows[0];
 
+        // 2. Ambil data pax (tamu)
         const [paxes] = await db.execute(
             "SELECT title, first_name as firstName, last_name as lastName FROM hotel_booking_paxes WHERE booking_id = ?",
             [bookingId]
         );
 
-        // Map data untuk PDF
+        // 3. Mapping data untuk Generator PDF
         const pdfData = {
             reservationNo: bookingData.reservation_no,
             osRefNo: bookingData.os_ref_no,
@@ -231,32 +236,64 @@ async function sendBookingEmails(bookingId) {
 
         const pdfBuffer = await generateBookingPDF(pdfData, paxes);
 
-        // URL ARAHKAN KE FRONTEND (Bukan ke API)
-        const statusTrackingUrl = `https://siappgo.id/tracking?no=${bookingData.reservation_no}`;
+        /**
+         * 4. URL TRACKING
+         * Diarahkan ke rute GET /tracking yang sudah kita buat di index.js
+         * Browser akan membuka public/tracking.html
+         */
+        const statusTrackingUrl = `https://darma.siappgo.id/tracking?no=${bookingData.reservation_no}`;
 
+        // 5. Konfigurasi Email
         const mailOptions = {
             from: '"LinkU Travel" <linkutransport@gmail.com>',
             to: bookingData.contact_email,
             subject: `E-Tiket Hotel - ${bookingData.reservation_no}`,
             html: `
-                <div style="font-family: sans-serif; max-width: 600px; margin: auto;">
-                    <h2>Booking Berhasil!</h2>
-                    <p>Halo Bapak/Ibu, pesanan Anda sudah dikonfirmasi.</p><p> Cek secara berkala tutan dibawah ini untuk update status booking</p>
+                <div style="font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #eee; padding: 20px; border-radius: 10px;">
+                    <h2 style="color: #007bff; text-align: center;">Booking Berhasil! 🎉</h2>
+                    <p>Halo Bapak/Ibu 😊,</p>
+                    <p>Terima kasih telah memesan melalui <b>LinkU</b>. Pesanan Anda telah berhasil dikonfirmasi oleh pihak hotel.</p>
+                    
+                    <div style="background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0;">
+                        <p style="margin: 0;"><b>Detail Singkat:</b></p>
+                        <p style="margin: 5px 0;">No. Reservasi: <b>${bookingData.reservation_no}</b></p>
+                        <p style="margin: 5px 0;">Hotel: ${bookingData.hotel_name}</p>
+                    </div>
+
+                    <p>Anda dapat mengecek update status booking secara berkala melalui tautan di bawah ini:</p>
+                    
                     <div style="text-align: center; margin: 30px 0;">
                         <a href="${statusTrackingUrl}" 
-                           style="background-color: #007bff; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold;">
+                           style="background-color: #007bff; color: white; padding: 14px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
                            Cek Status Booking
                         </a>
                     </div>
-                    <p>Voucher PDF telah terlampir di email ini.</p>
+
+                    <p style="font-size: 0.9em; color: #666;">
+                        *Voucher resmi (PDF) telah kami lampirkan pada email ini. Silakan tunjukkan saat proses check-in.
+                    </p>
+                    
+                    <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+                    <p style="text-align: center; color: #888; font-size: 12px;">
+                        LinkU Nusantara 💙<br>
+                        Layanan Terbaikmu 🚀
+                    </p>
                 </div>
             `,
-            attachments: [{ filename: `Transaksi-${bookingData.reservation_no}.pdf`, content: pdfBuffer }]
+            attachments: [
+                { 
+                    filename: `Transaksi-${bookingData.reservation_no}.pdf`, 
+                    content: pdfBuffer 
+                }
+            ]
         };
 
+        // 6. Kirim
         await transporter.sendMail(mailOptions);
+        console.log(`[Email Sent] Success to: ${bookingData.contact_email}`);
+
     } catch (error) {
-        console.error("Error kirim email:", error);
+        console.error("Gagal menjalankan sendBookingEmails:", error.message);
     }
 }
 
