@@ -256,7 +256,7 @@ async function sendBookingEmails(bookingId) {
                     
                     <div style="background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0;">
                         <p style="margin: 0;"><b>Detail Singkat:</b></p>
-                        <p style="margin: 5px 0;">No. Reservasi: <b>${bookingData.reservation_no}</b></p>
+                        <p style="margin: 5px 0;">No. Transaksi: <b>${bookingData.reservation_no}</b></p>
                         <p style="margin: 5px 0;">Hotel: ${bookingData.hotel_name}</p>
                     </div>
 
