@@ -6,24 +6,36 @@
     <title>Status Reservasi - LinkU</title>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; background-color: #f4f7f9; color: #333; line-height: 1.6; }
-        .card { background: white; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); padding: 30px; max-width: 450px; margin: 40px auto; text-align: center; }
-        h3 { margin-top: 0; color: #007bff; }
-        .status-badge { display: inline-block; padding: 6px 15px; border-radius: 20px; font-weight: bold; margin: 10px 0; }
-        .status-accept { background-color: #d1fae5; color: #065f46; }
-        .status-process { background-color: #fef3c7; color: #92400e; }
-        .status-error { background-color: #fee2e2; color: #991b1b; }
-        .hotel-name { font-size: 1.1em; font-weight: 600; margin: 15px 0; }
+        .card { background: white; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); padding: 25px; max-width: 480px; margin: 40px auto; text-align: center; }
+        h3 { margin-top: 0; color: #007bff; border-bottom: 2px solid #f0f0f0; padding-bottom: 15px; }
+        
+        .status-badge { display: inline-block; padding: 8px 20px; border-radius: 20px; font-weight: bold; margin: 15px 0; text-transform: uppercase; font-size: 14px; }
+        .status-accept { background-color: #d1fae5; color: #065f46; border: 1px solid #10b981; }
+        .status-process { background-color: #fef3c7; color: #92400e; border: 1px solid #fbbf24; }
+        .status-error { background-color: #fee2e2; color: #991b1b; border: 1px solid #f87171; }
+        
+        .info-grid { text-align: left; background: #fafafa; padding: 15px; border-radius: 8px; margin: 20px 0; }
+        .info-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; border-bottom: 1px dashed #eee; padding-bottom: 5px; }
+        .label { color: #666; font-weight: 500; }
+        .value { color: #000; font-weight: 600; text-align: right; }
+
+        .hotel-name { font-size: 1.2em; font-weight: 700; color: #2c3e50; margin: 10px 0 5px 0; }
+        .room-name { font-size: 0.95em; color: #555; font-style: italic; margin-bottom: 15px; }
+        
         hr { border: 0; border-top: 1px solid #eee; margin: 20px 0; }
-        .loading { color: #007bff; font-weight: bold; }
-        .error-log { font-size: 11px; color: #999; margin-top: 20px; text-align: left; background: #f9f9f9; padding: 10px; border-radius: 5px; display: none; word-break: break-all; }
-        .btn-retry { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; text-decoration: none; display: inline-block; margin-top: 10px; }
+        .loading { color: #007bff; font-weight: bold; padding: 40px 0; }
+        .error-log { font-size: 11px; color: #999; margin-top: 20px; text-align: left; background: #f9f9f9; padding: 10px; border-radius: 5px; display: none; word-break: break-all; border: 1px solid #eee; }
+        .btn-retry { background: #007bff; color: white; border: none; padding: 12px 25px; border-radius: 6px; cursor: pointer; text-decoration: none; display: inline-block; font-weight: bold; transition: background 0.3s; }
+        .btn-retry:hover { background: #0056b3; }
+        
+        .footer-note { font-size: 12px; color: #777; margin-top: 15px; }
     </style>
 </head>
 <body>
     <div class="card">
-        <h3>Detail Reservasi</h3>
+        <h3>Detail Reservasi Hotel</h3>
         <div id="content">
-            <p class="loading">⏳ Sedang mengambil data dari supplier...</p>
+            <p class="loading">⏳ Sedang menghubungi supplier Darmawisata...</p>
         </div>
         <div id="errorLog" class="error-log"></div>
     </div>
@@ -33,84 +45,106 @@
             const content = document.getElementById('content');
             const errorLog = document.getElementById('errorLog');
             
-            // 1. Ambil Parameter dari URL
+            // 1. Ambil Parameter dari URL (?no=...&os=...)
             const urlParams = new URLSearchParams(window.location.search);
             const resNo = urlParams.get('no');
-            // Jika Anda menambahkan os_ref_no di link email (opsional tapi disarankan)
             const osNo = urlParams.get('os') || ""; 
 
-            if (!resNo) {
-                content.innerHTML = `<p class="status-error">❌ Nomor reservasi tidak ditemukan di link.</p>`;
+            // Validasi Input Minimal
+            if (!resNo && !osNo) {
+                content.innerHTML = `<p class="status-error">❌ Link tidak valid. Parameter reservasi atau OS Ref tidak ditemukan.</p>`;
                 return;
             }
 
             try {
                 // 2. Fetch ke Backend
-                // Menggunakan payload yang sama dengan handleSyncStatus di admin/history
                 const response = await fetch('/api/hotels/booking-detail', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
                         reservationNo: resNo,
                         osRefNo: osNo,
-                        forceResend: false // Set false agar tidak spam email setiap kali halaman dibuka
+                        forceResend: false 
                     })
                 });
 
                 const result = await response.json();
 
-                // 3. Log Error ke Konsol & Alert jika gagal (untuk debug)
+                // 3. Debugging (Jika Gagal)
                 if (result.status !== "SUCCESS") {
-                    console.error("Server Error Response:", result);
-                    // Tampilkan detail error jika ada
+                    console.error("API Error:", result);
                     errorLog.style.display = "block";
-                    errorLog.innerHTML = `<b>Debug Info:</b> ${result.respMessage || 'Unknown Error'}`;
+                    errorLog.innerHTML = `<b>Server Message:</b> ${result.respMessage || 'Unknown error occurred'}`;
                 }
 
-                // 4. Render Interface berdasarkan Status
+                // 4. Render Interface
                 if (result.status === "SUCCESS" && result.bookingDetail) {
-                    const detail = result.bookingDetail;
-                    const cleanStatus = (detail.bookingStatus || "").trim();
+                    const b = result.bookingDetail;
+                    const cleanStatus = (b.bookingStatus || "").trim();
                     
+                    // Tentukan Gaya Visual berdasarkan Status
                     let statusClass = 'status-process';
-                    let statusText = cleanStatus;
+                    let statusLabel = 'Diproses';
+                    let message = '⌛ Pesanan Anda sedang diproses oleh supplier. Mohon cek kembali nanti.';
 
                     if (cleanStatus === 'Accept') {
                         statusClass = 'status-accept';
-                        statusText = '✅ Terkonfirmasi (Accept)';
-                    } else if (cleanStatus.includes('Cancel')) {
+                        statusLabel = 'Terkonfirmasi';
+                        message = '✅ Voucher telah terbit dan dikirim ke email Anda.';
+                    } else if (cleanStatus.toLowerCase().includes('cancel')) {
                         statusClass = 'status-error';
+                        statusLabel = 'Dibatalkan';
+                        message = '❌ Maaf, pemesanan ini telah dibatalkan.';
                     }
 
                     content.innerHTML = `
-                        <div class="status-badge ${statusClass}">${statusText}</div>
-                        <p>No Reservasi: <b>${resNo}</b></p>
-                        <div class="hotel-name">${detail.hotelName || 'Nama Hotel Tidak Tersedia'}</div>
-                        <p style="font-size: 0.9em; color: #666;">${detail.roomName || ''}</p>
+                        <div class="status-badge ${statusClass}">${statusLabel}</div>
+                        
+                        <div class="hotel-name">${b.hotelName || 'Hotel Tanpa Nama'}</div>
+                        <div class="room-name">${b.roomName || ''}</div>
+                        
+                        <div class="info-grid">
+                            <div class="info-row">
+                                <span class="label">No. Reservasi</span>
+                                <span class="value">${b.reservationNo || '<span style="color:#d97706">Menunggu...</span>'}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="label">OS Ref No (Darma)</span>
+                                <span class="value">${b.osRefNo || osNo}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="label">Agent Ref No</span>
+                                <span class="value">${b.agentOsRef || '-'}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="label">Check-In</span>
+                                <span class="value">${b.checkInDate ? b.checkInDate.split('T')[0] : '-'}</span>
+                            </div>
+                        </div>
+
+                        <p>${message}</p>
+                        
                         <hr>
-                        ${cleanStatus === 'Accept' 
-                            ? '<p>✨ Voucher telah dikirim ke email Anda. Silakan cek inbox atau folder spam.</p>' 
-                            : '<p>⌛ Mohon tunggu, pesanan Anda sedang diproses oleh supplier.</p>'}
-                        <a href="javascript:location.reload()" class="btn-retry">🔄 Refresh Status</a>
+                        <button class="btn-retry" onclick="location.reload()">🔄 Refresh Status</button>
+                        <p class="footer-note">Terakhir diperbarui: ${new Date().toLocaleTimeString('id-ID')} WIB</p>
                     `;
                 } else {
                     content.innerHTML = `
                         <p class="status-error">❌ Transaksi Tidak Ditemukan</p>
-                        <p>${result.respMessage || 'Nomor reservasi mungkin salah atau belum terdaftar di sistem kami.'}</p>
+                        <p style="font-size:14px;">${result.respMessage || 'Data belum tersedia di database supplier.'}</p>
                         <button class="btn-retry" onclick="location.reload()">Coba Lagi</button>
                     `;
                 }
             } catch (error) {
-                console.error("Connection Error:", error);
-                alert("Gagal terhubung ke server: " + error.message);
+                console.error("Network Error:", error);
                 content.innerHTML = `
                     <p class="status-error">❌ Gangguan Koneksi</p>
-                    <p>Gagal menghubungi server. Pastikan koneksi internet Anda stabil.</p>
+                    <p style="font-size:14px;">Gagal menghubungi server LinkU. Silakan periksa koneksi internet Anda.</p>
+                    <button class="btn-retry" onclick="location.reload()">Hubungkan Ulang</button>
                 `;
             }
         }
 
-        // Jalankan fungsi saat halaman dimuat
         window.onload = fetchDetail;
     </script>
 </body>
