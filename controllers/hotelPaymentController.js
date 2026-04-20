@@ -167,7 +167,7 @@ const HotelPaymentController = {
                 <div style="padding: 20px;">
                     <p>Halo ${finalCustomerName}, silakan selesaikan pembayaran untuk <b>${b.hotel_name}</b></p>
                     <table style="width: 100%; margin-bottom: 20px;">
-                        <tr><td>No. Reservasi</td><td>: <b>${b.reservation_no}</b></td></tr>
+                        <tr><td>No. Transaksi</td><td>: <b>${b.reservation_no}</b></td></tr>
                         <tr><td>Metode</td><td>: ${method} ${bankName || ''}</td></tr>
                     </table>
                     <div style="background: #f9f9f9; padding: 20px; text-align: center; border-radius: 10px;">
