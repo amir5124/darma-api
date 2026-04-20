@@ -770,69 +770,77 @@ Layanan terbaikmu 🚀</p>`,
 
 // POST /api/hotel-bookings/draft
 router.post('/hotel-bookings/draft', async (req, res) => {
-    const { 
-        hotel_id, hotel_name, hotel_address, 
-        check_in_date, check_out_date, 
-        room_id, room_name, 
-        contact_email, total_price, handling_fee,
-        special_requests, paxes 
-    } = req.body;
-
-    const reservationNo = 'RES-' + Date.now();
+    const b = req.body;
     let connection;
 
+    // 1. Normalisasi Data Input agar sinkron antara Web & Mobile
+    const reservationNo = 'RES-' + Date.now();
+    const finalEmail = b.contact_email || b.email || "guest@mail.com";
+    const finalPhone = b.contact_phone || b.phone || "08123456789";
+    const finalTotalPrice = Math.round(parseFloat(b.total_price || b.totalPrice || 0));
+    const finalHandlingFee = Math.round(parseFloat(b.handling_fee || b.handlingFee || 0));
+    
     try {
         connection = await db.getConnection();
         await connection.beginTransaction();
 
-        console.log(`[DRAFT] Creating booking draft: ${reservationNo} for ${contact_email}`);
+        console.log(`[DRAFT] Creating booking: ${reservationNo} for ${finalEmail}`);
 
+        // 2. Siapkan Values untuk tabel hotel_bookings
         const bookingValues = [
             reservationNo,
-            hotel_id || null,
-            hotel_name || null,
-            hotel_address || null,
-            check_in_date || null,
-            check_out_date || null,
-            room_id || null,
-            room_name || null,
-            contact_email || null,
-            total_price || 0,
-            handling_fee || 0,
-            special_requests || null,
-            'PENDING' // Status awal sebelum dibayar
+            b.hotel_id || b.hotelID || null,
+            b.hotel_name || b.hotelName || "Hotel Name",
+            b.hotel_address || b.hotelAddress || null,
+            b.check_in_date || b.checkInDate || null,
+            b.check_out_date || b.checkOutDate || null,
+            b.room_id || b.roomID || null,
+            b.room_name || b.roomName || null,
+            b.breakfast_type || b.breakfast || "Room Only",
+            finalEmail,
+            finalPhone,
+            finalTotalPrice,
+            finalHandlingFee,
+            b.special_requests || b.requestDescription || null,
+            b.username || 'guest',
+            'PENDING' // Status awal
         ];
 
+        // 3. Eksekusi Insert Header
         const [result] = await connection.execute(
             `INSERT INTO hotel_bookings 
             (reservation_no, hotel_id, hotel_name, hotel_address, check_in_date, check_out_date, 
-             room_id, room_name, contact_email, total_price, handling_fee, special_requests, booking_status) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             room_id, room_name, breakfast_type, contact_email, contact_phone, 
+             total_price, handling_fee, special_requests, username, booking_status) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             bookingValues
         );
 
         const bookingId = result.insertId;
 
-        // INSERT PAXES (Data Tamu)
-        if (paxes && Array.isArray(paxes) && paxes.length > 0) {
-            const paxQuery = `INSERT INTO hotel_booking_paxes (booking_id, title, first_name, last_name) VALUES (?, ?, ?, ?)`;
-            for (const pax of paxes) {
+        // 4. INSERT PAXES (Data Tamu) - Support berbagai format array paxes
+        const rawPaxes = b.paxes || (b.roomRequest && b.roomRequest[0]?.paxes) || [];
+        
+        if (Array.isArray(rawPaxes) && rawPaxes.length > 0) {
+            const paxQuery = `INSERT INTO hotel_booking_paxes (booking_id, title, first_name, last_name, pax_type) VALUES (?, ?, ?, ?, 'ADULT')`;
+            for (const pax of rawPaxes) {
                 await connection.execute(paxQuery, [
                     bookingId,
-                    pax.title || pax.pax_title || 'Mr',
-                    pax.firstName || pax.first_name || 'Guest',
-                    pax.lastName || pax.last_name || ''
+                    (pax.title || pax.pax_title || 'Mr.').trim(),
+                    (pax.firstName || pax.first_name || 'Guest').trim().toUpperCase(),
+                    (pax.lastName || pax.last_name || '').trim().toUpperCase()
                 ]);
             }
         }
 
         await connection.commit();
-        console.log(`[DRAFT] Success: ID ${bookingId}`);
+        console.log(`[DRAFT] Success: ID ${bookingId} Saved.`);
 
         res.json({
             status: "Success",
             booking_id: bookingId,
-            reservation_no: reservationNo
+            reservation_no: reservationNo,
+            total_price: finalTotalPrice + finalHandlingFee
         });
 
     } catch (err) {
