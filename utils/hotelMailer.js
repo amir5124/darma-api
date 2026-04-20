@@ -121,7 +121,7 @@ async function generateBookingPDF(data, paxes) {
 
             <div class="top-info-grid">
                 <div>
-                    <div class="info-row"><div class="label">Voucher No.</div><div class="value">: ${data.voucherNo || data.voucher_no || data.reservationNo || data.reservation_no || '-'}</div></div>
+                    <div class="info-row"><div class="label">No. Transaksi</div><div class="value">: ${data.voucherNo || data.voucher_no || data.reservationNo || data.reservation_no || '-'}</div></div>
                     <div class="info-row"><div class="label">Tgl Pembelian</div><div class="value">: ${paymentDate}</div></div>
                     <div class="info-row"><div class="label">Dicetak Oleh</div><div class="value">: LinkU</div></div>
                 </div>
@@ -207,33 +207,58 @@ async function sendBookingEmails(bookingId) {
     try {
         // 1. Ambil data booking dari database
         const [rows] = await db.execute("SELECT * FROM hotel_bookings WHERE id = ?", [bookingId]);
+        
         if (rows.length === 0) {
             console.error(`Booking with ID ${bookingId} not found.`);
             return;
         }
+        
         const bookingData = rows[0];
 
-        // 2. Ambil data tamu (paxes)
+        // 2. Ambil data tamu (paxes) untuk PDF
         const [paxes] = await db.execute(
             "SELECT title, first_name as firstName, last_name as lastName FROM hotel_booking_paxes WHERE booking_id = ?",
             [bookingId]
         );
 
         // 3. Generate PDF Buffer
+        // Pastikan fungsi generateBookingPDF sudah tersedia di scope ini
         const pdfBuffer = await generateBookingPDF(bookingData, paxes);
 
-        // 4. Kirim Email
+        // 4. Konstruksi URL Tracking/Status
+        // Menambahkan reservation_no sebagai query parameter agar user bisa langsung melihat statusnya
+        const statusTrackingUrl = `https://darma.siappgo.id/check-booking?no=${bookingData.reservation_no}`;
+
+        // 5. Konfigurasi Email
         const mailOptions = {
             from: '"LinkU Travel" <linkutransport@gmail.com>',
             to: bookingData.contact_email,
             subject: `E-Tiket Hotel - ${bookingData.reservation_no}`,
             html: `
-                <p>Halo 😊</p>
-                <p>Terima kasih, pembayaran Anda telah kami terima.</p>
-                <p>Berikut kami lampirkan <b>Voucher Hotel</b> Anda untuk nomor reservasi: <b>${bookingData.reservation_no}</b>.</p>
-                <p>Silakan tunjukkan voucher ini saat proses check-in di hotel.</p>
-                <br>
-                <p>Salam hangat,<br>LinkU Nusantara 💙</p>
+                <div style="font-family: sans-serif; line-height: 1.6; color: #333;">
+                    <p>Halo 😊</p>
+                    <p>Terima kasih, pembayaran Anda telah kami terima.</p>
+                    <p>Berikut kami lampirkan <b>Voucher Hotel</b> Anda untuk nomor reservasi: <b>${bookingData.reservation_no}</b>.</p>
+                    <p>Silakan gunakan voucher terlampir untuk proses check-in di hotel.</p>
+                    
+                    <div style="background-color: #f9f9f9; border: 1px solid #ddd; padding: 15px; margin: 20px 0; border-radius: 8px; text-align: center;">
+                        <p style="margin-bottom: 15px;">Anda dapat mengecek status booking secara berkala melalui tombol di bawah ini:</p>
+                        <a href="${statusTrackingUrl}" 
+                           style="background-color: #007bff; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">
+                           Cek Status Reservasi
+                        </a>
+                        <p style="font-size: 12px; color: #777; margin-top: 15px;">
+                            Atau salin link berikut: <br>
+                            <a href="${statusTrackingUrl}">${statusTrackingUrl}</a>
+                        </p>
+                    </div>
+
+                    <p>Jika ada pertanyaan lebih lanjut, silakan hubungi layanan pelanggan kami.</p>
+                    <br>
+                    <p>Salam hangat,<br>
+                    <strong>LinkU Nusantara</strong> 💙<br>
+                   
+                </div>
             `,
             attachments: [
                 {
@@ -243,6 +268,7 @@ async function sendBookingEmails(bookingId) {
             ]
         };
 
+        // 6. Eksekusi Pengiriman
         await transporter.sendMail(mailOptions);
         console.log(`Email successfully sent to ${bookingData.contact_email} for Booking ID: ${bookingId}`);
         
