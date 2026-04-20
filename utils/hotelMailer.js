@@ -241,7 +241,7 @@ async function sendBookingEmails(bookingId) {
             html: `
                 <div style="font-family: sans-serif; max-width: 600px; margin: auto;">
                     <h2>Booking Berhasil!</h2>
-                    <p>Halo Bapak/Ibu, pesanan Anda sudah dikonfirmasi.</p>
+                    <p>Halo Bapak/Ibu, pesanan Anda sudah dikonfirmasi.</p><p> Cek secara berkala tutan dibawah ini untuk update status booking</p>
                     <div style="text-align: center; margin: 30px 0;">
                         <a href="${statusTrackingUrl}" 
                            style="background-color: #007bff; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold;">
