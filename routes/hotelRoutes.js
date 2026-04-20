@@ -771,18 +771,11 @@ Layanan terbaikmu 🚀</p>`,
 // POST /api/hotel-bookings/draft
 router.post('/hotel-bookings/draft', async (req, res) => {
     const { 
-        hotel_id, 
-        hotel_name, 
-        hotel_address, // 1. TAMBAHKAN INI
-        check_in_date, 
-        check_out_date, 
-        room_id, 
-        room_name, 
-        contact_email, 
-        total_price, 
-        handling_fee,
-        special_requests,
-        paxes 
+        hotel_id, hotel_name, hotel_address, 
+        check_in_date, check_out_date, 
+        room_id, room_name, 
+        contact_email, total_price, handling_fee,
+        special_requests, paxes 
     } = req.body;
 
     const reservationNo = 'RES-' + Date.now();
@@ -792,11 +785,13 @@ router.post('/hotel-bookings/draft', async (req, res) => {
         connection = await db.getConnection();
         await connection.beginTransaction();
 
+        console.log(`[DRAFT] Creating booking draft: ${reservationNo} for ${contact_email}`);
+
         const bookingValues = [
             reservationNo,
             hotel_id || null,
             hotel_name || null,
-            hotel_address || null, // 2. MASUKKAN KE ARRAY VALUES
+            hotel_address || null,
             check_in_date || null,
             check_out_date || null,
             room_id || null,
@@ -805,24 +800,22 @@ router.post('/hotel-bookings/draft', async (req, res) => {
             total_price || 0,
             handling_fee || 0,
             special_requests || null,
-            'PENDING'
+            'PENDING' // Status awal sebelum dibayar
         ];
 
         const [result] = await connection.execute(
             `INSERT INTO hotel_bookings 
             (reservation_no, hotel_id, hotel_name, hotel_address, check_in_date, check_out_date, 
              room_id, room_name, contact_email, total_price, handling_fee, special_requests, booking_status) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, // 3. TAMBAHKAN SATU TANDA TANYA (?) LAGI
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             bookingValues
         );
 
         const bookingId = result.insertId;
 
-        // INSERT PAXES
+        // INSERT PAXES (Data Tamu)
         if (paxes && Array.isArray(paxes) && paxes.length > 0) {
-            // Gunakan snake_case agar sinkron dengan generateBookingPDF (first_name, last_name)
             const paxQuery = `INSERT INTO hotel_booking_paxes (booking_id, title, first_name, last_name) VALUES (?, ?, ?, ?)`;
-            
             for (const pax of paxes) {
                 await connection.execute(paxQuery, [
                     bookingId,
@@ -834,6 +827,7 @@ router.post('/hotel-bookings/draft', async (req, res) => {
         }
 
         await connection.commit();
+        console.log(`[DRAFT] Success: ID ${bookingId}`);
 
         res.json({
             status: "Success",
@@ -843,10 +837,44 @@ router.post('/hotel-bookings/draft', async (req, res) => {
 
     } catch (err) {
         if (connection) await connection.rollback();
-        console.error("SQL Error in Draft:", err);
+        console.error("❌ [DRAFT ERROR]:", err.message);
         res.status(500).json({ status: "Error", message: err.message });
     } finally {
         if (connection) connection.release();
+    }
+});
+
+router.post('/hotel-bookings/update-after-vendor', async (req, res) => {
+    const { 
+        reservation_no, // Nomor RES-xxxx dari lokal
+        os_ref_no,      // Nomor dari Darmawisata (Contoh: 5090)
+        agent_os_ref,   // Nomor Agent (Contoh: HTL-xxxx)
+        booking_status, // 'Accept' atau 'Processed'
+        vendor_res_no   // Nomor reservasi resmi vendor (jika ada)
+    } = req.body;
+
+    try {
+        console.log(`[UPDATE] Syncing vendor data for ${reservation_no}. OS Ref: ${os_ref_no}`);
+
+        const [result] = await db.execute(
+            `UPDATE hotel_bookings 
+             SET os_ref_no = ?, 
+                 agent_os_ref = ?, 
+                 booking_status = ?, 
+                 reservation_no = IFNULL(?, reservation_no),
+                 updated_at = NOW()
+             WHERE reservation_no = ?`,
+            [os_ref_no, agent_os_ref, booking_status, vendor_res_no, reservation_no]
+        );
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ status: "Error", message: "Booking not found" });
+        }
+
+        res.json({ status: "Success", message: "Database synchronized with vendor data" });
+    } catch (err) {
+        console.error("❌ [UPDATE ERROR]:", err.message);
+        res.status(500).json({ status: "Error", message: err.message });
     }
 });
 
