@@ -29,8 +29,47 @@ app.use(express.static('public'));
  * Ketika user klik link dari email: https://darma.siappgo.id/tracking?no=...
  * Maka server akan mengirimkan file tracking.html
  */
+// Endpoint untuk melayani file HTML
 app.get('/tracking', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'tracking.html'));
+});
+
+// Endpoint API yang akan dipanggil oleh JavaScript di tracking.html
+app.get('/api/tracking-data', async (req, res) => {
+    const { no, os } = req.query;
+
+    if (!no && !os) {
+        return res.status(400).json({ status: "Error", message: "Parameter tidak lengkap" });
+    }
+
+    try {
+        // Cari data booking berdasarkan reservation_no ATAU os_ref_no
+        const [rows] = await db.execute(
+            `SELECT * FROM hotel_bookings WHERE reservation_no = ? OR os_ref_no = ? LIMIT 1`,
+            [no || null, os || null]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).json({ status: "Error", message: "Data tidak ditemukan" });
+        }
+
+        const booking = rows[0];
+
+        // Ambil data tamu
+        const [paxes] = await db.execute(
+            `SELECT title, first_name, last_name FROM hotel_booking_paxes WHERE booking_id = ?`,
+            [booking.id]
+        );
+
+        res.json({
+            status: "Success",
+            data: booking,
+            paxes: paxes
+        });
+
+    } catch (err) {
+        res.status(500).json({ status: "Error", message: err.message });
+    }
 });
 
 // 2. Daftarkan API Routes

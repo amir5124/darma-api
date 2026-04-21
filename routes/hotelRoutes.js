@@ -458,9 +458,10 @@ router.post('/booking-detail', async (req, res) => {
 
         connection = await db.getConnection();
 
+        // --- PERBAIKAN 1: Mampu mencari berdasarkan salah satu dari dua parameter ---
         const [localRows] = await connection.execute(
-            "SELECT * FROM hotel_bookings WHERE reservation_no = ?",
-            [b.reservationNo]
+            "SELECT * FROM hotel_bookings WHERE reservation_no = ? OR os_ref_no = ? LIMIT 1",
+            [b.reservationNo || null, b.osRefNo || null]
         );
 
         if (localRows.length === 0) {
@@ -469,10 +470,13 @@ router.post('/booking-detail', async (req, res) => {
 
         const localData = localRows[0];
 
+        // --- PERBAIKAN 2: Pastikan payload dinamis mengikuti ketersediaan data ---
         const payload = {
-            reservationNo: (localData.reservation_no.startsWith("PRC-")) ? "" : localData.reservation_no,
-            osRefNo: String(localData.os_ref_no),
-            agentOsRef: localData.agent_os_ref || "",
+            // Jika reservation_no masih temporary (PRC-), kosongkan agar vendor mencari via OS Ref
+            reservationNo: (localData.reservation_no && localData.reservation_no.startsWith("PRC-")) ? "" : localData.reservation_no,
+            // Prioritaskan OS Ref dari Database, jika null ambil dari kiriman body (URL email)
+            osRefNo: String(localData.os_ref_no || b.osRefNo || ""),
+            agentOsRef: localData.agent_os_ref || b.agentOsRefNo || "", 
             userID: USER_CONFIG.userID,
             accessToken: token
         };
@@ -496,9 +500,8 @@ router.post('/booking-detail', async (req, res) => {
                     hotelName: detail.hotelName || localData.hotel_name,
                     hotelAddress: detail.hotelAddress || localData.hotel_address,
                     roomName: detail.roomName || localData.room_name,
-                    // Mengambil dari database agar akurat
                     totalPrice: localData.total_price,
-                    handlingFee: localData.handling_fee, // Tambahkan ini
+                    handlingFee: localData.handling_fee,
                     contactEmail: localData.contact_email,
                     contactPhone: localData.contact_phone,
                     checkInDate: detail.checkInDate || localData.check_in_date,
@@ -517,37 +520,36 @@ router.post('/booking-detail', async (req, res) => {
                             from: '"LinkU Travel" <linkutransport@gmail.com>',
                             to: localData.contact_email,
                             subject: `E-Tiket Hotel - ${detail.reservationNo}`,
-                            html: `<p>Halo Bapak/Ibu 😊</p>
-
-<p>🏨 Booking hotel Anda telah berhasil dikonfirmasi 🎉</p>
-
-<p>Silakan menggunakan voucher yang terlampir pada email ini 📩 untuk proses check-in di hotel.</p>
-
-<p>📄 Detail reservasi dapat dilihat pada voucher yang terlampir.</p>
-
-<p>Terima kasih telah menggunakan layanan LinkU 🙏✨</p>
-
-<p>Jika membutuhkan bantuan, silakan hubungi layanan pelanggan kami 📞💬</p>
-
-<p>Salam hangat,<br>
-LinkU 💙<br>
-Layanan terbaikmu 🚀</p>`,
+                            html: `
+                                <p>Halo Bapak/Ibu 😊</p>
+                                <p>🏨 Booking hotel Anda telah berhasil dikonfirmasi 🎉</p>
+                                <p>Silakan menggunakan voucher yang terlampir pada email ini 📩 untuk proses check-in di hotel.</p>
+                                <p>📄 Detail reservasi dapat dilihat pada voucher yang terlampir.</p>
+                                <p>Terika kasih telah menggunakan layanan LinkU 🙏✨</p>
+                                <p>Salam hangat,<br>LinkU 💙</p>`,
                             attachments: [{ filename: `E-Tiket-${detail.reservationNo}.pdf`, content: pdfBuffer }]
                         });
-                        logger.info(`Email Terkirim (${isForceResend ? 'Resend' : 'Update'}): ${detail.reservationNo}`);
+                        logger.info(`Email Terkirim: ${detail.reservationNo}`);
                     } catch (mailErr) {
-                        logger.error("Gagal kirim email di detail: " + mailErr.message);
+                        logger.error("Gagal kirim email: " + mailErr.message);
                     }
                 }
 
+                // --- PERBAIKAN 3: Update DB dengan info vendor terbaru (termasuk OS Ref jika baru dapat) ---
                 await connection.execute(
                     `UPDATE hotel_bookings SET 
                         reservation_no = ?, 
                         voucher_no = ?, 
+                        os_ref_no = ?,
                         booking_status = 'Accept',
                         updated_at = NOW() 
                      WHERE id = ?`,
-                    [detail.reservationNo, detail.voucherNo, localData.id]
+                    [
+                        detail.reservationNo, 
+                        detail.voucherNo, 
+                        detail.osRefNo || localData.os_ref_no, 
+                        localData.id
+                    ]
                 );
 
                 resData.updatedToAccept = true;

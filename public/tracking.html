@@ -5,54 +5,94 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Status Reservasi - LinkU</title>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; background-color: #f4f7f9; color: #333; line-height: 1.6; }
-        .card { background: white; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); padding: 25px; max-width: 480px; margin: 40px auto; text-align: center; }
-        h3 { margin-top: 0; color: #007bff; border-bottom: 2px solid #f0f0f0; padding-bottom: 15px; }
+        :root { --primary: #24b3ae; --error: #ef4444; --warning: #f59e0b; --success: #10b981; }
+        body { font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 20px; background-color: #f8fafc; color: #334155; line-height: 1.6; }
+        .card { background: white; border-radius: 16px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); padding: 30px; max-width: 500px; margin: 40px auto; text-align: center; }
+        h3 { margin-top: 0; color: #1e293b; border-bottom: 2px solid #f1f5f9; padding-bottom: 15px; font-weight: 800; }
         
-        .status-badge { display: inline-block; padding: 8px 20px; border-radius: 20px; font-weight: bold; margin: 15px 0; text-transform: uppercase; font-size: 14px; }
-        .status-accept { background-color: #d1fae5; color: #065f46; border: 1px solid #10b981; }
-        .status-process { background-color: #fef3c7; color: #92400e; border: 1px solid #fbbf24; }
-        .status-error { background-color: #fee2e2; color: #991b1b; border: 1px solid #f87171; }
+        .status-badge { display: inline-block; padding: 10px 24px; border-radius: 30px; font-weight: bold; margin: 15px 0; text-transform: uppercase; font-size: 13px; letter-spacing: 0.5px; }
+        .status-accept { background-color: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+        .status-process { background-color: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+        .status-error { background-color: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
         
-        .info-grid { text-align: left; background: #fafafa; padding: 15px; border-radius: 8px; margin: 20px 0; }
-        .info-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; border-bottom: 1px dashed #eee; padding-bottom: 5px; }
-        .label { color: #666; font-weight: 500; }
-        .value { color: #000; font-weight: 600; text-align: right; }
+        .info-grid { text-align: left; background: #f8fafc; padding: 18px; border-radius: 12px; margin: 20px 0; border: 1px solid #e2e8f0; }
+        .info-row { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 14px; border-bottom: 1px dashed #e2e8f0; padding-bottom: 8px; }
+        .info-row:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+        .label { color: #64748b; font-weight: 500; }
+        .value { color: #0f172a; font-weight: 600; text-align: right; }
 
-        .hotel-name { font-size: 1.2em; font-weight: 700; color: #2c3e50; margin: 10px 0 5px 0; }
-        .room-name { font-size: 0.95em; color: #555; font-style: italic; margin-bottom: 15px; }
+        .hotel-name { font-size: 1.25rem; font-weight: 700; color: #0f172a; margin: 10px 0 5px 0; }
+        .room-name { font-size: 0.9rem; color: #64748b; margin-bottom: 15px; }
         
-        hr { border: 0; border-top: 1px solid #eee; margin: 20px 0; }
-        .loading { color: #007bff; font-weight: bold; padding: 40px 0; }
-        .error-log { font-size: 11px; color: #999; margin-top: 20px; text-align: left; background: #f9f9f9; padding: 10px; border-radius: 5px; display: none; word-break: break-all; border: 1px solid #eee; }
-        .btn-retry { background: #007bff; color: white; border: none; padding: 12px 25px; border-radius: 6px; cursor: pointer; text-decoration: none; display: inline-block; font-weight: bold; transition: background 0.3s; }
-        .btn-retry:hover { background: #0056b3; }
+        .loading-spinner { border: 4px solid #f3f3f3; border-top: 4px solid var(--primary); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .btn-retry { background: var(--primary); color: white; border: none; padding: 14px 28px; border-radius: 10px; cursor: pointer; text-decoration: none; display: inline-block; font-weight: bold; transition: all 0.2s; width: 100%; box-shadow: 0 4px 6px -1px rgba(36, 179, 174, 0.3); }
+        .btn-retry:hover { background: #1d9490; transform: translateY(-1px); }
         
-        .footer-note { font-size: 12px; color: #777; margin-top: 15px; }
+        .debug-area { margin-top: 25px; text-align: left; }
+        .debug-header { font-size: 11px; color: #94a3b8; cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 5px; background: #f1f5f9; border-radius: 4px; }
+        .debug-log { font-family: 'Courier New', Courier, monospace; font-size: 10px; color: #334155; background: #1e293b; color: #cbd5e1; padding: 12px; border-radius: 6px; display: none; overflow-x: auto; margin-top: 5px; white-space: pre-wrap; }
+        .footer-note { font-size: 11px; color: #94a3b8; margin-top: 20px; }
     </style>
 </head>
 <body>
+
     <div class="card">
-        <h3>Detail Reservasi Hotel</h3>
-        <div id="content">
-            <p class="loading">⏳ Sedang menghubungi supplier Darmawisata...</p>
+        <h3>Detail Reservasi</h3>
+        
+        <div id="loader">
+            <div class="loading-spinner"></div>
+            <p style="color: #64748b;">Menghubungkan ke sistem Darmawisata...</p>
         </div>
-        <div id="errorLog" class="error-log"></div>
+
+        <div id="content" style="display: none;">
+            </div>
+
+        <div class="debug-area">
+            <div class="debug-header" onclick="toggleDebug()">
+                <span>DEBUG INFO (Technical Details)</span>
+                <span id="debugToggleIcon">▼</span>
+            </div>
+            <div id="debugLog" class="debug-log"></div>
+        </div>
+
+        <p class="footer-note">© 2026 LinkU Nusantara • Layanan Perjalanan Terbaikmu</p>
     </div>
 
     <script>
+        const debugLog = document.getElementById('debugLog');
+        
+        function log(msg, obj = null) {
+            const timestamp = new Date().toLocaleTimeString();
+            let text = `[${timestamp}] ${msg}\n`;
+            if (obj) text += JSON.stringify(obj, null, 2) + "\n";
+            debugLog.innerText += text;
+            console.log(msg, obj);
+        }
+
+        function toggleDebug() {
+            const isHidden = debugLog.style.display === "none" || debugLog.style.display === "";
+            debugLog.style.display = isHidden ? "block" : "none";
+            document.getElementById('debugToggleIcon').innerText = isHidden ? "▲" : "▼";
+        }
+
         async function fetchDetail() {
             const content = document.getElementById('content');
-            const errorLog = document.getElementById('errorLog');
+            const loader = document.getElementById('loader');
             
-            // 1. Ambil Parameter dari URL (?no=...&os=...)
+            // 1. Ambil Parameter dari URL
             const urlParams = new URLSearchParams(window.location.search);
             const resNo = urlParams.get('no');
-            const osNo = urlParams.get('os') || ""; 
+            const osNo = urlParams.get('os');
+            const agentNo = urlParams.get('agent');
 
-            // Validasi Input Minimal
+            log("Initializing fetch with params:", { resNo, osNo, agentNo });
+
             if (!resNo && !osNo) {
-                content.innerHTML = `<p class="status-error">❌ Link tidak valid. Parameter reservasi atau OS Ref tidak ditemukan.</p>`;
+                loader.style.display = "none";
+                content.style.display = "block";
+                content.innerHTML = `<div class="status-error" style="padding:15px; border-radius:10px;">❌ Link tidak valid. Parameter tidak lengkap.</div>`;
                 return;
             }
 
@@ -64,82 +104,88 @@
                     body: JSON.stringify({ 
                         reservationNo: resNo,
                         osRefNo: osNo,
+                        agentOsRefNo: agentNo,
                         forceResend: false 
                     })
                 });
 
+                log("Response status:", response.status);
                 const result = await response.json();
+                log("Response data:", result);
 
-                // 3. Debugging (Jika Gagal)
-                if (result.status !== "SUCCESS") {
-                    console.error("API Error:", result);
-                    errorLog.style.display = "block";
-                    errorLog.innerHTML = `<b>Server Message:</b> ${result.respMessage || 'Unknown error occurred'}`;
-                }
+                loader.style.display = "none";
+                content.style.display = "block";
 
-                // 4. Render Interface
                 if (result.status === "SUCCESS" && result.bookingDetail) {
                     const b = result.bookingDetail;
                     const cleanStatus = (b.bookingStatus || "").trim();
                     
-                    // Tentukan Gaya Visual berdasarkan Status
                     let statusClass = 'status-process';
                     let statusLabel = 'Diproses';
-                    let message = '⌛ Pesanan Anda sedang diproses oleh supplier. Mohon cek kembali nanti.';
+                    let message = '⌛ Pesanan Anda sedang diproses oleh supplier. Silakan refresh berkala.';
 
                     if (cleanStatus === 'Accept') {
                         statusClass = 'status-accept';
                         statusLabel = 'Terkonfirmasi';
-                        message = '✅ Voucher telah terbit dan dikirim ke email Anda.';
+                        message = '✅ Voucher telah terbit! Silakan cek email Anda secara berkala.';
                     } else if (cleanStatus.toLowerCase().includes('cancel')) {
                         statusClass = 'status-error';
                         statusLabel = 'Dibatalkan';
-                        message = '❌ Maaf, pemesanan ini telah dibatalkan.';
+                        message = '❌ Maaf, reservasi ini telah dibatalkan oleh sistem.';
                     }
 
                     content.innerHTML = `
                         <div class="status-badge ${statusClass}">${statusLabel}</div>
                         
-                        <div class="hotel-name">${b.hotelName || 'Hotel Tanpa Nama'}</div>
-                        <div class="room-name">${b.roomName || ''}</div>
+                        <div class="hotel-name">${b.hotelName || 'Informasi Hotel'}</div>
+                        <div class="room-name">${b.roomName || 'Sedang memuat detail kamar...'}</div>
                         
                         <div class="info-grid">
                             <div class="info-row">
-                                <span class="label">No. Reservasi</span>
-                                <span class="value">${b.reservationNo || '<span style="color:#d97706">Menunggu...</span>'}</span>
+                                <span class="label">ID LinkU</span>
+                                <span class="value">${resNo || '-'}</span>
                             </div>
                             <div class="info-row">
-                                <span class="label">OS Ref No (Darma)</span>
-                                <span class="value">${b.osRefNo || osNo}</span>
-                            </div>
-                            <div class="info-row">
-                                <span class="label">Agent Ref No</span>
-                                <span class="value">${b.agentOsRef || '-'}</span>
+                                <span class="label">OS Ref (Vendor)</span>
+                                <span class="value">${b.osRefNo || osNo || '-'}</span>
                             </div>
                             <div class="info-row">
                                 <span class="label">Check-In</span>
                                 <span class="value">${b.checkInDate ? b.checkInDate.split('T')[0] : '-'}</span>
                             </div>
+                            <div class="info-row">
+                                <span class="label">Voucher No</span>
+                                <span class="value" style="color:var(--primary)">${b.voucherNo || 'Belum Terbit'}</span>
+                            </div>
                         </div>
 
-                        <p>${message}</p>
+                        <p style="font-size: 14px; color: #475569; margin: 20px 0;">${message}</p>
                         
-                        <hr>
-                        <button class="btn-retry" onclick="location.reload()">🔄 Refresh Status</button>
-                        <p class="footer-note">Terakhir diperbarui: ${new Date().toLocaleTimeString('id-ID')} WIB</p>
+                        <button class="btn-retry" onclick="location.reload()">🔄 REFRESH STATUS</button>
+                        <p style="font-size: 10px; color: #94a3b8; margin-top: 10px;">
+                            Pembaruan Terakhir: ${new Date().toLocaleTimeString('id-ID')} WIB
+                        </p>
                     `;
                 } else {
+                    log("Render error state - Data not found");
                     content.innerHTML = `
-                        <p class="status-error">❌ Transaksi Tidak Ditemukan</p>
-                        <p style="font-size:14px;">${result.respMessage || 'Data belum tersedia di database supplier.'}</p>
+                        <div class="status-error" style="padding:15px; border-radius:10px; margin-bottom:15px;">
+                            ❌ Data Belum Tersedia
+                        </div>
+                        <p style="font-size:14px; color: #64748b;">${result.respMessage || 'Sistem belum mendapatkan data dari supplier.'}</p>
                         <button class="btn-retry" onclick="location.reload()">Coba Lagi</button>
                     `;
                 }
+
             } catch (error) {
-                console.error("Network Error:", error);
+                log("Fatal error in fetchDetail:", error.message);
+                loader.style.display = "none";
+                content.style.display = "block";
                 content.innerHTML = `
-                    <p class="status-error">❌ Gangguan Koneksi</p>
-                    <p style="font-size:14px;">Gagal menghubungi server LinkU. Silakan periksa koneksi internet Anda.</p>
+                    <div class="status-error" style="padding:15px; border-radius:10px; margin-bottom:15px;">
+                        ❌ Gangguan Koneksi
+                    </div>
+                    <p style="font-size:14px; color: #64748b;">Gagal terhubung ke server LinkU.</p>
                     <button class="btn-retry" onclick="location.reload()">Hubungkan Ulang</button>
                 `;
             }

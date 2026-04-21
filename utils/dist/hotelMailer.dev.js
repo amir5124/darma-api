@@ -142,7 +142,7 @@ function generateBookingPDF(data, paxes) {
 
 
 function sendBookingEmails(bookingId) {
-  var _ref, _ref2, rows, bookingData, _ref3, _ref4, paxes, pdfData, pdfBuffer, statusTrackingUrl, mailOptions;
+  var _ref, _ref2, rows, b, _ref3, _ref4, paxes, pdfData, pdfBuffer, trackingParams, statusTrackingUrl, mailOptions;
 
   return regeneratorRuntime.async(function sendBookingEmails$(_context2) {
     while (1) {
@@ -150,84 +150,102 @@ function sendBookingEmails(bookingId) {
         case 0:
           _context2.prev = 0;
           _context2.next = 3;
-          return regeneratorRuntime.awrap(db.execute("SELECT * FROM hotel_bookings WHERE id = ?", [bookingId]));
+          return regeneratorRuntime.awrap(new Promise(function (resolve) {
+            return setTimeout(resolve, 2000);
+          }));
 
         case 3:
+          _context2.next = 5;
+          return regeneratorRuntime.awrap(db.execute("SELECT * FROM hotel_bookings WHERE id = ?", [bookingId]));
+
+        case 5:
           _ref = _context2.sent;
           _ref2 = _slicedToArray(_ref, 1);
           rows = _ref2[0];
 
           if (!(rows.length === 0)) {
-            _context2.next = 9;
+            _context2.next = 11;
             break;
           }
 
-          console.error("[Email Error] Booking ID ".concat(bookingId, " tidak ditemukan di database."));
+          console.error("[Email Error] Booking ID ".concat(bookingId, " tidak ditemukan."));
           return _context2.abrupt("return");
 
-        case 9:
-          bookingData = rows[0]; // 2. Ambil data tamu (paxes)
-          // Pastikan kolom di DB sesuai: first_name dan last_name
+        case 11:
+          b = rows[0]; // 2. Ambil data tamu (paxes)
 
-          _context2.next = 12;
+          _context2.next = 14;
           return regeneratorRuntime.awrap(db.execute("SELECT title, first_name as firstName, last_name as lastName FROM hotel_booking_paxes WHERE booking_id = ?", [bookingId]));
 
-        case 12:
+        case 14:
           _ref3 = _context2.sent;
           _ref4 = _slicedToArray(_ref3, 1);
           paxes = _ref4[0];
           // 3. Mapping data untuk Generator PDF
           pdfData = {
-            reservationNo: bookingData.reservation_no,
-            osRefNo: bookingData.os_ref_no,
-            hotelName: bookingData.hotel_name,
-            hotelAddress: bookingData.hotel_address,
-            roomName: bookingData.room_name,
-            totalPrice: bookingData.total_price,
-            handlingFee: bookingData.handling_fee,
-            checkInDate: bookingData.check_in_date,
-            checkOutDate: bookingData.check_out_date,
-            breakfastType: bookingData.breakfast_type,
-            specialRequests: bookingData.special_requests || "-"
+            reservationNo: b.reservation_no,
+            osRefNo: b.os_ref_no || "-",
+            // Fallback jika belum ada
+            hotelName: b.hotel_name,
+            hotelAddress: b.hotel_address,
+            roomName: b.room_name,
+            totalPrice: b.total_price,
+            handlingFee: b.handling_fee || 0,
+            checkInDate: b.check_in_date,
+            checkOutDate: b.check_out_date,
+            breakfastType: b.breakfast_type,
+            specialRequests: b.special_requests || "-"
           };
-          _context2.next = 18;
+          _context2.next = 20;
           return regeneratorRuntime.awrap(generateBookingPDF(pdfData, paxes));
 
-        case 18:
+        case 20:
           pdfBuffer = _context2.sent;
-          // 4. URL TRACKING (Diarahkan ke GET /tracking di index.js)
-          statusTrackingUrl = "https://darma.siappgo.id/tracking?no=".concat(bookingData.reservation_no); // 5. Konfigurasi Email
+          // 4. URL TRACKING (Sangat Penting untuk membawa 'os')
+          // Parameter 'os' digunakan oleh tracking.html untuk hit API /booking-detail
+          trackingParams = new URLSearchParams({
+            no: b.reservation_no,
+            os: b.os_ref_no || '',
+            agent: b.agent_os_ref || ''
+          }).toString();
+          statusTrackingUrl = "https://darma.siappgo.id/tracking?".concat(trackingParams); // 5. Konfigurasi Email
 
           mailOptions = {
             from: '"LinkU Travel" <linkutransport@gmail.com>',
-            to: bookingData.contact_email,
-            subject: "E-Tiket Hotel - ".concat(bookingData.reservation_no),
-            html: "\n                <div style=\"font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #eee; padding: 25px; border-radius: 12px; color: #333;\">\n                    <h2 style=\"color: #007bff; text-align: center; margin-bottom: 20px;\">Booking Berhasil! \uD83C\uDF89</h2>\n                    <p>Halo Bapak/Ibu \uD83D\uDE0A,</p>\n                    <p>Terima kasih telah memesan melalui <b>LinkU</b>. Pesanan Anda telah berhasil dikonfirmasi oleh pihak hotel.</p>\n                    \n                    <div style=\"background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #007bff;\">\n                        <p style=\"margin: 0; font-weight: bold; color: #555;\">Detail Reservasi:</p>\n                        <p style=\"margin: 5px 0;\">No. Reservasi: <b style=\"color: #000;\">".concat(bookingData.reservation_no, "</b></p>\n                        <p style=\"margin: 5px 0;\">Hotel: <b>").concat(bookingData.hotel_name, "</b></p>\n                    </div>\n\n                    <p>Anda dapat mengecek update status booking secara berkala melalui tautan di bawah ini:</p>\n                    \n                    <div style=\"text-align: center; margin: 30px 0;\">\n                        <a href=\"").concat(statusTrackingUrl, "\" \n                           style=\"background-color: #007bff; color: white; padding: 14px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;\">\n                           Cek Status Booking\n                        </a>\n                    </div>\n\n                    <p style=\"font-size: 0.85em; color: #777; font-style: italic;\">\n                        *Voucher resmi (PDF) telah kami lampirkan pada email ini. Silakan tunjukkan file tersebut saat proses check-in di hotel.\n                    </p>\n                    \n                    <hr style=\"border: none; border-top: 1px solid #eee; margin: 25px 0;\">\n                    <p style=\"text-align: center; color: #888; font-size: 12px; line-height: 1.5;\">\n                        <strong>LinkU Nusantara</strong> \uD83D\uDC99<br>\n                        Layanan Perjalanan Terbaikmu \uD83D\uDE80\n                    </p>\n                </div>\n            "),
+            to: b.contact_email,
+            // Subjek dinamis: mendahulukan OS Ref agar mudah dicari di inbox
+            subject: "E-Voucher Hotel [".concat(b.os_ref_no || b.reservation_no, "] - ").concat(b.hotel_name),
+            html: "\n                <div style=\"font-family: 'Segoe UI', Tahoma, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; padding: 30px; border-radius: 16px; color: #1e293b; line-height: 1.5;\">\n                    <div style=\"text-align: center; margin-bottom: 20px;\">\n                        <img src=\"https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877917/WhatsApp_Image_2026-01-20_at_09.45.43-removebg-preview_lqkgrw.png\" height=\"50\" alt=\"LinkU Logo\">\n                    </div>\n                    \n                    <h2 style=\"color: #24b3ae; text-align: center; margin-top: 0;\">Konfirmasi Reservasi \uD83C\uDF89</h2>\n                    <p>Halo <strong>".concat(b.contact_name || 'Pelanggan Setia', "</strong>,</p>\n                    <p>Terima kasih telah memilih LinkU. Pesanan hotel Anda telah berhasil diproses. Berikut adalah ringkasan reservasi Anda:</p>\n                    \n                    <div style=\"background-color: #f1f5f9; padding: 20px; border-radius: 12px; margin: 25px 0; border-left: 5px solid #24b3ae;\">\n                        <table style=\"width: 100%; border-collapse: collapse; font-size: 14px;\">\n                            <tr>\n                                <td style=\"padding: 5px 0; color: #64748b;\">No. Reservasi</td>\n                                <td style=\"padding: 5px 0;\">: <strong>").concat(b.reservation_no, "</strong></td>\n                            </tr>\n                            <tr>\n                                <td style=\"padding: 5px 0; color: #64748b;\">O/S Ref No. (Darma)</td>\n                                <td style=\"padding: 5px 0;\">: <strong style=\"color: #24b3ae;\">").concat(b.os_ref_no || 'Sedang Diproses', "</strong></td>\n                            </tr>\n                            <tr>\n                                <td style=\"padding: 5px 0; color: #64748b;\">Hotel</td>\n                                <td style=\"padding: 5px 0;\">: <strong>").concat(b.hotel_name, "</strong></td>\n                            </tr>\n                            <tr>\n                                <td style=\"padding: 5px 0; color: #64748b;\">Check-In</td>\n                                <td style=\"padding: 5px 0;\">: <strong>").concat(new Date(b.check_in_date).toLocaleDateString('id-ID', {
+              weekday: 'long',
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric'
+            }), "</strong></td>\n                            </tr>\n                        </table>\n                    </div>\n\n                    <p>E-Voucher PDF telah kami lampirkan pada email ini. Anda juga dapat memantau status terbaru melalui tombol di bawah:</p>\n                    \n                    <div style=\"text-align: center; margin: 35px 0;\">\n                        <a href=\"").concat(statusTrackingUrl, "\" \n                           style=\"background-color: #24b3ae; color: white; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block; box-shadow: 0 4px 6px rgba(36, 179, 174, 0.2);\">\n                            CEK STATUS & VOUCHER REAL-TIME\n                        </a>\n                    </div>\n\n                    <div style=\"background: #fff9eb; padding: 15px; border-radius: 8px; border: 1px solid #ffeeba; font-size: 13px; color: #856404; margin-bottom: 20px;\">\n                        <strong>Informasi Penting:</strong> Saat check-in, Anda cukup menunjukkan E-Voucher yang ada di lampiran email ini atau melalui link di atas kepada pihak resepsionis hotel.\n                    </div>\n\n                    <hr style=\"border: none; border-top: 1px solid #e2e8f0; margin: 30px 0;\">\n                    <p style=\"text-align: center; color: #94a3b8; font-size: 12px; margin: 0;\">\n                        <strong>LinkU Nusantara</strong><br>\n                        Gedung LinkU, Tangerang, Indonesia<br>\n                        Layanan Perjalanan Terbaikmu \uD83D\uDE80\n                    </p>\n                </div>\n            "),
             attachments: [{
-              filename: "E-Voucher-".concat(bookingData.reservation_no, ".pdf"),
+              filename: "E-Voucher-".concat(b.os_ref_no || b.reservation_no, ".pdf"),
               content: pdfBuffer
             }]
-          }; // 6. Eksekusi Pengiriman
+          }; // 6. Kirim Email
 
-          _context2.next = 23;
+          _context2.next = 26;
           return regeneratorRuntime.awrap(transporter.sendMail(mailOptions));
 
-        case 23:
-          console.log("[Email Sent] Success: ".concat(bookingData.reservation_no, " to ").concat(bookingData.contact_email));
-          _context2.next = 29;
+        case 26:
+          console.log("[Email Sent] Success for ID ".concat(bookingId, ": ").concat(b.reservation_no));
+          _context2.next = 32;
           break;
 
-        case 26:
-          _context2.prev = 26;
-          _context2.t0 = _context2["catch"](0);
-          console.error("Gagal menjalankan sendBookingEmails:", _context2.t0);
-
         case 29:
+          _context2.prev = 29;
+          _context2.t0 = _context2["catch"](0);
+          console.error("[Email Error] Gagal mengirim email untuk ID ".concat(bookingId, ":"), _context2.t0.message);
+
+        case 32:
         case "end":
           return _context2.stop();
       }
     }
-  }, null, null, [[0, 26]]);
+  }, null, null, [[0, 29]]);
 }
 
 module.exports = {

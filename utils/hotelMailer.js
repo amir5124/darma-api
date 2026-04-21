@@ -205,16 +205,20 @@ async function generateBookingPDF(data, paxes) {
  */
 async function sendBookingEmails(bookingId) {
     try {
-        // 1. Ambil data booking utama
+        // Beri jeda 2 detik untuk memastikan proses update status di database selesai
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // 1. Ambil data booking utama (Pastikan kolom sesuai dengan database Anda)
         const [rows] = await db.execute("SELECT * FROM hotel_bookings WHERE id = ?", [bookingId]);
+        
         if (rows.length === 0) {
-            console.error(`[Email Error] Booking ID ${bookingId} tidak ditemukan di database.`);
+            console.error(`[Email Error] Booking ID ${bookingId} tidak ditemukan.`);
             return;
         }
-        const bookingData = rows[0];
+        
+        const b = rows[0];
 
         // 2. Ambil data tamu (paxes)
-        // Pastikan kolom di DB sesuai: first_name dan last_name
         const [paxes] = await db.execute(
             "SELECT title, first_name as firstName, last_name as lastName FROM hotel_booking_paxes WHERE booking_id = ?",
             [bookingId]
@@ -222,77 +226,106 @@ async function sendBookingEmails(bookingId) {
 
         // 3. Mapping data untuk Generator PDF
         const pdfData = {
-            reservationNo: bookingData.reservation_no,
-            osRefNo: bookingData.os_ref_no,
-            hotelName: bookingData.hotel_name,
-            hotelAddress: bookingData.hotel_address,
-            roomName: bookingData.room_name,
-            totalPrice: bookingData.total_price,
-            handlingFee: bookingData.handling_fee,
-            checkInDate: bookingData.check_in_date,
-            checkOutDate: bookingData.check_out_date,
-            breakfastType: bookingData.breakfast_type,
-            specialRequests: bookingData.special_requests || "-"
+            reservationNo: b.reservation_no,
+            osRefNo: b.os_ref_no || "-", // Fallback jika belum ada
+            hotelName: b.hotel_name,
+            hotelAddress: b.hotel_address,
+            roomName: b.room_name,
+            totalPrice: b.total_price,
+            handlingFee: b.handling_fee || 0,
+            checkInDate: b.check_in_date,
+            checkOutDate: b.check_out_date,
+            breakfastType: b.breakfast_type,
+            specialRequests: b.special_requests || "-"
         };
 
         const pdfBuffer = await generateBookingPDF(pdfData, paxes);
 
-        // 4. URL TRACKING (Diarahkan ke GET /tracking di index.js)
-        const statusTrackingUrl = `https://darma.siappgo.id/tracking?no=${bookingData.reservation_no}`;
+        // 4. URL TRACKING (Sangat Penting untuk membawa 'os')
+        // Parameter 'os' digunakan oleh tracking.html untuk hit API /booking-detail
+        const trackingParams = new URLSearchParams({
+            no: b.reservation_no,
+            os: b.os_ref_no || '', 
+            agent: b.agent_os_ref || ''
+        }).toString();
+
+        const statusTrackingUrl = `https://darma.siappgo.id/tracking?${trackingParams}`;
 
         // 5. Konfigurasi Email
         const mailOptions = {
             from: '"LinkU Travel" <linkutransport@gmail.com>',
-            to: bookingData.contact_email,
-            subject: `E-Tiket Hotel - ${bookingData.reservation_no}`,
+            to: b.contact_email,
+            // Subjek dinamis: mendahulukan OS Ref agar mudah dicari di inbox
+            subject: `E-Voucher Hotel [${b.os_ref_no || b.reservation_no}] - ${b.hotel_name}`,
             html: `
-                <div style="font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #eee; padding: 25px; border-radius: 12px; color: #333;">
-                    <h2 style="color: #007bff; text-align: center; margin-bottom: 20px;">Booking Berhasil! 🎉</h2>
-                    <p>Halo Bapak/Ibu 😊,</p>
-                    <p>Terima kasih telah memesan melalui <b>LinkU</b>. Pesanan Anda telah berhasil dikonfirmasi oleh pihak hotel.</p>
+                <div style="font-family: 'Segoe UI', Tahoma, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; padding: 30px; border-radius: 16px; color: #1e293b; line-height: 1.5;">
+                    <div style="text-align: center; margin-bottom: 20px;">
+                        <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877917/WhatsApp_Image_2026-01-20_at_09.45.43-removebg-preview_lqkgrw.png" height="50" alt="LinkU Logo">
+                    </div>
                     
-                    <div style="background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #007bff;">
-                        <p style="margin: 0; font-weight: bold; color: #555;">Detail Reservasi:</p>
-                        <p style="margin: 5px 0;">No. Reservasi: <b style="color: #000;">${bookingData.reservation_no}</b></p>
-                        <p style="margin: 5px 0;">Hotel: <b>${bookingData.hotel_name}</b></p>
+                    <h2 style="color: #24b3ae; text-align: center; margin-top: 0;">Konfirmasi Reservasi 🎉</h2>
+                    <p>Halo <strong>${b.contact_name || 'Pelanggan Setia'}</strong>,</p>
+                    <p>Terima kasih telah memilih LinkU. Pesanan hotel Anda telah berhasil diproses. Berikut adalah ringkasan reservasi Anda:</p>
+                    
+                    <div style="background-color: #f1f5f9; padding: 20px; border-radius: 12px; margin: 25px 0; border-left: 5px solid #24b3ae;">
+                        <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                            <tr>
+                                <td style="padding: 5px 0; color: #64748b;">No. Reservasi</td>
+                                <td style="padding: 5px 0;">: <strong>${b.reservation_no}</strong></td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 5px 0; color: #64748b;">O/S Ref No. (Darma)</td>
+                                <td style="padding: 5px 0;">: <strong style="color: #24b3ae;">${b.os_ref_no || 'Sedang Diproses'}</strong></td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 5px 0; color: #64748b;">Hotel</td>
+                                <td style="padding: 5px 0;">: <strong>${b.hotel_name}</strong></td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 5px 0; color: #64748b;">Check-In</td>
+                                <td style="padding: 5px 0;">: <strong>${new Date(b.check_in_date).toLocaleDateString('id-ID', { weekday:'long', year:'numeric', month:'long', day:'numeric' })}</strong></td>
+                            </tr>
+                        </table>
                     </div>
 
-                    <p>Anda dapat mengecek update status booking secara berkala melalui tautan di bawah ini:</p>
+                    <p>E-Voucher PDF telah kami lampirkan pada email ini. Anda juga dapat memantau status terbaru melalui tombol di bawah:</p>
                     
-                    <div style="text-align: center; margin: 30px 0;">
+                    <div style="text-align: center; margin: 35px 0;">
                         <a href="${statusTrackingUrl}" 
-                           style="background-color: #007bff; color: white; padding: 14px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
-                           Cek Status Booking
+                           style="background-color: #24b3ae; color: white; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block; box-shadow: 0 4px 6px rgba(36, 179, 174, 0.2);">
+                            CEK STATUS & VOUCHER REAL-TIME
                         </a>
                     </div>
 
-                    <p style="font-size: 0.85em; color: #777; font-style: italic;">
-                        *Voucher resmi (PDF) telah kami lampirkan pada email ini. Silakan tunjukkan file tersebut saat proses check-in di hotel.
-                    </p>
-                    
-                    <hr style="border: none; border-top: 1px solid #eee; margin: 25px 0;">
-                    <p style="text-align: center; color: #888; font-size: 12px; line-height: 1.5;">
-                        <strong>LinkU Nusantara</strong> 💙<br>
+                    <div style="background: #fff9eb; padding: 15px; border-radius: 8px; border: 1px solid #ffeeba; font-size: 13px; color: #856404; margin-bottom: 20px;">
+                        <strong>Informasi Penting:</strong> Saat check-in, Anda cukup menunjukkan E-Voucher yang ada di lampiran email ini atau melalui link di atas kepada pihak resepsionis hotel.
+                    </div>
+
+                    <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 30px 0;">
+                    <p style="text-align: center; color: #94a3b8; font-size: 12px; margin: 0;">
+                        <strong>LinkU Nusantara</strong><br>
+                        Gedung LinkU, Tangerang, Indonesia<br>
                         Layanan Perjalanan Terbaikmu 🚀
                     </p>
                 </div>
             `,
             attachments: [
                 { 
-                    filename: `E-Voucher-${bookingData.reservation_no}.pdf`, 
+                    filename: `E-Voucher-${b.os_ref_no || b.reservation_no}.pdf`, 
                     content: pdfBuffer 
                 }
             ]
         };
 
-        // 6. Eksekusi Pengiriman
+        // 6. Kirim Email
         await transporter.sendMail(mailOptions);
-        console.log(`[Email Sent] Success: ${bookingData.reservation_no} to ${bookingData.contact_email}`);
+        console.log(`[Email Sent] Success for ID ${bookingId}: ${b.reservation_no}`);
 
     } catch (error) {
-        console.error("Gagal menjalankan sendBookingEmails:", error);
+        console.error(`[Email Error] Gagal mengirim email untuk ID ${bookingId}:`, error.message);
     }
 }
+
 module.exports = {
     sendBookingEmails,
     generateBookingPDF // Tetap diekspor jika ingin digunakan manual
