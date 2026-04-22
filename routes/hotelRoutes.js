@@ -856,18 +856,19 @@ router.post('/hotel-bookings/draft', async (req, res) => {
 
 router.post('/hotel-bookings/update-after-vendor', async (req, res) => {
     const { 
-        reservation_no, 
-        os_ref_no,      
-        agent_os_ref,   
+        reservation_no,  // No reservasi internal/lama
+        os_ref_no,       // Ref No dari Vendor (Darmawisata)
+        agent_os_ref,    
         booking_status, 
-        vendor_res_no   
+        vendor_res_no    // No reservasi final dari vendor (jika ada perubahan)
     } = req.body;
 
     console.log(`🔄 [VENDOR SYNC] Start syncing: ${reservation_no}`);
     console.log(`   - OS Ref: ${os_ref_no}, Status: ${booking_status}`);
 
     try {
-        // 1. Update data vendor ke database
+        // 1. UPDATE data vendor ke database
+        // Kita gunakan COALESCE/IFNULL agar jika vendor_res_no kosong, tetap pakai yang lama
         const [result] = await db.execute(
             `UPDATE hotel_bookings 
              SET os_ref_no = ?, 
@@ -876,36 +877,57 @@ router.post('/hotel-bookings/update-after-vendor', async (req, res) => {
                  reservation_no = IFNULL(?, reservation_no),
                  updated_at = NOW()
              WHERE reservation_no = ?`,
-            [os_ref_no, agent_os_ref, booking_status, vendor_res_no, reservation_no]
+            [
+                os_ref_no || null, 
+                agent_os_ref || null, 
+                booking_status, 
+                vendor_res_no || null, 
+                reservation_no
+            ]
         );
 
         if (result.affectedRows === 0) {
             console.error(`❌ [VENDOR SYNC] Failed: ${reservation_no} not found.`);
-            return res.status(404).json({ status: "Error", message: "Booking not found" });
+            return res.status(404).json({ status: "Error", message: "Booking record not found" });
         }
 
-        // 2. Ambil ID Booking untuk proses email
+        // 2. AMBIL DATA TERBARU (Setelah Update)
+        // Ini krusial agar email mengambil data yang sudah sinkron (No Voucher, No Ref, dll)
         const [rows] = await db.execute(
-            "SELECT id, contact_email FROM hotel_bookings WHERE reservation_no = ? OR reservation_no = ?", 
+            `SELECT id, reservation_no, booking_status, contact_email 
+             FROM hotel_bookings 
+             WHERE reservation_no = ? OR reservation_no = ? 
+             LIMIT 1`, 
             [vendor_res_no, reservation_no]
         );
 
         if (rows.length > 0) {
-            const bookingId = rows[0].id;
+            const booking = rows[0];
             
-            // 3. TRIGGER EMAIL HANYA JIKA STATUS 'Accept'
-            if (booking_status === 'Accept' || booking_status === 'Success') {
-                console.log(`📧 [VENDOR SYNC] Triggering email for Booking ID: ${bookingId}`);
-                // Jalankan tanpa await agar response API cepat
-                sendBookingEmails(bookingId).catch(err => 
-                    console.error(`❌ [MAIL ERROR] ID ${bookingId}:`, err)
+            // 3. TRIGGER EMAIL HANYA JIKA STATUS FINAL ADALAH SUKSES/ACCEPT
+            const isSuccess = ['Accept', 'Success', 'SUCCESS'].includes(booking.booking_status);
+
+            if (isSuccess) {
+                console.log(`📧 [VENDOR SYNC] Triggering E-Ticket for Booking ID: ${booking.id}`);
+                
+                // Jalankan di background (tanpa await) agar response API ke vendor tetap cepat
+                // Fungsi sendBookingEmails HARUS melakukan query SELECT ke DB berdasarkan ID 
+                // untuk mendapatkan detail hotel & paxes untuk PDF.
+                sendBookingEmails(booking.id).catch(err => 
+                    console.error(`❌ [MAIL ERROR] Booking ID ${booking.id}:`, err)
                 );
             } else {
-                console.log(`ℹ️ [VENDOR SYNC] Email skipped. Status is: ${booking_status}`);
+                console.log(`ℹ️ [VENDOR SYNC] Email skipped. Current status: ${booking.booking_status}`);
             }
         }
 
-        res.json({ status: "Success", message: "Database synchronized and email triggered" });
+        // Berikan respon sukses ke vendor/callback
+        res.json({ 
+            status: "Success", 
+            message: "Database synchronized", 
+            synced_reservation_no: vendor_res_no || reservation_no 
+        });
+
     } catch (err) {
         console.error("❌ [VENDOR SYNC ERROR]:", err.message);
         res.status(500).json({ status: "Error", message: err.message });
