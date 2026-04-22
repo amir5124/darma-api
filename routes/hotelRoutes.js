@@ -476,7 +476,7 @@ router.post('/booking-detail', async (req, res) => {
             reservationNo: (localData.reservation_no && localData.reservation_no.startsWith("PRC-")) ? "" : localData.reservation_no,
             // Prioritaskan OS Ref dari Database, jika null ambil dari kiriman body (URL email)
             osRefNo: String(localData.os_ref_no || b.osRefNo || ""),
-            agentOsRef: localData.agent_os_ref || b.agentOsRefNo || "", 
+            agentOsRef: localData.agent_os_ref || b.agentOsRefNo || "",
             userID: USER_CONFIG.userID,
             accessToken: token
         };
@@ -496,7 +496,7 @@ router.post('/booking-detail', async (req, res) => {
 
                 const pdfData = {
                     reservationNo: detail.reservationNo,
-                  osRefNo: (detail.osRefNo && detail.osRefNo !== "-") ? detail.osRefNo : localData.os_ref_no,
+                    osRefNo: (detail.osRefNo && detail.osRefNo !== "-") ? detail.osRefNo : localData.os_ref_no,
                     hotelName: detail.hotelName || localData.hotel_name,
                     hotelAddress: detail.hotelAddress || localData.hotel_address,
                     roomName: detail.roomName || localData.room_name,
@@ -545,9 +545,9 @@ router.post('/booking-detail', async (req, res) => {
                         updated_at = NOW() 
                      WHERE id = ?`,
                     [
-                        detail.reservationNo, 
-                        detail.voucherNo, 
-                        detail.osRefNo || localData.os_ref_no, 
+                        detail.reservationNo,
+                        detail.voucherNo,
+                        detail.osRefNo || localData.os_ref_no,
                         localData.id
                     ]
                 );
@@ -696,10 +696,11 @@ router.post('/booking', async (req, res) => {
 
             await connection.commit();
 
-            // 4. Background Job: Kirim Email (Hanya jika status Accept)
-            if (currentStatus === 'Accept') {
+            // 4. Background Job: Kirim Email (Mendukung Accept & Processed)
+            if (currentStatus === 'Accept' || currentStatus === 'Processed') {
                 (async () => {
                     try {
+                        // Ambil data tamu untuk PDF
                         const [paxesForPdf] = await db.execute(
                             "SELECT title, first_name as firstName, last_name as lastName FROM hotel_booking_paxes WHERE booking_id = ?",
                             [newBookingId]
@@ -721,27 +722,79 @@ router.post('/booking', async (req, res) => {
 
                         const pdfBuffer = await generateBookingPDF(pdfData, paxesForPdf);
 
+                        // --- KONSTRUKSI URL TRACKING ---
+                        const trackingParams = new URLSearchParams({
+                            no: resData.reservationNo,
+                            os: resData.osRefNo || '',
+                            agent: payload.agentOsRef || ''
+                        }).toString();
+
+                        const statusTrackingUrl = `https://darma.siappgo.id/tracking?${trackingParams}`;
+                        const isProcessed = currentStatus === 'Processed';
+
                         await transporter.sendMail({
                             from: '"LinkU Travel" <linkutransport@gmail.com>',
                             to: b.roomRequest[0].email,
-                            subject: `E-Tiket Hotel - ${resData.reservationNo}`,
-                            html: `<p>Halo Bapak/Ibu 😊</p>
+                            subject: `E-Voucher Hotel [${currentStatus.toUpperCase()}] - ${resData.reservationNo}`,
+                            html: `
+                    <div style="font-family: 'Segoe UI', Tahoma, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; padding: 30px; border-radius: 16px; color: #1e293b; line-height: 1.5;">
+                        <div style="text-align: center; margin-bottom: 20px;">
+                            <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877917/WhatsApp_Image_2026-01-20_at_09.45.43-removebg-preview_lqkgrw.png" height="50" alt="LinkU Logo">
+                        </div>
+                        
+                        <h2 style="color: #24b3ae; text-align: center; margin-top: 0;">
+                            ${isProcessed ? 'Pesanan Sedang Diproses ⏳' : 'Konfirmasi Reservasi 🎉'}
+                        </h2>
+                        
+                        <p>Halo <strong>${b.roomRequest[0].paxes[0]?.firstName || 'Pelanggan'}</strong>,</p>
+                        
+                        <p>
+                            ${isProcessed
+                                    ? 'Pesanan hotel Anda saat ini sedang dalam tahap <strong>PROSES KONFIRMASI</strong> oleh pihak hotel. Kami akan mengirimkan update jika status sudah berubah.'
+                                    : 'Terima kasih telah memilih LinkU. Pesanan hotel Anda telah berhasil dikonfirmasi.'}
+                        </p>
+                        
+                        <div style="background-color: #f1f5f9; padding: 20px; border-radius: 12px; margin: 25px 0; border-left: 5px solid #24b3ae;">
+                            <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                                <tr>
+                                    <td style="padding: 5px 0; color: #64748b;">No. Reservasi</td>
+                                    <td style="padding: 5px 0;">: <strong>${resData.reservationNo}</strong></td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 5px 0; color: #64748b;">Status</td>
+                                    <td style="padding: 5px 0;">: <strong style="color: ${isProcessed ? '#f59e0b' : '#24b3ae'};">${currentStatus}</strong></td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 5px 0; color: #64748b;">Hotel</td>
+                                    <td style="padding: 5px 0;">: <strong>${pdfData.hotelName}</strong></td>
+                                </tr>
+                            </table>
+                        </div>
 
-<p>🏨 Booking hotel Anda telah berhasil dikonfirmasi 🎉</p>
+                        <p style="text-align: center;">Anda dapat memantau perubahan status atau mendownload voucher terbaru secara real-time melalui tombol di bawah ini:</p>
+                        
+                        <div style="text-align: center; margin: 35px 0;">
+                            <a href="${statusTrackingUrl}" 
+                               style="background-color: #24b3ae; color: white; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block; box-shadow: 0 4px 6px rgba(36, 179, 174, 0.2);">
+                                CEK STATUS & VOUCHER TERBARU
+                            </a>
+                        </div>
 
-<p>Silakan menggunakan voucher yang terlampir pada email ini 📩 untuk proses check-in di hotel.</p>
+                        ${isProcessed ? `
+                        <div style="background: #fff9eb; padding: 15px; border-radius: 8px; border: 1px solid #ffeeba; font-size: 13px; color: #856404; margin-bottom: 20px;">
+                            <strong>Catatan:</strong> Karena status masih "Processed", harap cek status secara berkala melalui tombol di atas sebelum menuju ke hotel.
+                        </div>
+                        ` : ''}
 
-<p>📄 Detail reservasi dapat dilihat pada voucher yang terlampir.</p>
-
-<p>Terima kasih telah menggunakan layanan LinkU 🙏✨</p>
-
-<p>Jika membutuhkan bantuan, silakan hubungi layanan pelanggan kami 📞💬</p>
-
-<p>Salam hangat,<br>
-LinkU 💙<br>
-Layanan terbaikmu 🚀</p>`,
-                            attachments: [{ filename: `E-Tiket-${resData.reservationNo}.pdf`, content: pdfBuffer }]
+                        <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 30px 0;">
+                        <p style="text-align: center; color: #94a3b8; font-size: 12px; margin: 0;">
+                            Layanan Perjalanan Terbaikmu 🚀
+                        </p>
+                    </div>
+                `,
+                            attachments: [{ filename: `E-Voucher-${resData.reservationNo}.pdf`, content: pdfBuffer }]
                         });
+                        console.log(`[Email Sent] Status: ${currentStatus} for ID: ${newBookingId}`);
                     } catch (err) {
                         console.error("Background Mail Error: ", err);
                     }
@@ -781,7 +834,7 @@ router.post('/hotel-bookings/draft', async (req, res) => {
     const finalPhone = b.contact_phone || b.phone || "08123456789";
     const finalTotalPrice = Math.round(parseFloat(b.total_price || b.totalPrice || 0));
     const finalHandlingFee = Math.round(parseFloat(b.handling_fee || b.handlingFee || 0));
-    
+
     try {
         connection = await db.getConnection();
         await connection.beginTransaction();
@@ -822,7 +875,7 @@ router.post('/hotel-bookings/draft', async (req, res) => {
 
         // 4. INSERT PAXES (Data Tamu) - Support berbagai format array paxes
         const rawPaxes = b.paxes || (b.roomRequest && b.roomRequest[0]?.paxes) || [];
-        
+
         if (Array.isArray(rawPaxes) && rawPaxes.length > 0) {
             const paxQuery = `INSERT INTO hotel_booking_paxes (booking_id, title, first_name, last_name, pax_type) VALUES (?, ?, ?, ?, 'ADULT')`;
             for (const pax of rawPaxes) {
@@ -855,11 +908,11 @@ router.post('/hotel-bookings/draft', async (req, res) => {
 });
 
 router.post('/hotel-bookings/update-after-vendor', async (req, res) => {
-    const { 
+    const {
         reservation_no,  // No reservasi internal/lama
         os_ref_no,       // Ref No dari Vendor (Darmawisata)
-        agent_os_ref,    
-        booking_status, 
+        agent_os_ref,
+        booking_status,
         vendor_res_no    // No reservasi final dari vendor (jika ada perubahan)
     } = req.body;
 
@@ -878,10 +931,10 @@ router.post('/hotel-bookings/update-after-vendor', async (req, res) => {
                  updated_at = NOW()
              WHERE reservation_no = ?`,
             [
-                os_ref_no || null, 
-                agent_os_ref || null, 
-                booking_status, 
-                vendor_res_no || null, 
+                os_ref_no || null,
+                agent_os_ref || null,
+                booking_status,
+                vendor_res_no || null,
                 reservation_no
             ]
         );
@@ -897,23 +950,23 @@ router.post('/hotel-bookings/update-after-vendor', async (req, res) => {
             `SELECT id, reservation_no, booking_status, contact_email 
              FROM hotel_bookings 
              WHERE reservation_no = ? OR reservation_no = ? 
-             LIMIT 1`, 
+             LIMIT 1`,
             [vendor_res_no, reservation_no]
         );
 
         if (rows.length > 0) {
             const booking = rows[0];
-            
+
             // 3. TRIGGER EMAIL HANYA JIKA STATUS FINAL ADALAH SUKSES/ACCEPT
             const isSuccess = ['Accept', 'Success', 'SUCCESS'].includes(booking.booking_status);
 
             if (isSuccess) {
                 console.log(`📧 [VENDOR SYNC] Triggering E-Ticket for Booking ID: ${booking.id}`);
-                
+
                 // Jalankan di background (tanpa await) agar response API ke vendor tetap cepat
                 // Fungsi sendBookingEmails HARUS melakukan query SELECT ke DB berdasarkan ID 
                 // untuk mendapatkan detail hotel & paxes untuk PDF.
-                sendBookingEmails(booking.id).catch(err => 
+                sendBookingEmails(booking.id).catch(err =>
                     console.error(`❌ [MAIL ERROR] Booking ID ${booking.id}:`, err)
                 );
             } else {
@@ -922,10 +975,10 @@ router.post('/hotel-bookings/update-after-vendor', async (req, res) => {
         }
 
         // Berikan respon sukses ke vendor/callback
-        res.json({ 
-            status: "Success", 
-            message: "Database synchronized", 
-            synced_reservation_no: vendor_res_no || reservation_no 
+        res.json({
+            status: "Success",
+            message: "Database synchronized",
+            synced_reservation_no: vendor_res_no || reservation_no
         });
 
     } catch (err) {
