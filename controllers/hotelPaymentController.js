@@ -206,14 +206,14 @@ const HotelPaymentController = {
         }
     },
 
-   handleCallback: async (req, res) => {
-    console.log("📥 [HTL CALLBACK]", req.body);
+handleCallback: async (req, res) => {
+    console.log("📥 [HTL CALLBACK] Incoming:", JSON.stringify(req.body, null, 2));
     try {
         const { partner_reff, status } = req.body;
         const statusUpper = status ? status.toUpperCase() : "";
 
         if (statusUpper === "SUCCESS" || statusUpper === "SETTLED") {
-            // 1. Ambil data Booking ID sebelum update (untuk keperluan email)
+            // 1. Cari Booking ID terkait
             const [rows] = await db.query(
                 `SELECT p.booking_id FROM hotel_payments p WHERE p.payment_reff = ?`, 
                 [partner_reff]
@@ -222,24 +222,24 @@ const HotelPaymentController = {
             if (rows.length > 0) {
                 const bookingId = rows[0].booking_id;
 
-                // 2. Update status pembayaran & booking di DB
+                // 2. Update status pembayaran & booking di DB (Lokal)
                 await db.query(
                     `UPDATE hotel_payments SET payment_status = 'SETTLED', payment_date = NOW() WHERE payment_reff = ?`,
                     [partner_reff]
                 );
-                await db.query(`UPDATE hotel_bookings SET booking_status = 'Success' WHERE id = ?`, [bookingId]);
+                
+                // Set status 'PAID' agar frontend tahu pembayaran sukses
+                await db.query(`UPDATE hotel_bookings SET booking_status = 'PAID' WHERE id = ?`, [bookingId]);
 
-                // 3. KIRIM EMAIL VOUCHER (Non-blocking)
-                // Kita tidak menggunakan 'await' agar callback LinkQu segera mendapat respons 'OK'
-                sendBookingEmails(bookingId).catch(err => console.error("Email Voucher Error:", err));
-
-                console.log(`✅ [HTL CALLBACK] Reff ${partner_reff} updated & Email sent`);
+                console.log(`✅ [HTL CALLBACK] Reff ${partner_reff} set to PAID. Waiting for vendor sync...`);
+            } else {
+                console.warn(`⚠️ [HTL CALLBACK] Payment Reff ${partner_reff} not found in database.`);
             }
         }
 
         return res.json({ message: "OK" });
     } catch (err) {
-        console.error("❌ HTL Callback Error:", err.message);
+        console.error("❌ [HTL CALLBACK ERROR]:", err.message);
         return res.status(500).json({ status: "ERROR" });
     }
 },
