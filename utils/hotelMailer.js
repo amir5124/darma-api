@@ -17,7 +17,7 @@ const transporter = nodemailer.createTransport({
  * Fungsi Internal: Menghasilkan Buffer PDF menggunakan Puppeteer
  */
 async function generateBookingPDF(data, paxes) {
-    console.log("📄 [PDF GENERATOR] Processing Data for:", data.reservationNo);
+    console.log("Cek Data Masuk ke PDF:", JSON.stringify(data, null, 2));
     let browser;
     try {
         browser = await puppeteer.launch({
@@ -26,10 +26,10 @@ async function generateBookingPDF(data, paxes) {
         });
         const page = await browser.newPage();
 
-        // 1. Parsing Angka
-        const hargaDasar = parseFloat(data.totalPrice || 0);
-        const biayaHandling = parseFloat(data.handlingFee || 0);
-        const alamatHotel = data.hotelAddress || "-";
+        // 1. Perbaikan Parsing Angka
+        const hargaDasar = parseFloat(data.totalPrice || data.total_price || 0);
+        const biayaHandling = parseFloat(data.handlingFee || data.handling_fee || 0);
+         const alamatHotel = data.hotel_address;
 
         // Total Akhir
         const totalHargaFisik = Math.ceil(hargaDasar + biayaHandling);
@@ -47,13 +47,13 @@ async function generateBookingPDF(data, paxes) {
             });
         };
 
-        // 2. Hitung Durasi Malam
-        const checkIn = new Date(data.checkInDate);
-        const checkOut = new Date(data.checkOutDate);
+        // 2. Perbaikan Hitung Durasi Malam (Gunakan Math.max agar tidak nol/minus)
+        const checkIn = new Date(data.checkInDate || data.check_in_date);
+        const checkOut = new Date(data.checkOutDate || data.check_out_date);
         const diffTime = Math.abs(checkOut - checkIn);
         const nights = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
 
-        // 3. Daftar Tamu
+        // 3. Perbaikan Daftar Tamu (Mapping paxes agar mendukung camelCase dan snake_case dari DB)
         const guestNames = paxes && Array.isArray(paxes) && paxes.length > 0
             ? paxes.map((p) => {
                 const title = p.title || p.pax_title || '';
@@ -63,8 +63,8 @@ async function generateBookingPDF(data, paxes) {
             }).join(', ')
             : "Guest";
 
-        // 4. Special Request
-        const requestValue = data.specialRequests || "";
+        // 4. Perbaikan Special Request (Pastikan mengambil dari properti yang benar)
+        const requestValue = data.specialRequests || data.special_requests || "";
         const finalSpecialRequest = (requestValue && requestValue !== "" && requestValue !== "-" && requestValue !== "null")
             ? requestValue
             : "Tidak ada permintaan khusus";
@@ -112,7 +112,7 @@ async function generateBookingPDF(data, paxes) {
                     </div>
                 </div>
                 <div class="hotel-info" style="text-align: right;">
-                    <div class="hotel-title">${data.hotelName || '-'}</div>
+                    <div class="hotel-title">${data.hotelName || data.hotel_name || '-'}</div>
                     <div class="hotel-address">${alamatHotel}</div>
                 </div>
             </div>
@@ -121,25 +121,25 @@ async function generateBookingPDF(data, paxes) {
 
             <div class="top-info-grid">
                 <div>
-                    <div class="info-row"><div class="label">No. Transaksi</div><div class="value">: ${data.reservationNo || '-'}</div></div>
+                    <div class="info-row"><div class="label">No. Transaksi</div><div class="value">: ${data.voucherNo || data.voucher_no || data.reservationNo || data.reservation_no || '-'}</div></div>
                     <div class="info-row"><div class="label">Tgl Pembelian</div><div class="value">: ${paymentDate}</div></div>
                     <div class="info-row"><div class="label">Dicetak Oleh</div><div class="value">: LinkU</div></div>
                 </div>
                 <div style="text-align: right;">
-                    <div class="info-row" style="justify-content: flex-end;"><div class="label">File No.</div><div class="value">: ${data.reservationNo || '-'}</div></div>
-                    <div class="info-row" style="justify-content: flex-end;"><div class="label">O/S Ref.</div><div class="value">: ${data.osRefNo || '-'}</div></div>
+                    <div class="info-row" style="justify-content: flex-end;"><div class="label">File No.</div><div class="value">: ${data.reservationNo || data.reservation_no || '-'}</div></div>
+                    <div class="info-row" style="justify-content: flex-end;"><div class="label">O/S Ref.</div><div class="value">: ${data.osRefNo || data.os_ref_no || '-'}</div></div>
                 </div>
             </div>
 
             <div class="dates-container">
                 <div class="date-box">
                     <div class="label">Tanggal Check-In</div>
-                    <div class="value">${formatDateIndo(data.checkInDate)}</div>
+                    <div class="value">${formatDateIndo(data.checkInDate || data.check_in_date)}</div>
                 </div>
                 <div style="color: #cbd5e1; font-size: 24px;">|</div>
                 <div class="date-box">
                     <div class="label">Tanggal Check-Out</div>
-                    <div class="value">${formatDateIndo(data.checkOutDate)}</div>
+                    <div class="value">${formatDateIndo(data.checkOutDate || data.check_out_date)}</div>
                 </div>
             </div>
 
@@ -151,11 +151,11 @@ async function generateBookingPDF(data, paxes) {
                 </div>
                 <div class="detail-item">
                     <div class="label">Tipe Kamar</div>
-                    <div class="value">: ${data.roomName || '-'}</div>
+                    <div class="value">: ${data.roomName || data.room_name || '-'}</div>
                 </div>
                 <div class="detail-item">
                     <div class="label">Meals</div>
-                    <div class="value">: ${data.breakfastType || 'Sesuai Kebijakan Hotel'}</div>
+                    <div class="value">: ${data.breakfastType || data.breakfast || 'Sesuai Kebijakan Hotel'}</div>
                 </div>
                 <div class="detail-item">
                     <div class="label">Jumlah Malam</div>
@@ -193,25 +193,26 @@ async function generateBookingPDF(data, paxes) {
 
         return pdfBuffer;
     } catch (error) {
-        console.error("❌ [PDF ERROR]:", error);
+        console.error("Error generating PDF:", error);
         throw error;
     } finally {
         if (browser) await browser.close();
     }
 }
-
 /**
  * FUNGSI UTAMA: Mengambil data dari DB, buat PDF, dan kirim Email
+ * @param {number} bookingId - ID dari tabel hotel_bookings
  */
 async function sendBookingEmails(bookingId) {
     try {
-        console.log(`📧 [MAILER] Starting email process for Booking ID: ${bookingId}`);
+        // Beri jeda 2 detik untuk memastikan proses update status di database selesai
+        await new Promise(resolve => setTimeout(resolve, 2000));
 
-        // 1. Ambil data booking terbaru (Agar OS Ref No terbaru terbawa)
+        // 1. Ambil data booking utama (Pastikan kolom sesuai dengan database Anda)
         const [rows] = await db.execute("SELECT * FROM hotel_bookings WHERE id = ?", [bookingId]);
         
         if (rows.length === 0) {
-            console.error(`❌ [MAIL ERROR] Booking ID ${bookingId} not found.`);
+            console.error(`[Email Error] Booking ID ${bookingId} tidak ditemukan.`);
             return;
         }
         
@@ -226,7 +227,7 @@ async function sendBookingEmails(bookingId) {
         // 3. Mapping data untuk Generator PDF
         const pdfData = {
             reservationNo: b.reservation_no,
-            osRefNo: (b.os_ref_no && b.os_ref_no !== "-") ? b.os_ref_no : "PENDING",
+           osRefNo: (b.os_ref_no && b.os_ref_no !== "-") ? b.os_ref_no : "-",
             hotelName: b.hotel_name,
             hotelAddress: b.hotel_address,
             roomName: b.room_name,
@@ -240,7 +241,8 @@ async function sendBookingEmails(bookingId) {
 
         const pdfBuffer = await generateBookingPDF(pdfData, paxes);
 
-        // 4. URL TRACKING
+        // 4. URL TRACKING (Sangat Penting untuk membawa 'os')
+        // Parameter 'os' digunakan oleh tracking.html untuk hit API /booking-detail
         const trackingParams = new URLSearchParams({
             no: b.reservation_no,
             os: b.os_ref_no || '', 
@@ -253,6 +255,7 @@ async function sendBookingEmails(bookingId) {
         const mailOptions = {
             from: '"LinkU Travel" <linkutransport@gmail.com>',
             to: b.contact_email,
+            // Subjek dinamis: mendahulukan OS Ref agar mudah dicari di inbox
             subject: `E-Voucher Hotel [${b.os_ref_no || b.reservation_no}] - ${b.hotel_name}`,
             html: `
                 <div style="font-family: 'Segoe UI', Tahoma, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; padding: 30px; border-radius: 16px; color: #1e293b; line-height: 1.5;">
@@ -271,7 +274,7 @@ async function sendBookingEmails(bookingId) {
                                 <td style="padding: 5px 0;">: <strong>${b.reservation_no}</strong></td>
                             </tr>
                             <tr>
-                                <td style="padding: 5px 0; color: #64748b;">O/S Ref No.</td>
+                                <td style="padding: 5px 0; color: #64748b;">O/S Ref No. (Darma)</td>
                                 <td style="padding: 5px 0;">: <strong style="color: #24b3ae;">${b.os_ref_no || 'Sedang Diproses'}</strong></td>
                             </tr>
                             <tr>
@@ -289,18 +292,19 @@ async function sendBookingEmails(bookingId) {
                     
                     <div style="text-align: center; margin: 35px 0;">
                         <a href="${statusTrackingUrl}" 
-                           style="background-color: #24b3ae; color: white; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">
+                           style="background-color: #24b3ae; color: white; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block; box-shadow: 0 4px 6px rgba(36, 179, 174, 0.2);">
                             CEK STATUS & VOUCHER REAL-TIME
                         </a>
                     </div>
 
                     <div style="background: #fff9eb; padding: 15px; border-radius: 8px; border: 1px solid #ffeeba; font-size: 13px; color: #856404; margin-bottom: 20px;">
-                        <strong>Informasi Penting:</strong> Saat check-in, cukup tunjukkan E-Voucher yang ada di lampiran ini atau melalui link di atas kepada pihak hotel.
+                        <strong>Informasi Penting:</strong> Saat check-in, Anda cukup menunjukkan E-Voucher yang ada di lampiran email ini atau melalui link di atas kepada pihak resepsionis hotel.
                     </div>
 
                     <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 30px 0;">
                     <p style="text-align: center; color: #94a3b8; font-size: 12px; margin: 0;">
                         <strong>LinkU Nusantara</strong><br>
+                        Gedung LinkU, Tangerang, Indonesia<br>
                         Layanan Perjalanan Terbaikmu 🚀
                     </p>
                 </div>
@@ -315,14 +319,14 @@ async function sendBookingEmails(bookingId) {
 
         // 6. Kirim Email
         await transporter.sendMail(mailOptions);
-        console.log(`✅ [Email Sent] Success for Ref: ${b.os_ref_no || b.reservation_no}`);
+        console.log(`[Email Sent] Success for ID ${bookingId}: ${b.reservation_no}`);
 
     } catch (error) {
-        console.error(`❌ [Email Error] Failed for ID ${bookingId}:`, error.message);
+        console.error(`[Email Error] Gagal mengirim email untuk ID ${bookingId}:`, error.message);
     }
 }
 
 module.exports = {
     sendBookingEmails,
-    generateBookingPDF
+    generateBookingPDF // Tetap diekspor jika ingin digunakan manual
 };
