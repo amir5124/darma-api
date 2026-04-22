@@ -496,7 +496,7 @@ router.post('/booking-detail', async (req, res) => {
 
                 const pdfData = {
                     reservationNo: detail.reservationNo,
-                    osRefNo: detail.osRefNo || localData.os_ref_no,
+                  osRefNo: (detail.osRefNo && detail.osRefNo !== "-") ? detail.osRefNo : localData.os_ref_no,
                     hotelName: detail.hotelName || localData.hotel_name,
                     hotelAddress: detail.hotelAddress || localData.hotel_address,
                     roomName: detail.roomName || localData.room_name,

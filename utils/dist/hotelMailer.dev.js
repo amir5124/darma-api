@@ -184,8 +184,7 @@ function sendBookingEmails(bookingId) {
           // 3. Mapping data untuk Generator PDF
           pdfData = {
             reservationNo: b.reservation_no,
-            osRefNo: b.os_ref_no || "-",
-            // Fallback jika belum ada
+            osRefNo: b.os_ref_no && b.os_ref_no !== "-" ? b.os_ref_no : "-",
             hotelName: b.hotel_name,
             hotelAddress: b.hotel_address,
             roomName: b.room_name,
