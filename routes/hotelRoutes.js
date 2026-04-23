@@ -748,18 +748,22 @@ router.post('/booking', async (req, res) => {
                         
                         <p>Halo <strong>${b.roomRequest[0].paxes[0]?.firstName || 'Pelanggan'}</strong>,</p>
                         
-                        <p>
-                            ${isProcessed
-                                    ? 'Pesanan hotel Anda saat ini sedang dalam tahap <strong>PROSES KONFIRMASI</strong> oleh pihak hotel. Kami akan mengirimkan update jika status sudah berubah.'
-                                    : 'Terima kasih telah memilih LinkU. Pesanan hotel Anda telah berhasil dikonfirmasi.'}
-                        </p>
-                        
-                        <div style="background-color: #f1f5f9; padding: 20px; border-radius: 12px; margin: 25px 0; border-left: 5px solid #24b3ae;">
-                            <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
-                                <tr>
-                                    <td style="padding: 5px 0; color: #64748b;">No. Reservasi</td>
-                                    <td style="padding: 5px 0;">: <strong>${resData.reservationNo}</strong></td>
-                                </tr>
+                       <p>
+    ${isProcessed
+        ? 'Pesanan hotel Anda saat ini sedang dalam tahap <strong>PROSES KONFIRMASI</strong> oleh pihak hotel. Kami akan mengirimkan update jika status sudah berubah.'
+        : 'Terima kasih telah memilih LinkU. Pesanan hotel Anda telah berhasil dikonfirmasi.'}
+</p>
+
+<div style="background-color: #f1f5f9; padding: 20px; border-radius: 12px; margin: 25px 0; border-left: 5px solid #24b3ae;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+        <tr>
+            <td style="padding: 5px 0; color: #64748b;">
+                ${isProcessed ? 'No. Booking Hotel' : 'No. Reservasi'}
+            </td>
+            <td style="padding: 5px 0;">: <strong>${resData.reservationNo}</strong></td>
+        </tr>
+        </table>
+</div>
                                 <tr>
                                     <td style="padding: 5px 0; color: #64748b;">Status</td>
                                     <td style="padding: 5px 0;">: <strong style="color: ${isProcessed ? '#f59e0b' : '#24b3ae'};">${currentStatus}</strong></td>
