@@ -73,13 +73,13 @@ const generateTicketPDF = async (data, fee, total) => {
             </style>
         </head>
         <body>
-            <div class="watermark">LINKU TRANSPORT</div>
+            <div class="watermark">LINKU</div>
             
             <div class="header">
                 <div class="brand">
                     <img src="https://dlu.co.id/assets/img/logo-dlu.png" height="40" style="margin-bottom: 5px;">
                     <h1>E-TIKET</h1>
-                    <small>LINKU/small>
+                    <small>LINKU</small>
                 </div>
                 <div class="main-qr">
                     <img src="${mainQrBase64}"><br>
