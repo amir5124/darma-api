@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const db = require('../config/db');
+const { sendBookingEmail } = require('../utils/mailer');
+const { generateTicketPDF } = require('../utils/ticketGenerator');
 const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('../helpers/darmaSandbox');
 
 /**
@@ -430,6 +432,45 @@ router.post('/save-booking', async (req, res) => {
                 ) VALUES ?`,
                 [paxValues]
             );
+        }
+
+        // --- C. PROSES GENERATE PDF & KIRIM EMAIL (TAMBAHAN) ---
+        try {
+            console.log(`[DLU_MAIL] Menghasilkan PDF untuk: ${resData.bookingNumber}`);
+            
+            // Generate Buffer PDF menggunakan Puppeteer
+            const pdfBuffer = await generateTicketPDF(resData, MY_SERVICE_FEE, finalTotalUser);
+
+            const emailSubject = `E-Tiket Kapal ${resData.shipName} - ${resData.bookingNumber}`;
+            const emailHtml = `
+                <div style="font-family: sans-serif; line-height: 1.5; color: #333;">
+                    <h2>Halo, ${bookerData.name}!</h2>
+                    <p>Terima kasih telah melakukan pemesanan di <b>LinkU Transport</b>.</p>
+                    <p>Pembayaran Anda telah berhasil diverifikasi. Berikut adalah rincian tiket Anda:</p>
+                    <ul>
+                        <li><b>Kapal:</b> ${resData.shipName}</li>
+                        <li><b>Rute:</b> ${resData.originName} &rarr; ${resData.destinationName}</li>
+                        <li><b>Kode Pesanan:</b> ${resData.bookingNumber}</li>
+                    </ul>
+                    <p>Silakan temukan <b>E-Tiket resmi</b> Anda pada lampiran PDF di email ini.</p>
+                    <br>
+                    <p>Salam hangat,<br>Team LinkU Transport</p>
+                </div>
+            `;
+
+            // Kirim Email dengan attachment
+            await sendBookingEmail(bookerData.email, emailSubject, emailHtml, [
+                {
+                    filename: `ETiket_DLU_${resData.bookingNumber}.pdf`,
+                    content: pdfBuffer,
+                    contentType: 'application/pdf'
+                }
+            ]);
+
+            console.log(`[DLU_MAIL] Email berhasil dikirim ke ${bookerData.email}`);
+        } catch (errorMail) {
+            // Kita gunakan try-catch agar jika email gagal, response API tetap sukses (data sudah aman di DB)
+            console.error(`[DLU_MAIL] Gagal mengirim email: ${errorMail.message}`);
         }
 
         console.log(`[DLU_DB] Berhasil simpan ID: ${newBookingId}`);
