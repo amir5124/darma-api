@@ -32,9 +32,9 @@ router.post('/route', async (req, res) => {
 
     } catch (error) {
         logger.error("Ship DLU Route Error: " + error.message);
-        res.status(500).json({ 
-            status: "ERROR", 
-            respMessage: error.response ? error.response.data : error.message 
+        res.status(500).json({
+            status: "ERROR",
+            respMessage: error.response ? error.response.data : error.message
         });
     }
 });
@@ -65,9 +65,9 @@ router.post('/class-types', async (req, res) => {
 
     } catch (error) {
         logger.error("Ship DLU Class Types Error: " + error.message);
-        res.status(500).json({ 
-            status: "ERROR", 
-            respMessage: error.response ? error.response.data : error.message 
+        res.status(500).json({
+            status: "ERROR",
+            respMessage: error.response ? error.response.data : error.message
         });
     }
 });
@@ -122,9 +122,9 @@ router.post('/ticket-types', async (req, res) => {
 
     } catch (error) {
         logger.error("Ship DLU Ticket Types Error: " + error.message);
-        res.status(500).json({ 
-            status: "ERROR", 
-            respMessage: error.response ? error.response.data : error.message 
+        res.status(500).json({
+            status: "ERROR",
+            respMessage: error.response ? error.response.data : error.message
         });
     }
 });
@@ -153,9 +153,9 @@ router.post('/room-classes', async (req, res) => {
 
     } catch (error) {
         logger.error("Ship DLU Room Classes Error: " + error.message);
-        res.status(500).json({ 
-            status: "ERROR", 
-            respMessage: error.response ? error.response.data : error.message 
+        res.status(500).json({
+            status: "ERROR",
+            respMessage: error.response ? error.response.data : error.message
         });
     }
 });
@@ -173,10 +173,10 @@ router.post('/schedule', async (req, res) => {
         const payload = {
             originPort: String(b.originPort),
             destinationPort: String(b.destinationPort),
-            departStartDate: b.departStartDate, 
+            departStartDate: b.departStartDate,
             departEndDate: b.departEndDate,
             // Jika ID kosong, berikan default "0" atau angka yang valid sesuai dokumentasi DLU
-            paxClass: b.paxClass ? String(b.paxClass) : "0", 
+            paxClass: b.paxClass ? String(b.paxClass) : "0",
             ticketType: b.ticketType ? String(b.ticketType) : "0",
             vehicleType: b.vehicleType ? String(b.vehicleType) : "0",
             userID: USER_CONFIG.userID,
@@ -184,7 +184,7 @@ router.post('/schedule', async (req, res) => {
         };
 
         logger.info(`REQ_SHPDLU_SCHEDULE: ${payload.originPort} to ${payload.destinationPort}`);
-        
+
         // Debugging: Pastikan payload di console backend sudah benar
         console.log("Payload Sent to DLU:", payload);
 
@@ -198,9 +198,9 @@ router.post('/schedule', async (req, res) => {
 
     } catch (error) {
         logger.error("Ship DLU Schedule Error: " + error.message);
-        res.status(500).json({ 
-            status: "FAILED", 
-            respMessage: error.response ? JSON.stringify(error.response.data) : error.message 
+        res.status(500).json({
+            status: "FAILED",
+            respMessage: error.response ? JSON.stringify(error.response.data) : error.message
         });
     }
 });
@@ -243,9 +243,9 @@ router.post('/select-schedule', async (req, res) => {
 
     } catch (error) {
         logger.error("Ship DLU Select Schedule Error: " + error.message);
-        res.status(500).json({ 
-            status: "ERROR", 
-            respMessage: error.response ? error.response.data : error.message 
+        res.status(500).json({
+            status: "ERROR",
+            respMessage: error.response ? error.response.data : error.message
         });
     }
 });
@@ -371,26 +371,28 @@ router.post('/issued', async (req, res) => {
 
 router.post('/save-booking', async (req, res) => {
     try {
-        const { resData, bookerData, serviceFee } = req.body;
+        // 1. Ambil username dari req.body (dikirim dari frontend)
+        const { resData, bookerData, serviceFee, username } = req.body;
 
         if (!resData || resData.status !== "SUCCESS") {
             return res.status(400).json({ status: "ERROR", message: "Data tidak valid" });
         }
 
-        console.log(`[DLU_DB] Memulai penyimpanan data: ${resData.bookingNumber}`);
+        console.log(`[DLU_DB] Memulai penyimpanan data: ${resData.bookingNumber} untuk user: ${username || 'Guest'}`);
 
         const MY_SERVICE_FEE = parseFloat(serviceFee || 15000);
         const vendorTicketPrice = parseFloat(resData.ticketPrice || 0);
         const finalTotalUser = vendorTicketPrice + MY_SERVICE_FEE;
 
-        // A. Simpan Header
+        // A. Simpan Header (Ditambahkan kolom username)
         const [header] = await db.execute(
             `INSERT INTO bookings_dlu (
                 booking_number, num_code, ship_name, origin_name, 
                 destination_name, depart_date, ticket_price, 
                 service_fee, total_bayar, customer_name, 
-                customer_phone, customer_email, status, raw_response
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                customer_phone, customer_email, status, raw_response,
+                username
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 resData.bookingNumber,
                 resData.numCode,
@@ -405,7 +407,8 @@ router.post('/save-booking', async (req, res) => {
                 bookerData.phone,
                 bookerData.email,
                 'SUCCESS',
-                JSON.stringify(resData)
+                JSON.stringify(resData),
+                username || null // Simpan username atau null jika tidak ada
             ]
         );
 
@@ -437,7 +440,7 @@ router.post('/save-booking', async (req, res) => {
         // --- C. PROSES GENERATE PDF & KIRIM EMAIL (TAMBAHAN) ---
         try {
             console.log(`[DLU_MAIL] Menghasilkan PDF untuk: ${resData.bookingNumber}`);
-            
+
             // Generate Buffer PDF menggunakan Puppeteer
             const pdfBuffer = await generateTicketPDF(resData, MY_SERVICE_FEE, finalTotalUser);
 
@@ -469,7 +472,6 @@ router.post('/save-booking', async (req, res) => {
 
             console.log(`[DLU_MAIL] Email berhasil dikirim ke ${bookerData.email}`);
         } catch (errorMail) {
-            // Kita gunakan try-catch agar jika email gagal, response API tetap sukses (data sudah aman di DB)
             console.error(`[DLU_MAIL] Gagal mengirim email: ${errorMail.message}`);
         }
 
@@ -484,10 +486,10 @@ router.post('/save-booking', async (req, res) => {
 
 router.post('/get-eticket', async (req, res) => {
     const bookingNumber = req.body.bookingNumber;
-    
+
     try {
         const token = await getConsistentToken();
-        
+
         // 1. Log Payload (Data yang dikirim ke Vendor)
         const payload = {
             bookingNumber: bookingNumber,
@@ -502,7 +504,7 @@ router.post('/get-eticket', async (req, res) => {
             accessToken: token
         }, {
             httpsAgent: agent,
-            responseType: 'arraybuffer' 
+            responseType: 'arraybuffer'
         });
 
         // 2. Log Response (Info meta data dari Vendor)
@@ -520,7 +522,7 @@ router.post('/get-eticket', async (req, res) => {
     } catch (error) {
         // 3. Log Error secara detail
         console.error(`%c[VEND-ERR] GetEticket | Error: ${error.message}`, 'color: #ff0000');
-        
+
         // Jika error dari axios, log detail response-nya (jika bukan binary)
         if (error.response && error.response.data) {
             try {
@@ -530,7 +532,7 @@ router.post('/get-eticket', async (req, res) => {
                 console.error("Gagal parse error vendor (Kemungkinan data tetap binary)");
             }
         }
-        
+
         res.status(500).send("Gagal mengambil tiket");
     }
 });
