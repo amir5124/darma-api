@@ -304,7 +304,6 @@ router.post('/issued', async (req, res) => {
         const token = await getConsistentToken();
         const b = req.body;
 
-        // 1. Fungsi Helper untuk membersihkan objek pax
         const cleanPax = (p) => ({
             paxGroup: p.paxGroup || "",
             gender: String(p.gender || "0"),
@@ -320,12 +319,10 @@ router.post('/issued', async (req, res) => {
             paxInfo: p.paxInfo || ""
         });
 
-        // 2. Fallback Data
         const firstPaxReguler = b.listPax?.[0];
         const firstPaxRoom = b.listRoom?.[0]?.paxes?.[0];
         const referencePax = firstPaxReguler || firstPaxRoom || {};
 
-        // 3. Susun Payload Final untuk API DLU
         const payload = {
             numCode: String(b.numCode),
             originPort: String(b.originPort),
@@ -353,108 +350,93 @@ router.post('/issued', async (req, res) => {
             accessToken: token
         };
 
-        // 4. Logging Request
-        logger.info(`[DLU_ISSUED] START - NumCode: ${payload.numCode}`);
-        logger.debug(`[DLU_ISSUED] PAYLOAD: ${JSON.stringify(payload)}`);
+        console.log(`[DLU_PROXY] Forwarding to Vendor: ${payload.numCode}`);
 
-        // 5. Hit API Vendor
         const response = await axios.post(`${BASE_URL}/ShipDlu/Issued`, payload, {
             httpsAgent: agent,
             headers: { 'Content-Type': 'application/json' }
         });
 
-        const resData = response.data;
-
-        // 6. LOGIKA DATABASE (History & Biaya Layanan)
-        if (resData.status === "SUCCESS") {
-            try {
-                /** * KONFIGURASI BIAYA LAYANAN
-                 * Anda bisa mengubah nilai ini menjadi dinamis (misal ambil dari req.body.serviceFee)
-                 */
-                const MY_SERVICE_FEE = 15000; // Contoh: Rp 15.000
-                const vendorTicketPrice = parseFloat(resData.ticketPrice || 0);
-                const finalTotalUser = vendorTicketPrice + MY_SERVICE_FEE;
-
-                // A. Simpan Tabel Utama
-                const [header] = await db.execute(
-                    `INSERT INTO bookings_dlu (
-                        booking_number, num_code, ship_name, origin_name, 
-                        destination_name, depart_date, ticket_price, 
-                        service_fee, total_bayar, customer_name, 
-                        customer_phone, customer_email, status, raw_response
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                    [
-                        resData.bookingNumber,
-                        resData.numCode,
-                        resData.shipName,
-                        resData.originName,
-                        resData.destinationName,
-                        resData.departDate,
-                        vendorTicketPrice,
-                        MY_SERVICE_FEE,
-                        finalTotalUser,
-                        payload.bookerData.name,
-                        payload.bookerData.phone,
-                        payload.bookerData.email,
-                        'SUCCESS',
-                        JSON.stringify(resData)
-                    ]
-                );
-
-                const newBookingId = header.insertId;
-
-                // B. Simpan Detail Pax (Looping dari Response agar dapat Nomor Tiket & QR)
-                if (resData.paxBookingDetails && resData.paxBookingDetails.length > 0) {
-                    const paxValues = resData.paxBookingDetails.map(pax => [
-                        newBookingId,
-                        pax.paxName,
-                        pax.paxType,
-                        pax.ID, // NIK atau Plat Nomor
-                        pax.paxGender || '-',
-                        pax.ticketNumber,
-                        pax.ticketQRCode,
-                        pax.fare,
-                        pax.admin
-                    ]);
-
-                    await db.query(
-                        `INSERT INTO booking_pax_details_dlu (
-                            booking_id, pax_name, pax_type, id_number, 
-                            gender, ticket_number, ticket_qr_code, fare, admin_vendor
-                        ) VALUES ?`,
-                        [paxValues]
-                    );
-                }
-
-                // C. Inject Informasi Tambahan ke Response untuk Frontend
-                resData.my_service_fee = MY_SERVICE_FEE;
-                resData.grand_total_user = finalTotalUser;
-
-                logger.info(`[DLU_DB] SUCCESS - Saved BookingID: ${newBookingId} for ${resData.bookingNumber}`);
-
-            } catch (dbErr) {
-                // Log error DB tapi jangan gagalkan response ke user karena tiket sudah sukses di vendor
-                logger.error(`[DLU_DB] CRITICAL ERROR: Gagal simpan ke database: ${dbErr.message}`);
-                logger.error(dbErr.stack);
-            }
-        } else {
-            logger.warn(`[DLU_ISSUED] VENDOR_FAILED - Message: ${resData.respMessage}`);
-        }
-
-        // 7. Kirim Response Final
-        res.json(resData);
+        // Langsung kirim balik apa adanya dari vendor
+        res.json(response.data);
 
     } catch (error) {
-        const errorData = error.response?.data;
-        const status = error.response?.status || 500;
-        
-        logger.error(`[DLU_ISSUED] EXCEPTION - Status: ${status} - Error: ${JSON.stringify(errorData || error.message)}`);
-        
-        res.status(status).json({ 
-            status: "ERROR", 
-            respMessage: errorData?.respMessage || error.message,
-            debug: process.env.NODE_ENV === 'development' ? errorData : undefined
-        });
+        console.error(`[DLU_PROXY] Error: ${error.message}`);
+        res.status(500).json({ status: "ERROR", respMessage: error.message });
+    }
+});
+
+router.post('/save-booking', async (req, res) => {
+    try {
+        const { resData, bookerData, serviceFee } = req.body;
+
+        if (!resData || resData.status !== "SUCCESS") {
+            return res.status(400).json({ status: "ERROR", message: "Data tidak valid" });
+        }
+
+        console.log(`[DLU_DB] Memulai penyimpanan data: ${resData.bookingNumber}`);
+
+        const MY_SERVICE_FEE = parseFloat(serviceFee || 15000);
+        const vendorTicketPrice = parseFloat(resData.ticketPrice || 0);
+        const finalTotalUser = vendorTicketPrice + MY_SERVICE_FEE;
+
+        // A. Simpan Header
+        const [header] = await db.execute(
+            `INSERT INTO bookings_dlu (
+                booking_number, num_code, ship_name, origin_name, 
+                destination_name, depart_date, ticket_price, 
+                service_fee, total_bayar, customer_name, 
+                customer_phone, customer_email, status, raw_response
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                resData.bookingNumber,
+                resData.numCode,
+                resData.shipName,
+                resData.originName,
+                resData.destinationName,
+                resData.departDate,
+                vendorTicketPrice,
+                MY_SERVICE_FEE,
+                finalTotalUser,
+                bookerData.name,
+                bookerData.phone,
+                bookerData.email,
+                'SUCCESS',
+                JSON.stringify(resData)
+            ]
+        );
+
+        const newBookingId = header.insertId;
+
+        // B. Simpan Detail Pax
+        if (resData.paxBookingDetails?.length > 0) {
+            const paxValues = resData.paxBookingDetails.map(pax => [
+                newBookingId,
+                pax.paxName,
+                pax.paxType,
+                pax.ID,
+                pax.paxGender || '-',
+                pax.ticketNumber,
+                pax.ticketQRCode,
+                pax.fare,
+                pax.admin
+            ]);
+
+            await db.query(
+                `INSERT INTO booking_pax_details_dlu (
+                    booking_id, pax_name, pax_type, id_number, 
+                    gender, ticket_number, ticket_qr_code, fare, admin_vendor
+                ) VALUES ?`,
+                [paxValues]
+            );
+        }
+
+        console.log(`[DLU_DB] Berhasil simpan ID: ${newBookingId}`);
+        res.json({ status: "SUCCESS", databaseId: newBookingId });
+
+    } catch (error) {
+        console.error(`[DLU_DB] Error: ${error.message}`);
+        res.status(500).json({ status: "ERROR", message: error.message });
     }
 });
 

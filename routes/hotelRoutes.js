@@ -750,8 +750,8 @@ router.post('/booking', async (req, res) => {
                         
                        <p>
     ${isProcessed
-        ? 'Pesanan hotel Anda saat ini sedang dalam tahap <strong>PROSES KONFIRMASI</strong> oleh pihak hotel. Kami akan mengirimkan update jika status sudah berubah.'
-        : 'Terima kasih telah memilih LinkU. Pesanan hotel Anda telah berhasil dikonfirmasi.'}
+                                    ? 'Pesanan hotel Anda saat ini sedang dalam tahap <strong>PROSES KONFIRMASI</strong> oleh pihak hotel. Kami akan mengirimkan update jika status sudah berubah.'
+                                    : 'Terima kasih telah memilih LinkU. Pesanan hotel Anda telah berhasil dikonfirmasi.'}
 </p>
 
 <div style="background-color: #f1f5f9; padding: 20px; border-radius: 12px; margin: 25px 0; border-left: 5px solid #24b3ae;">
