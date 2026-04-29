@@ -28,7 +28,7 @@ const generateTicketPDF = async (data, fee, total) => {
                     <td style="text-align: center;">${index + 1}</td>
                     <td>
                         <div style="display: flex; align-items: center;">
-                            <img src="${ticketQrBase64}" width="50" style="margin-right: 10px;">
+                           
                             <div>
                                 <b style="font-size: 13px;">${p.paxName}</b><br>
                                 <small style="color: ${primaryColor}; font-weight: bold;">${p.ticketNumber}</small>
@@ -77,7 +77,7 @@ const generateTicketPDF = async (data, fee, total) => {
             
             <div class="header">
                 <div class="brand">
-                    <img src="https://dlu.co.id/assets/img/logo-dlu.png" height="40" style="margin-bottom: 5px;">
+                   <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877917/WhatsApp_Image_2026-01-20_at_09.45.43-removebg-preview_lqkgrw.png" height="50">
                     <h1>E-TIKET</h1>
                     <small>LINKU</small>
                 </div>
