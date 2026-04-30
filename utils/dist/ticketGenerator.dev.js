@@ -33,7 +33,7 @@ var generateTicketPDF = function generateTicketPDF(data, fee, total) {
           mainQrBase64 = _context2.sent;
           _context2.next = 13;
           return regeneratorRuntime.awrap(Promise.all(data.paxBookingDetails.map(function _callee(p, index) {
-            var ticketQrBase64, isVehicle, labelIdentitas, noteHtml;
+            var ticketQrBase64, isVehicle, labelIdentitas, displayNote, noteHtml;
             return regeneratorRuntime.async(function _callee$(_context) {
               while (1) {
                 switch (_context.prev = _context.next) {
@@ -45,12 +45,14 @@ var generateTicketPDF = function generateTicketPDF(data, fee, total) {
                     ticketQrBase64 = _context.sent;
                     // Logika deteksi kendaraan (berdasarkan paxType atau ID yang mengandung plat nomor)
                     isVehicle = p.paxType.toLowerCase().includes('kendaraan') || p.paxType.toLowerCase().includes('motor') || p.paxType.toLowerCase().includes('mobil');
-                    labelIdentitas = isVehicle ? "No. Polisi" : "No. Identitas"; // Tambahan logika Note: Jika ada note, tampilkan di bawah nomor tiket
+                    labelIdentitas = isVehicle ? "No. Polisi" : "No. Identitas"; // PERBAIKAN DI SINI:
+                    // Cek p.note (dari payload API) ATAU p.pax_note (dari database)
 
-                    noteHtml = p.note ? "<div style=\"margin-top: 2px; font-style: italic; color: #d35400; font-size: 10px;\">Catatan: ".concat(p.note, "</div>") : '';
+                    displayNote = p.note || p.pax_note;
+                    noteHtml = displayNote ? "<div style=\"margin-top: 2px; font-style: italic; color: #d35400; font-size: 10px;\">Catatan: ".concat(displayNote, "</div>") : '';
                     return _context.abrupt("return", "\n                <tr>\n                    <td style=\"text-align: center;\">".concat(index + 1, "</td>\n                    <td>\n                        <div style=\"display: flex; align-items: center;\">\n                            <div>\n                                <b style=\"font-size: 13px;\">").concat(p.paxName, "</b><br>\n                                <small style=\"color: ").concat(primaryColor, "; font-weight: bold;\">").concat(p.ticketNumber, "</small>\n                                ").concat(noteHtml, "\n                            </div>\n                        </div>\n                    </td>\n                    <td>\n                        <small style=\"color: #666;\">").concat(labelIdentitas, "</small><br>\n                        <b>").concat(p.ID, "</b>\n                    </td>\n                    <td>").concat(p.paxType, "</td>\n                    <td style=\"text-align: right; font-weight: bold;\">Rp ").concat(p.fare.toLocaleString('id-ID'), "</td>\n                </tr>\n            "));
 
-                  case 7:
+                  case 8:
                   case "end":
                     return _context.stop();
                 }

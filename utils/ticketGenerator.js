@@ -23,8 +23,10 @@ const generateTicketPDF = async (data, fee, total) => {
             const isVehicle = p.paxType.toLowerCase().includes('kendaraan') || p.paxType.toLowerCase().includes('motor') || p.paxType.toLowerCase().includes('mobil');
             const labelIdentitas = isVehicle ? "No. Polisi" : "No. Identitas";
 
-            // Tambahan logika Note: Jika ada note, tampilkan di bawah nomor tiket
-            const noteHtml = p.note ? `<div style="margin-top: 2px; font-style: italic; color: #d35400; font-size: 10px;">Catatan: ${p.note}</div>` : '';
+            // PERBAIKAN DI SINI:
+            // Cek p.note (dari payload API) ATAU p.pax_note (dari database)
+            const displayNote = p.note || p.pax_note;
+            const noteHtml = displayNote ? `<div style="margin-top: 2px; font-style: italic; color: #d35400; font-size: 10px;">Catatan: ${displayNote}</div>` : '';
 
             return `
                 <tr>
