@@ -372,7 +372,7 @@ router.post('/issued', async (req, res) => {
 router.post('/save-booking', async (req, res) => {
     try {
         // 1. Ambil data dari req.body
-        const { resData, bookerData, serviceFee, username } = req.body;
+        const { resData, bookerData, serviceFee, username, rawPaxes } = req.body;
 
         if (!resData || resData.status !== "SUCCESS") {
             return res.status(400).json({ status: "ERROR", message: "Data tidak valid" });
@@ -416,18 +416,23 @@ router.post('/save-booking', async (req, res) => {
 
         // B. Simpan Detail Pax (SEKARANG TERMASUK NOTE)
         if (resData.paxBookingDetails?.length > 0) {
-            const paxValues = resData.paxBookingDetails.map(pax => [
-                newBookingId,
-                pax.paxName,
-                pax.paxType,
-                pax.ID,
-                pax.paxGender || '-',
-                pax.ticketNumber,
-                pax.ticketQRCode,
-                pax.fare,
-                pax.admin,
-                pax.note || null // <--- MENYIMPAN NILAI "KAMAR KHUSUS" DSB
-            ]);
+            const paxValues = resData.paxBookingDetails.map((pax, index) => {
+                // Cari note dari data asli berdasarkan index atau nama
+                const originalNote = rawPaxes && rawPaxes[index] ? rawPaxes[index].note : null;
+
+                return [
+                    newBookingId,
+                    pax.paxName,
+                    pax.paxType,
+                    pax.ID,
+                    pax.paxGender || '-',
+                    pax.ticketNumber,
+                    pax.ticketQRCode,
+                    pax.fare,
+                    pax.admin,
+                    pax.note || originalNote
+                ];
+            });
 
             await db.query(
                 `INSERT INTO booking_pax_details_dlu (
