@@ -23,15 +23,18 @@ const generateTicketPDF = async (data, fee, total) => {
             const isVehicle = p.paxType.toLowerCase().includes('kendaraan') || p.paxType.toLowerCase().includes('motor') || p.paxType.toLowerCase().includes('mobil');
             const labelIdentitas = isVehicle ? "No. Polisi" : "No. Identitas";
 
+            // Tambahan logika Note: Jika ada note, tampilkan di bawah nomor tiket
+            const noteHtml = p.note ? `<div style="margin-top: 2px; font-style: italic; color: #d35400; font-size: 10px;">Catatan: ${p.note}</div>` : '';
+
             return `
                 <tr>
                     <td style="text-align: center;">${index + 1}</td>
                     <td>
                         <div style="display: flex; align-items: center;">
-                           
                             <div>
                                 <b style="font-size: 13px;">${p.paxName}</b><br>
                                 <small style="color: ${primaryColor}; font-weight: bold;">${p.ticketNumber}</small>
+                                ${noteHtml}
                             </div>
                         </div>
                     </td>
@@ -77,9 +80,8 @@ const generateTicketPDF = async (data, fee, total) => {
             
             <div class="header">
                 <div class="brand">
-                   <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877917/WhatsApp_Image_2026-01-20_at_09.45.43-removebg-preview_lqkgrw.png" height="50">
+                    <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877917/WhatsApp_Image_2026-01-20_at_09.45.43-removebg-preview_lqkgrw.png" height="50">
                     <h1>E-TIKET</h1>
-                    <small>LINKU</small>
                 </div>
                 <div class="main-qr">
                     <img src="${mainQrBase64}"><br>

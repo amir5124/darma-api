@@ -371,7 +371,7 @@ router.post('/issued', async (req, res) => {
 
 router.post('/save-booking', async (req, res) => {
     try {
-        // 1. Ambil username dari req.body (dikirim dari frontend)
+        // 1. Ambil data dari req.body
         const { resData, bookerData, serviceFee, username } = req.body;
 
         if (!resData || resData.status !== "SUCCESS") {
@@ -384,7 +384,7 @@ router.post('/save-booking', async (req, res) => {
         const vendorTicketPrice = parseFloat(resData.ticketPrice || 0);
         const finalTotalUser = vendorTicketPrice + MY_SERVICE_FEE;
 
-        // A. Simpan Header (Ditambahkan kolom username)
+        // A. Simpan Header (Sesuai kode Anda sebelumnya)
         const [header] = await db.execute(
             `INSERT INTO bookings_dlu (
                 booking_number, num_code, ship_name, origin_name, 
@@ -408,13 +408,13 @@ router.post('/save-booking', async (req, res) => {
                 bookerData.email,
                 'SUCCESS',
                 JSON.stringify(resData),
-                username || null // Simpan username atau null jika tidak ada
+                username || null
             ]
         );
 
         const newBookingId = header.insertId;
 
-        // B. Simpan Detail Pax
+        // B. Simpan Detail Pax (SEKARANG TERMASUK NOTE)
         if (resData.paxBookingDetails?.length > 0) {
             const paxValues = resData.paxBookingDetails.map(pax => [
                 newBookingId,
@@ -425,23 +425,23 @@ router.post('/save-booking', async (req, res) => {
                 pax.ticketNumber,
                 pax.ticketQRCode,
                 pax.fare,
-                pax.admin
+                pax.admin,
+                pax.note || null // <--- MENYIMPAN NILAI "KAMAR KHUSUS" DSB
             ]);
 
             await db.query(
                 `INSERT INTO booking_pax_details_dlu (
                     booking_id, pax_name, pax_type, id_number, 
-                    gender, ticket_number, ticket_qr_code, fare, admin_vendor
+                    gender, ticket_number, ticket_qr_code, fare, admin_vendor,
+                    pax_note
                 ) VALUES ?`,
                 [paxValues]
             );
         }
 
-        // --- C. PROSES GENERATE PDF & KIRIM EMAIL (TAMBAHAN) ---
+        // --- C. PROSES GENERATE PDF & KIRIM EMAIL ---
         try {
             console.log(`[DLU_MAIL] Menghasilkan PDF untuk: ${resData.bookingNumber}`);
-
-            // Generate Buffer PDF menggunakan Puppeteer
             const pdfBuffer = await generateTicketPDF(resData, MY_SERVICE_FEE, finalTotalUser);
 
             const emailSubject = `E-Tiket Kapal ${resData.shipName} - ${resData.bookingNumber}`;
@@ -461,7 +461,6 @@ router.post('/save-booking', async (req, res) => {
                 </div>
             `;
 
-            // Kirim Email dengan attachment
             await sendBookingEmail(bookerData.email, emailSubject, emailHtml, [
                 {
                     filename: `ETiket_DLU_${resData.bookingNumber}.pdf`,
