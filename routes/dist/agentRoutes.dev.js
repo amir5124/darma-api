@@ -6,7 +6,7 @@ var router = express.Router();
 
 var axios = require('axios');
 
-var _require = require('../helpers/darmaSandbox'),
+var _require = require('../helpers/darmaHelper'),
     BASE_URL = _require.BASE_URL,
     USER_CONFIG = _require.USER_CONFIG,
     agent = _require.agent,
