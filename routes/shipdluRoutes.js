@@ -384,7 +384,7 @@ router.post('/save-booking', async (req, res) => {
         const vendorTicketPrice = parseFloat(resData.ticketPrice || 0);
         const finalTotalUser = vendorTicketPrice + MY_SERVICE_FEE;
 
-        // A. Simpan Header (Sesuai kode Anda sebelumnya)
+        // A. Simpan Header
         const [header] = await db.execute(
             `INSERT INTO bookings_dlu (
                 booking_number, num_code, ship_name, origin_name, 
@@ -414,12 +414,19 @@ router.post('/save-booking', async (req, res) => {
 
         const newBookingId = header.insertId;
 
-        // B. Simpan Detail Pax (SEKARANG TERMASUK NOTE)
+        // B. Simpan Detail Pax & Suntik Data Note untuk PDF
         if (resData.paxBookingDetails?.length > 0) {
-            const paxValues = resData.paxBookingDetails.map((pax, index) => {
-                // Cari note dari data asli berdasarkan index atau nama
+            // Kita map ulang resData agar memiliki note untuk keperluan generate PDF nanti
+            resData.paxBookingDetails = resData.paxBookingDetails.map((pax, index) => {
                 const originalNote = rawPaxes && rawPaxes[index] ? rawPaxes[index].note : null;
+                return {
+                    ...pax,
+                    note: pax.note || originalNote // Menyisipkan note ke memori resData
+                };
+            });
 
+            // Siapkan values untuk insert database
+            const paxValues = resData.paxBookingDetails.map((pax) => {
                 return [
                     newBookingId,
                     pax.paxName,
@@ -430,7 +437,7 @@ router.post('/save-booking', async (req, res) => {
                     pax.ticketQRCode,
                     pax.fare,
                     pax.admin,
-                    pax.note || originalNote
+                    pax.note // Sudah berisi originalNote dari proses map di atas
                 ];
             });
 
@@ -447,6 +454,8 @@ router.post('/save-booking', async (req, res) => {
         // --- C. PROSES GENERATE PDF & KIRIM EMAIL ---
         try {
             console.log(`[DLU_MAIL] Menghasilkan PDF untuk: ${resData.bookingNumber}`);
+            
+            // resData di sini sudah mengandung property .note dari hasil map di atas
             const pdfBuffer = await generateTicketPDF(resData, MY_SERVICE_FEE, finalTotalUser);
 
             const emailSubject = `E-Tiket Kapal ${resData.shipName} - ${resData.bookingNumber}`;
