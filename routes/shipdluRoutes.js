@@ -497,6 +497,52 @@ router.post('/save-booking', async (req, res) => {
     }
 });
 
+router.get('/booking-history/:username', async (req, res) => {
+    try {
+        const { username } = req.params;
+
+        if (!username) {
+            return res.status(400).json({ status: "ERROR", message: "Username harus diisi" });
+        }
+
+        // 1. Ambil semua data header booking berdasarkan username
+        // Kita urutkan berdasarkan ID terbaru (descending)
+        const [bookings] = await db.execute(
+            `SELECT * FROM bookings_dlu WHERE username = ? ORDER BY id DESC`,
+            [username]
+        );
+
+        if (bookings.length === 0) {
+            return res.json({ status: "SUCCESS", message: "Belum ada riwayat pemesanan", data: [] });
+        }
+
+        // 2. Ambil semua detail pax untuk booking yang ditemukan
+        // Kita gunakan Promise.all agar proses pengambilan detail berjalan efisien
+        const historyData = await Promise.all(bookings.map(async (booking) => {
+            const [paxes] = await db.execute(
+                `SELECT * FROM booking_pax_details_dlu WHERE booking_id = ?`,
+                [booking.id]
+            );
+            
+            return {
+                ...booking,
+                pax_details: paxes // Menyisipkan array penumpang ke dalam objek booking
+            };
+        }));
+
+        console.log(`[DLU_DB] History diambil untuk user: ${username} (${bookings.length} data)`);
+        
+        res.json({
+            status: "SUCCESS",
+            data: historyData
+        });
+
+    } catch (error) {
+        console.error(`[DLU_DB] Error Get History: ${error.message}`);
+        res.status(500).json({ status: "ERROR", message: error.message });
+    }
+});
+
 router.post('/get-eticket', async (req, res) => {
     const bookingNumber = req.body.bookingNumber;
 
