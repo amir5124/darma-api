@@ -3,17 +3,20 @@ const crypto = require('crypto');
 const moment = require('moment-timezone');
 const db = require('../config/db');
 const { sendBookingEmail } = require('../utils/mailer');
-const {generateTicketPDF} = require('../utils/ticketGenerator')
+const { generateTicketPDF } = require('../utils/ticketGenerator');
 
 const config = {
-    clientId: "testing",
-    clientSecret: "123",
-    username: "LI307GXIN",
-    pin: "2K2NPCBBNNTovgB",
-    serverKey: "LinkQu@2020",
-    baseUrl: 'https://gateway-dev.linkqu.id/linkqu-partner'
+    clientId: "5f5aa496-7e16-4ca1-9967-33c768dac6c7",
+    clientSecret: "TM1rVhfaFm5YJxKruHo0nWMWC",
+    username: "LI9019VKS",
+    pin: "5m6uYAScSxQtCmU",
+    serverKey: "QtwGEr997XDcmMb1Pq8S5X1N",
+    baseUrl: 'https://api.linkqu.id/linkqu-partner'
 };
 
+/**
+ * Signature Generator (Mengikuti logika yang sudah sukses di Hotel)
+ */
 function generateSignature(path, method, data) {
     const rawValue = Object.values(data).join('') + config.clientId;
     const cleaned = rawValue.replace(/[^0-9a-zA-Z]/g, "").toLowerCase();
@@ -24,138 +27,128 @@ function generateSignature(path, method, data) {
 
 const DluPaymentController = {
 
-    // =====================================================
-    // POST /api/dlu-payments/create
-    // Dipanggil frontend setelah draft berhasil dibuat
-    // =====================================================
     createPayment: async (req, res) => {
         let connection;
         try {
             const {
-                booking_id,         // ← ID integer dari tabel bookings_dlu (hasil draft)
+                booking_id,
                 amount,
                 customer_name,
                 customer_phone,
                 customer_email,
-                method,             // 'QRIS' | 'VA'
-                bank_code,          // '014' | '002' | '009' (hanya jika VA)
+                method,
+                bank_code,
                 admin_fee_applied
             } = req.body;
 
-            if (!booking_id) {
-                return res.status(400).json({ status: "ERROR", message: "booking_id wajib diisi" });
-            }
-
-            // 1. Validasi booking ada di DB
-            connection = await db.getConnection();
-            const [rows] = await connection.query(
-                "SELECT * FROM bookings_dlu WHERE id = ?", [booking_id]
-            );
-            if (rows.length === 0) {
-                return res.status(404).json({ status: "ERROR", message: "Data booking tidak ditemukan" });
-            }
-
-            // 2. Normalisasi data
-            const finalAmount      = Math.round(Number(amount));
-            const finalCustomerName  = (customer_name || 'Customer').substring(0, 30).trim();
+            // 1. Normalisasi Data (Sama persis dengan logic Hotel)
+            const finalAmount = Math.round(Number(amount));
+            const finalCustomerName = (customer_name || 'Customer').substring(0, 30).trim();
             const finalCustomerEmail = (customer_email || 'guest@mail.com').trim();
 
-            let formattedPhone = (customer_phone || '').toString().trim().replace(/[^0-9]/g, '');
+            let formattedPhone = customer_phone ? customer_phone.toString().trim().replace(/[^0-9]/g, '') : '';
             if (formattedPhone.startsWith('0')) formattedPhone = '+62' + formattedPhone.substring(1);
             else if (!formattedPhone.startsWith('+')) formattedPhone = '+62' + formattedPhone;
+            if (formattedPhone.length < 10) formattedPhone = '+628123456789';
 
-            // 3. Generate referensi unik & expired
             const partner_reff = `PAY-DLU-${Date.now()}`;
-            const expired      = moment.tz('Asia/Jakarta').add(2, 'hours').format('YYYYMMDDHHmmss');
+            const expired = moment.tz('Asia/Jakarta').add(2, 'hours').format('YYYYMMDDHHmmss');
             const url_callback = "https://darma.siappgo.id/api/dlu-payments/callback";
 
-            // 4. Susun payload LinkQu
-            const commonData = {
-                amount:         finalAmount,
-                expired,
-                partner_reff,
-                customer_id:    formattedPhone,
-                customer_name:  finalCustomerName,
-                customer_email: finalCustomerEmail
-            };
+            connection = await db.getConnection();
 
-            const endpoint    = method === 'VA' ? '/transaction/create/va' : '/transaction/create/qris';
-            let payloadLinkQu = {
-                ...commonData,
-                username:     config.username,
-                pin:          config.pin,
-                url_callback
-            };
+            // 2. Cek Booking DLU
+            const [rows] = await connection.query("SELECT * FROM bookings_dlu WHERE id = ?", [booking_id]);
+            if (rows.length === 0) return res.status(404).json({ error: "Data booking DLU tidak ditemukan" });
+
+            // 3. Susun Data untuk Signature (URUTAN SANGAT PENTING)
+            let endpoint = method === 'VA' ? '/transaction/create/va' : '/transaction/create/qris';
+            let signatureData;
+            let payloadLinkQu;
 
             if (method === 'VA') {
-                payloadLinkQu.bank_code  = bank_code;
-                payloadLinkQu.signature  = generateSignature(endpoint, 'POST', { ...commonData, bank_code });
+                signatureData = {
+                    amount: finalAmount,
+                    expired,
+                    bank_code, // Bank code harus masuk di sini untuk VA
+                    partner_reff,
+                    customer_id: formattedPhone,
+                    customer_name: finalCustomerName,
+                    customer_email: finalCustomerEmail
+                };
+                payloadLinkQu = {
+                    ...signatureData,
+                    username: config.username,
+                    pin: config.pin,
+                    url_callback,
+                    signature: generateSignature(endpoint, 'POST', signatureData)
+                };
             } else {
-                payloadLinkQu.signature  = generateSignature(endpoint, 'POST', commonData);
+                signatureData = {
+                    amount: finalAmount,
+                    expired,
+                    partner_reff,
+                    customer_id: formattedPhone,
+                    customer_name: finalCustomerName,
+                    customer_email: finalCustomerEmail
+                };
+                payloadLinkQu = {
+                    ...signatureData,
+                    username: config.username,
+                    pin: config.pin,
+                    url_callback,
+                    signature: generateSignature(endpoint, 'POST', signatureData)
+                };
             }
 
-            console.log(`🚀 [DLU-PAY] Reff: ${partner_reff} | Booking ID: ${booking_id} | Method: ${method}`);
+            console.log(`🚀 [DLU-PAY REQ] Reff: ${partner_reff} | Method: ${method}`);
 
-            // 5. Hit LinkQu
+            // 4. Request ke LinkQu
             const resp = await axios.post(`${config.baseUrl}${endpoint}`, payloadLinkQu, {
                 headers: { 'client-id': config.clientId, 'client-secret': config.clientSecret }
             });
 
             const linkquData = resp.data;
 
-            // 6. Ekstrak VA / QRIS — handle berbagai format response LinkQu
-            const vaNumber  = linkquData.virtual_account
-                           || linkquData.va_number
-                           || linkquData.data?.va_number
-                           || null;
+            // 5. Ekstraksi Nomor VA / QRIS (Handle nested data property)
+            const vaNumber = linkquData.virtual_account || linkquData.va_number || (linkquData.data ? linkquData.data.va_number : null);
+            const qrisImage = linkquData.imageqris || linkquData.qr_url || (linkquData.data ? linkquData.data.qr_url : null);
 
-            const qrisImage = linkquData.imageqris
-                           || linkquData.qr_url
-                           || linkquData.data?.qr_url
-                           || linkquData.data?.imageqris
-                           || null;
-
-            if (method === 'VA' && !vaNumber) {
-                throw new Error("Gagal mendapatkan nomor Virtual Account dari LinkQu");
-            }
-            if (method === 'QRIS' && !qrisImage) {
-                throw new Error("Gagal mendapatkan QR Code dari LinkQu");
+            if (!vaNumber && !qrisImage) {
+                throw new Error("Gagal mendapatkan instruksi pembayaran: " + JSON.stringify(linkquData));
             }
 
-            // 7. Simpan payment_ref ke DB agar bisa di-polling & callback
+            // 6. Update Status di DB
             await connection.query(
                 `UPDATE bookings_dlu SET payment_ref = ?, status = 'PENDING_PAYMENT' WHERE id = ?`,
                 [partner_reff, booking_id]
             );
 
-            console.log(`✅ [DLU-PAY] ${method} berhasil untuk ${partner_reff}`);
-
-            // 8. Response ke frontend — format konsisten
+            // 7. Response
             return res.json({
-                status:       "SUCCESS",
+                status: "SUCCESS",
                 partner_reff,
                 data: {
                     method,
-                    virtual_account: vaNumber,    // ← frontend baca res.data.virtual_account
-                    imageqris:       qrisImage,   // ← frontend baca res.data.imageqris
-                    amount:          finalAmount,
-                    expired_at:      moment(expired, 'YYYYMMDDHHmmss').format('HH:mm:ss')
+                    virtual_account: vaNumber,
+                    imageqris: qrisImage,
+                    amount: finalAmount,
+                    expired_at: moment(expired, 'YYYYMMDDHHmmss').format('HH:mm:ss')
                 }
             });
 
         } catch (err) {
             console.error("❌ [DLU-PAY ERROR]:", err.response?.data || err.message);
-            return res.status(500).json({ status: "ERROR", message: err.message });
+            return res.status(500).json({
+                status: "ERROR",
+                message: err.message,
+                debug: err.response?.data
+            });
         } finally {
             if (connection) connection.release();
         }
     },
 
-
-    // =====================================================
-    // POST /api/dlu-payments/callback
-    // Webhook dari LinkQu saat pembayaran sukses
-    // =====================================================
     handleCallback: async (req, res) => {
         console.log("📥 [DLU CALLBACK]:", JSON.stringify(req.body, null, 2));
         try {
@@ -209,8 +202,8 @@ const DluPaymentController = {
                 const b = rows[0];
                 if (['PAID', 'SUCCESS', 'SETTLED'].includes(b.status?.toUpperCase())) {
                     return res.json({
-                        status:     'SUCCESS',
-                        message:    'Pembayaran Lunas',
+                        status: 'SUCCESS',
+                        message: 'Pembayaran Lunas',
                         booking_id: b.id
                     });
                 }
@@ -218,13 +211,13 @@ const DluPaymentController = {
 
             // 2. Tanya LinkQu jika DB masih PENDING
             const resp = await axios.get(`${config.baseUrl}/transaction/check-status`, {
-                params:  { partner_reff: reff, username: config.username, pin: config.pin },
+                params: { partner_reff: reff, username: config.username, pin: config.pin },
                 headers: { 'client-id': config.clientId, 'client-secret': config.clientSecret }
             });
 
-            const data      = resp.data;
+            const data = resp.data;
             const isSuccess = data.status?.toUpperCase() === 'SUCCESS'
-                           || data.response_code === '00';
+                || data.response_code === '00';
 
             if (isSuccess) {
                 // Update DB jika vendor konfirmasi sukses
@@ -235,7 +228,7 @@ const DluPaymentController = {
                     );
                 }
                 return res.json({
-                    status:  'SUCCESS',
+                    status: 'SUCCESS',
                     message: 'Pembayaran Berhasil'
                 });
             }
@@ -265,7 +258,7 @@ const DluPaymentController = {
             console.log(`[DLU_FINALIZE] Booking ID: ${booking_id} | Vendor: ${resData.bookingNumber}`);
 
             const MY_SERVICE_FEE = parseFloat(serviceFee || 0);
-            const finalTotal     = parseFloat(resData.ticketPrice || 0) + MY_SERVICE_FEE;
+            const finalTotal = parseFloat(resData.ticketPrice || 0) + MY_SERVICE_FEE;
 
             // 1. Update header booking
             await db.execute(
@@ -324,8 +317,8 @@ const DluPaymentController = {
 // =====================================================
 async function sendEmailDlu(id, resData, fee, total) {
     try {
-        const pdfBuffer    = await generateTicketPDF(resData, fee, total);
-        const targetEmail  = resData.customerEmail || resData.email;
+        const pdfBuffer = await generateTicketPDF(resData, fee, total);
+        const targetEmail = resData.customerEmail || resData.email;
 
         if (!targetEmail) throw new Error("Email tujuan tidak ditemukan");
 
@@ -358,8 +351,8 @@ async function sendEmailDlu(id, resData, fee, total) {
         `;
 
         await sendBookingEmail(targetEmail, emailSubject, emailHtml, [{
-            filename:    `ETiket_DLU_${resData.numCode || resData.bookingNumber}.pdf`,
-            content:     pdfBuffer,
+            filename: `ETiket_DLU_${resData.numCode || resData.bookingNumber}.pdf`,
+            content: pdfBuffer,
             contentType: 'application/pdf'
         }]);
 
@@ -370,6 +363,5 @@ async function sendEmailDlu(id, resData, fee, total) {
         console.error(`[DLU_MAIL] ❌ ID ${id}:`, e.message);
         return false;
     }
-}
 
-module.exports = DluPaymentController;
+};
