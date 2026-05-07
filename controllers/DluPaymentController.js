@@ -369,7 +369,7 @@ async function sendEmailDlu(id, resData, fee, total) {
                             <td><b>: ${resData.originName} → ${resData.destinationName}</b></td></tr>
                         <tr><td style="color:#666;padding:4px 0;">Keberangkatan</td>
                             <td><b>: ${resData.departDate}</b></td></tr>
-                        <tr><td style="color:#666;padding:4px 0;">Kode PNR</td>
+                        <tr><td style="color:#666;padding:4px 0;">No. Reff</td>
                             <td><b style="color:#d32f2f;">: ${resData.numCode}</b></td></tr>
                         <tr><td style="color:#666;padding:4px 0;">No. Reservasi</td>
                             <td><b>: ${resData.bookingNumber}</b></td></tr>
