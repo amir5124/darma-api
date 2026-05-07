@@ -312,21 +312,33 @@ const DluPaymentController = {
 
 
 // =====================================================
-// Helper: Generate PDF + Kirim Email
+// Helper: Generate PDF + Kirim Email (VERSI PERBAIKAN)
 // =====================================================
 async function sendEmailDlu(id, resData, fee, total) {
     try {
-        const pdfBuffer = await generateTicketPDF(resData, fee, total);
-        const targetEmail = resData.customerEmail || resData.email;
+        // 1. AMBIL DATA EMAIL DARI DATABASE (Jauh lebih aman)
+        const [dbRows] = await db.query(
+            "SELECT customer_email, customer_name FROM bookings_dlu WHERE id = ?",
+            [id]
+        );
 
-        if (!targetEmail) throw new Error("Email tujuan tidak ditemukan");
+        if (dbRows.length === 0) throw new Error("Data booking tidak ditemukan di database");
+
+        // Gunakan email dari DB jika resData tidak punya email
+        const targetEmail = dbRows[0].customer_email || resData.customerEmail || resData.email;
+        const customerName = dbRows[0].customer_name || resData.customerName || 'Pelanggan';
+
+        if (!targetEmail) throw new Error("Email tujuan tidak ditemukan di DB maupun Request");
+
+        // 2. Generate PDF
+        const pdfBuffer = await generateTicketPDF(resData, fee, total);
 
         const emailSubject = `E-Tiket Kapal ${resData.shipName} - ${resData.bookingNumber}`;
         const emailHtml = `
             <div style="font-family:sans-serif;line-height:1.6;color:#333;max-width:600px;margin:auto;border:1px solid #eee;padding:20px;">
                 <h2 style="color:#00529b;text-align:center;">LinkU Transport</h2>
                 <hr style="border:0;border-top:1px solid #eee;">
-                <p>Halo, <b>${resData.customerName || 'Pelanggan'}</b>!</p>
+                <p>Halo, <b>${customerName}</b>!</p>
                 <p>Pembayaran Anda telah berhasil. Berikut rincian perjalanan Anda:</p>
                 <div style="background:#f9f9f9;padding:15px;border-radius:8px;margin:20px 0;">
                     <table style="width:100%;border-collapse:collapse;">
@@ -349,6 +361,7 @@ async function sendEmailDlu(id, resData, fee, total) {
             </div>
         `;
 
+        // 3. Kirim Email
         await sendBookingEmail(targetEmail, emailSubject, emailHtml, [{
             filename: `ETiket_DLU_${resData.numCode || resData.bookingNumber}.pdf`,
             content: pdfBuffer,
@@ -362,7 +375,6 @@ async function sendEmailDlu(id, resData, fee, total) {
         console.error(`[DLU_MAIL] ❌ ID ${id}:`, e.message);
         return false;
     }
-
-};
+}
 
 module.exports = DluPaymentController;
