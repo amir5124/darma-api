@@ -497,6 +497,195 @@ router.post('/save-booking', async (req, res) => {
     }
 });
 
+router.post('/dlu-bookings/draft', async (req, res) => {
+    try {
+        const { bookerData, routeData, serviceFee, username } = req.body;
+
+        // Generate nomor referensi internal
+        const tempBookingNo = 'DLU-WAIT-' + Date.now();
+        const MY_SERVICE_FEE = parseFloat(serviceFee || 15000);
+        const ticketPrice = parseFloat(routeData.ticketPrice || 0);
+        const finalTotal = ticketPrice + MY_SERVICE_FEE;
+
+        const [result] = await db.execute(
+            `INSERT INTO bookings_dlu (
+                booking_number, ship_name, origin_name, destination_name, 
+                depart_date, ticket_price, service_fee, total_bayar, 
+                customer_name, customer_phone, customer_email, 
+                status, username
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_PAYMENT', ?)`,
+            [
+                tempBookingNo, routeData.shipName, routeData.originName, 
+                routeData.destinationName, routeData.departDate, ticketPrice,
+                MY_SERVICE_FEE, finalTotal, bookerData.name, 
+                bookerData.phone, bookerData.email, username || null
+            ]
+        );
+
+        res.json({ 
+            status: "SUCCESS", 
+            booking_id: result.insertId, 
+            booking_number: tempBookingNo,
+            total_bayar: finalTotal 
+        });
+    } catch (error) {
+        res.status(500).json({ status: "ERROR", message: error.message });
+    }
+});
+
+router.post('/dlu-bookings/update-after-vendor', async (req, res) => {
+    try {
+        // resData adalah response SUKSES dari vendor (Darmawisata)
+        const { resData, booking_id, rawPaxes, serviceFee } = req.body;
+
+        console.log(`[DLU_SYNC] Sinkronisasi data vendor untuk ID: ${booking_id}`);
+
+        const MY_SERVICE_FEE = parseFloat(serviceFee || 15000);
+        const finalTotalUser = parseFloat(resData.ticketPrice) + MY_SERVICE_FEE;
+
+        // 1. Update Header dengan data asli dari Vendor
+        await db.execute(
+            `UPDATE bookings_dlu SET 
+                booking_number = ?, 
+                num_code = ?, 
+                status = 'SUCCESS', 
+                raw_response = ?,
+                updated_at = NOW()
+             WHERE id = ?`,
+            [resData.bookingNumber, resData.numCode, JSON.stringify(resData), booking_id]
+        );
+
+        // 2. Simpan Detail Pax (Logika yang sama dengan /save-booking lama)
+        if (resData.paxBookingDetails?.length > 0) {
+            const paxValues = resData.paxBookingDetails.map((pax, index) => {
+                const originalNote = rawPaxes && rawPaxes[index] ? rawPaxes[index].note : null;
+                return [
+                    booking_id,
+                    pax.paxName,
+                    pax.paxType,
+                    pax.ID,
+                    pax.paxGender || '-',
+                    pax.ticketNumber,
+                    pax.ticketQRCode,
+                    pax.fare,
+                    pax.admin,
+                    originalNote
+                ];
+            });
+
+            await db.query(
+                `INSERT INTO booking_pax_details_dlu (
+                    booking_id, pax_name, pax_type, id_number, 
+                    gender, ticket_number, ticket_qr_code, fare, admin_vendor, pax_note
+                ) VALUES ?`,
+                [paxValues]
+            );
+        }
+
+        // 3. Kirim Email (Sama dengan logika Anda sebelumnya)
+        // Jalankan di background agar user tidak menunggu lama
+        sendEmailDlu(booking_id, resData, MY_SERVICE_FEE, finalTotalUser);
+
+        res.json({ status: "SUCCESS", message: "Booking finalized" });
+
+    } catch (error) {
+        console.error(`[DLU_SYNC_ERR]: ${error.message}`);
+        res.status(500).json({ status: "ERROR", message: error.message });
+    }
+});
+
+// Fungsi Helper Email agar kode rapi
+/**
+ * Fungsi Helper untuk Generate PDF dan Kirim Email Kapal DLU
+ * @param {number} id - ID database internal (bookings_dlu.id)
+ * @param {object} resData - Response object sukses dari vendor
+ * @param {number} fee - Nilai Service Fee
+ * @param {number} total - Total Bayar User (Ticket + Fee)
+ */
+async function sendEmailDlu(id, resData, fee, total) {
+    try {
+        console.log(`[DLU_MAIL] Memproses Email & PDF untuk Booking: ${resData.bookingNumber}`);
+
+        // 1. Generate PDF Buffer menggunakan fungsi generateTicketPDF yang sudah ada
+        // Pastikan fungsi ini sudah di-import/tersedia di scope file ini
+        const pdfBuffer = await generateTicketPDF(resData, fee, total);
+
+        // 2. Siapkan Subjek Email
+        const emailSubject = `E-Tiket Kapal ${resData.shipName} - ${resData.bookingNumber}`;
+
+        // 3. Susun Konten HTML Email
+        // Menggunakan data dari resData (sesuai field vendor)
+        const emailHtml = `
+            <div style="font-family: sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: auto; border: 1px solid #eee; padding: 20px;">
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <h2 style="color: #00529b;">LinkU Transport</h2>
+                    <hr style="border: 0; border-top: 1px solid #eee;">
+                </div>
+                
+                <p>Halo, <b>${resData.customerName || 'Pelanggan'}</b>!</p>
+                <p>Terima kasih telah melakukan pemesanan tiket kapal di <b>LinkU Transport</b>.</p>
+                <p>Pembayaran Anda telah berhasil diverifikasi dan tiket Anda telah diterbitkan (Issued). Berikut adalah rincian perjalanan Anda:</p>
+                
+                <div style="background-color: #f9f9f9; padding: 15px; border-radius: 8px; margin: 20px 0;">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <tr>
+                            <td style="padding: 5px 0; color: #666;">Nama Kapal</td>
+                            <td style="padding: 5px 0;"><b>: ${resData.shipName}</b></td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 5px 0; color: #666;">Rute</td>
+                            <td style="padding: 5px 0;"><b>: ${resData.originName} &rarr; ${resData.destinationName}</b></td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 5px 0; color: #666;">Jadwal Keberangkatan</td>
+                            <td style="padding: 5px 0;"><b>: ${resData.departDate}</b></td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 5px 0; color: #666;">Kode Pesanan (PNR)</td>
+                            <td style="padding: 5px 0;"><b style="color: #d32f2f;">: ${resData.numCode}</b></td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 5px 0; color: #666;">Nomor Reservasi</td>
+                            <td style="padding: 5px 0;"><b>: ${resData.bookingNumber}</b></td>
+                        </tr>
+                    </table>
+                </div>
+
+                <p>Silakan temukan <b>E-Tiket resmi</b> Anda pada lampiran email ini. Anda dapat mencetak atau menunjukkan file PDF tersebut saat melakukan check-in di pelabuhan.</p>
+                
+                <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #999; text-align: center;">
+                    <p>Pesan ini dikirim secara otomatis oleh sistem LinkU Transport.<br>
+                    Jika ada pertanyaan, silakan hubungi Customer Service kami.</p>
+                </div>
+            </div>
+        `;
+
+        // 4. Kirim Email melalui fungsi sendBookingEmail
+        // Pastikan email tujuan diambil dari data pemesan (resData.customerEmail atau parameter tambahan)
+        const targetEmail = resData.customerEmail || resData.email;
+
+        if (!targetEmail) {
+            throw new Error("Email tujuan tidak ditemukan dalam resData");
+        }
+
+        await sendBookingEmail(targetEmail, emailSubject, emailHtml, [
+            {
+                filename: `ETiket_DLU_${resData.numCode || resData.bookingNumber}.pdf`,
+                content: pdfBuffer,
+                contentType: 'application/pdf'
+            }
+        ]);
+
+        console.log(`[DLU_MAIL] ✅ Email Berhasil dikirim ke: ${targetEmail}`);
+        return true;
+
+    } catch (e) {
+        console.error(`[DLU_MAIL] ❌ Gagal mengirim email untuk ID ${id}:`, e.message);
+        // Kita tidak me-reject agar tidak mengganggu proses response API utama
+        return false;
+    }
+}
+
 router.get('/booking-history/:username', async (req, res) => {
     try {
         const { username } = req.params;

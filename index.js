@@ -14,6 +14,7 @@ const historyRoutes = require('./routes/historyRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const shipPaymentRoutes = require('./routes/shipPaymentRoutes');
 const hotelPaymentRoutes = require('./routes/hotelPaymentRoutes');
+const dluPaymentRoutes = require('./routes/dluPaymentRoutes');
 
 const app = express();
 
@@ -44,6 +45,7 @@ app.use('/api/train', trainRoutes);
 app.use('/api/booking-history', historyRoutes);
 app.use('/api', paymentRoutes);
 app.use('/api/pay/ship', shipPaymentRoutes);
+app.use('/api/dlu-payments', dluPaymentRoutes);
 
 const PORT = 3000;
 app.listen(PORT, () => {
