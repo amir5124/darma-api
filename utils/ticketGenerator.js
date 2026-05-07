@@ -2,11 +2,11 @@ const puppeteer = require('puppeteer');
 const QRCode = require('qrcode');
 
 const generateTicketPDF = async (data, fee, total) => {
-    const browser = await puppeteer.launch({ 
-        headless: "new", 
-        args: ['--no-sandbox', '--disable-setuid-sandbox'] 
+    const browser = await puppeteer.launch({
+        headless: "new",
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
-    
+
     try {
         const page = await browser.newPage();
         const primaryColor = "#24b3ae";
@@ -18,15 +18,18 @@ const generateTicketPDF = async (data, fee, total) => {
         const paxRows = await Promise.all(data.paxBookingDetails.map(async (p, index) => {
             // Generate QR Code kecil untuk setiap tiket
             const ticketQrBase64 = await QRCode.toDataURL(p.ticketQRCode || p.ticketNumber);
-            
+
             // Logika deteksi kendaraan (berdasarkan paxType atau ID yang mengandung plat nomor)
             const isVehicle = p.paxType.toLowerCase().includes('kendaraan') || p.paxType.toLowerCase().includes('motor') || p.paxType.toLowerCase().includes('mobil');
             const labelIdentitas = isVehicle ? "No. Polisi" : "No. Identitas";
 
             // PERBAIKAN DI SINI:
             // Cek p.note (dari payload API) ATAU p.pax_note (dari database)
-            const displayNote = p.note || p.pax_note;
-            const noteHtml = displayNote ? `<div style="margin-top: 2px; font-style: italic; color: #d35400; font-size: 10px;">Catatan: ${displayNote}</div>` : '';
+            const displayNote = p.pax_note || p.note; // Prioritaskan pax_note dari DB
+            const noteHtml = (displayNote && displayNote.toUpperCase() !== 'NULL')
+                ? `<div style="margin-top: 2px; font-style: italic; color: #e67e22; font-size: 10px;">
+         Catatan: ${displayNote}
+       </div>` : '';
 
             return `
                 <tr>
@@ -151,12 +154,12 @@ const generateTicketPDF = async (data, fee, total) => {
         `;
 
         await page.setContent(htmlContent);
-        const pdfBuffer = await page.pdf({ 
-            format: 'A4', 
+        const pdfBuffer = await page.pdf({
+            format: 'A4',
             printBackground: true,
             margin: { top: '20px', right: '20px', bottom: '20px', left: '20px' }
         });
-        
+
         return pdfBuffer;
     } finally {
         await browser.close();

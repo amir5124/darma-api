@@ -48,8 +48,9 @@ var generateTicketPDF = function generateTicketPDF(data, fee, total) {
                     labelIdentitas = isVehicle ? "No. Polisi" : "No. Identitas"; // PERBAIKAN DI SINI:
                     // Cek p.note (dari payload API) ATAU p.pax_note (dari database)
 
-                    displayNote = p.note || p.pax_note;
-                    noteHtml = displayNote ? "<div style=\"margin-top: 2px; font-style: italic; color: #d35400; font-size: 10px;\">Catatan: ".concat(displayNote, "</div>") : '';
+                    displayNote = p.pax_note || p.note; // Prioritaskan pax_note dari DB
+
+                    noteHtml = displayNote && displayNote.toUpperCase() !== 'NULL' ? "<div style=\"margin-top: 2px; font-style: italic; color: #e67e22; font-size: 10px;\">\n         Catatan: ".concat(displayNote, "\n       </div>") : '';
                     return _context.abrupt("return", "\n                <tr>\n                    <td style=\"text-align: center;\">".concat(index + 1, "</td>\n                    <td>\n                        <div style=\"display: flex; align-items: center;\">\n                            <div>\n                                <b style=\"font-size: 13px;\">").concat(p.paxName, "</b><br>\n                                <small style=\"color: ").concat(primaryColor, "; font-weight: bold;\">").concat(p.ticketNumber, "</small>\n                                ").concat(noteHtml, "\n                            </div>\n                        </div>\n                    </td>\n                    <td>\n                        <small style=\"color: #666;\">").concat(labelIdentitas, "</small><br>\n                        <b>").concat(p.ID, "</b>\n                    </td>\n                    <td>").concat(p.paxType, "</td>\n                    <td style=\"text-align: right; font-weight: bold;\">Rp ").concat(p.fare.toLocaleString('id-ID'), "</td>\n                </tr>\n            "));
 
                   case 8:

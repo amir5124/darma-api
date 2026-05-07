@@ -314,9 +314,12 @@ const DluPaymentController = {
 // =====================================================
 // Helper: Generate PDF + Kirim Email (VERSI PERBAIKAN)
 // =====================================================
+// =====================================================
+// Helper: Generate PDF + Kirim Email (Lengkap dengan Catatan)
+// =====================================================
 async function sendEmailDlu(id, resData, fee, total) {
     try {
-        // 1. AMBIL DATA EMAIL DARI DATABASE (Jauh lebih aman)
+        // 1. AMBIL DATA EMAIL DAN NAMA DARI DATABASE (Jauh lebih aman)
         const [dbRows] = await db.query(
             "SELECT customer_email, customer_name FROM bookings_dlu WHERE id = ?",
             [id]
@@ -324,13 +327,31 @@ async function sendEmailDlu(id, resData, fee, total) {
 
         if (dbRows.length === 0) throw new Error("Data booking tidak ditemukan di database");
 
+        // 2. AMBIL DETAIL PENUMPANG UNTUK MENDAPATKAN pax_note
+        const [paxFromDb] = await db.query(
+            "SELECT pax_name, pax_note FROM booking_pax_details_dlu WHERE booking_id = ?",
+            [id]
+        );
+
+        // Gabungkan pax_note dari DB ke dalam resData.paxBookingDetails agar terbaca oleh PDF Generator
+        if (resData.paxBookingDetails && paxFromDb.length > 0) {
+            resData.paxBookingDetails = resData.paxBookingDetails.map(pax => {
+                // Cari data di DB yang namanya cocok dengan data dari resData
+                const dbMatch = paxFromDb.find(d => d.pax_name === pax.paxName);
+                return {
+                    ...pax,
+                    pax_note: dbMatch ? dbMatch.pax_note : null // Suntikkan pax_note ke objek pax
+                };
+            });
+        }
+
         // Gunakan email dari DB jika resData tidak punya email
         const targetEmail = dbRows[0].customer_email || resData.customerEmail || resData.email;
         const customerName = dbRows[0].customer_name || resData.customerName || 'Pelanggan';
 
         if (!targetEmail) throw new Error("Email tujuan tidak ditemukan di DB maupun Request");
 
-        // 2. Generate PDF
+        // 3. Generate PDF (Sekarang resData sudah berisi pax_note untuk ditampilkan)
         const pdfBuffer = await generateTicketPDF(resData, fee, total);
 
         const emailSubject = `E-Tiket Kapal ${resData.shipName} - ${resData.bookingNumber}`;
@@ -361,7 +382,7 @@ async function sendEmailDlu(id, resData, fee, total) {
             </div>
         `;
 
-        // 3. Kirim Email
+        // 4. Kirim Email
         await sendBookingEmail(targetEmail, emailSubject, emailHtml, [{
             filename: `ETiket_DLU_${resData.numCode || resData.bookingNumber}.pdf`,
             content: pdfBuffer,
