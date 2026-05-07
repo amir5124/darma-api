@@ -4,24 +4,14 @@ var express = require('express');
 
 var router = express.Router();
 
-var dluPaymentController = require('../controllers/DluPaymentController');
-/**
- * @route   POST /api/dlu-payments/create
- * @desc    Membuat instruksi pembayaran (VA/QRIS) untuk tiket kapal DLU
- */
+var DluPaymentController = require('../controllers/DluPaymentController'); // Buat instruksi pembayaran (VA / QRIS)
 
 
-router.post('/create', dluPaymentController.createPayment);
-/**
- * @route   POST /api/dlu-payments/callback
- * @desc    Endpoint webhook untuk menerima notifikasi pembayaran sukses dari LinkQu
- */
+router.post('/create', DluPaymentController.createPayment); // Webhook callback dari LinkQu
 
-router.post('/callback', dluPaymentController.handleCallback);
-/**
- * @route   GET /api/dlu-payments/check-status/:reff
- * @desc    Endpoint polling untuk frontend mengecek status pembayaran berdasarkan payment_ref
- */
+router.post('/callback', DluPaymentController.handleCallback); // Polling status dari frontend
 
-router.get('/check-status/:reff', dluPaymentController.checkStatus);
+router.get('/check-status/:reff', DluPaymentController.checkStatus); // Finalisasi setelah issued vendor sukses
+
+router.post('/finalize', DluPaymentController.finalizeBooking);
 module.exports = router;
