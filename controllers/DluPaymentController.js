@@ -365,3 +365,5 @@ async function sendEmailDlu(id, resData, fee, total) {
     }
 
 };
+
+module.exports = DluPaymentController;
