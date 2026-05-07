@@ -4,7 +4,7 @@ const axios = require('axios');
 const db = require('../config/db');
 const { sendBookingEmail } = require('../utils/mailer');
 const { generateTicketPDF } = require('../utils/ticketGenerator');
-const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('../helpers/darmaHelper');
+const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('../helpers/darmaSandbox');
 
 /**
  * GET SHIP DLU ROUTES
