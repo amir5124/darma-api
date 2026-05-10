@@ -17,7 +17,7 @@ const generatePelniTicketPDF = async (bookingDetail, serviceFee = 0, totalAmount
 
     try {
         const page = await browser.newPage();
-        const primaryColor = '#1a6fb4'; // Biru Pelni
+        const primaryColor = '#24b3ae'; // Biru Pelni
 
         // Format tanggal Indonesia
         const fmtDate = (isoStr) => {
@@ -67,11 +67,11 @@ const generatePelniTicketPDF = async (bookingDetail, serviceFee = 0, totalAmount
                     <td style="text-align:center;width:30px;">${i + 1}</td>
                     <td>
                         <div style="display:flex;align-items:center;gap:10px;">
-                            <img src="${paxQr}" width="45" height="45" />
+                           
                             <div>
                                 <b style="font-size:13px;">${p.paxName || '-'}</b><br/>
                                 <small style="color:${primaryColor};font-weight:bold;">
-                                    ${p.ticketNumber || 'Belum terbit'}
+                                ${bookingDetail.numCode || '-'}
                                 </small>
                                 ${noteHtml}
                             </div>
@@ -81,10 +81,19 @@ const generatePelniTicketPDF = async (bookingDetail, serviceFee = 0, totalAmount
                         <small style="color:#666;">${labelId}</small><br/>
                         <b>${p.ID || '-'}</b>
                     </td>
-                    <td>
-                        <b>${p.paxType || '-'}</b><br/>
-                        <small>${p.paxGender === 'M' ? '👨 Pria' : '👩 Wanita'}</small>
-                    </td>
+                   <td>
+    <div class="flex flex-col items-center">
+        <b class="text-sm">${p.paxType || '-'}</b>
+        <div class="mt-1">
+            ${p.paxGender === 'M'
+                        ? `<img src="https://img.icons8.com/color/48/gender-neutral-user.png" alt="Pria" class="w-6 h-6 inline-block">
+                   <span class="text-[10px] block text-slate-500">Laki-laki</span>`
+                        : `<img src="https://img.icons8.com/color/48/female-user.png" alt="Wanita" class="w-6 h-6 inline-block">
+                   <span class="text-[10px] block text-slate-500">Perempuan</span>`
+                    }
+        </div>
+    </div>
+</td>
                     <td>
                         Dek <b>${p.deck || '-'}</b><br/>
                         Kabin <b>${p.cabin || '-'}</b> · Kasur <b>${p.bed || '-'}</b>
@@ -239,8 +248,8 @@ const generatePelniTicketPDF = async (bookingDetail, serviceFee = 0, totalAmount
             <div class="header">
                 <div class="brand">
                     <div style="font-size:13px;font-weight:bold;color:#555;">E-TIKET RESMI</div>
-                    <h1>⚓ PELNI</h1>
-                    <p>PT Pelayaran Nasional Indonesia</p>
+                     <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877917/WhatsApp_Image_2026-01-20_at_09.45.43-removebg-preview_lqkgrw.png" height="50">
+                    <p>LinkU Transport</p>
                 </div>
                 <div class="main-qr">
                     <img src="${mainQrBase64}" /><br/>
@@ -340,9 +349,9 @@ const generatePelniTicketPDF = async (bookingDetail, serviceFee = 0, totalAmount
                 <b>SYARAT &amp; KETENTUAN:</b><br/>
                 1. Penumpang wajib hadir di terminal paling lambat <b>2 jam sebelum keberangkatan</b>.<br/>
                 2. Wajib menunjukkan <b>kartu identitas asli</b> (KTP/SIM/Paspor) yang sesuai data tiket.<br/>
-                3. Kendaraan wajib menunjukkan <b>STNK asli</b> yang sesuai nomor polisi pada tiket.<br/>
-                4. E-Tiket ini merupakan bukti perjalanan yang sah dan diterbitkan secara elektronik.<br/>
-                5. Dilarang memindahtangankan tiket kepada pihak lain.<br/>
+                
+                3. E-Tiket ini merupakan bukti perjalanan yang sah dan diterbitkan secara elektronik.<br/>
+                4. Dilarang memindahtangankan tiket kepada pihak lain.<br/>
                 <br/>
                 <div style="display:flex;justify-content:space-between;">
                     <span>Dicetak: ${new Date().toLocaleString('id-ID')}</span>
