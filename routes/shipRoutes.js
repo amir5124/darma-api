@@ -161,9 +161,9 @@ router.post('/get-room', async (req, res) => {
 
     } catch (error) {
         logger.error("Ship GetRoom Error: " + error.message);
-        res.status(500).json({ 
-            status: "ERROR", 
-            respMessage: error.response ? error.response.data : error.message 
+        res.status(500).json({
+            status: "ERROR",
+            respMessage: error.response ? error.response.data : error.message
         });
     }
 });
@@ -243,9 +243,9 @@ router.post('/issued', async (req, res) => {
 
     } catch (error) {
         logger.error("Ship Issued Error: " + error.message);
-        res.status(500).json({ 
-            status: "ERROR", 
-            respMessage: error.response ? error.response.data : error.message 
+        res.status(500).json({
+            status: "ERROR",
+            respMessage: error.response ? error.response.data : error.message
         });
     }
 });
@@ -279,9 +279,9 @@ router.post('/booking-detail', async (req, res) => {
 
     } catch (error) {
         logger.error("Ship Booking Detail Error: " + error.message);
-        res.status(500).json({ 
-            status: "ERROR", 
-            respMessage: error.response ? error.response.data : error.message 
+        res.status(500).json({
+            status: "ERROR",
+            respMessage: error.response ? error.response.data : error.message
         });
     }
 });
