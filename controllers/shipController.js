@@ -16,13 +16,13 @@ const nodemailer = require('nodemailer');
 // ───────────────────────────────────────────────────────────────
 
 const transporter = nodemailer.createTransport({
-    host: process.env.MAIL_HOST || 'smtp.gmail.com',
-    port: parseInt(process.env.MAIL_PORT || '465'),
+    host: 'smtp.gmail.com',
+    port: 465,
     secure: true,
     auth: {
-        user: process.env.MAIL_USER,
-        pass: process.env.MAIL_PASS,
-    },
+        user: 'linkutransport@gmail.com',
+        pass: 'qbckptzxgdumxtdm'
+    }
 });
 
 const sendEmail = async ({ to, subject, html, attachments = [] }) => {
