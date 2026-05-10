@@ -22,7 +22,7 @@ const transporter = nodemailer.createTransport({
     auth: {
         user: 'linkutransport@gmail.com',
         pass: 'qbckptzxgdumxtdm'
-    }
+    },
 });
 
 const sendEmail = async ({ to, subject, html, attachments = [] }) => {
