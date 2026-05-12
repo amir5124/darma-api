@@ -63,44 +63,56 @@ const generatePelniTicketPDF = async (bookingDetail, serviceFee = 0, totalAmount
                     : '';
 
                 return `
-                <tr>
-                   <td style="text-align:center;width:30px;">${i + 1}</td>
-<td>
-    <div style="display:flex;align-items:center;gap:10px;">
-        <div>
-            <b style="font-size:13px;">
-                ${p.paxName
+                    <tr>
+                        <td style="text-align:center;width:30px;">${i + 1}</td>
+                    
+                        <td>
+                            <div style="display:flex;align-items:center;gap:10px;">
+                                <div>
+                                    <b style="font-size:13px;">
+                                        ${p.paxName
                         ? [...new Set(p.paxName.trim().split(/\s+/))].join(' ').toUpperCase()
                         : '-'
                     }
-            </b><br/>
-            <small style="color:${primaryColor};font-weight:bold;">
-                ${bookingDetail.numCode || '-'}
-            </small>
-            ${noteHtml}
-        </div>
-    </div>
-</td>
-<td>
-    <small style="color:#666;">${labelId}</small><br/>
-    <b>${p.ID || '-'}</b>
-</td>
-    <div class="flex flex-col items-center">
-        <b class="text-sm">${p.paxType || '-'}</b>
-        <div class="mt-1">
-            ${p.paxGender === 'M'
+                                    </b><br/>
+                    
+                                    <small style="color:${primaryColor};font-weight:bold;">
+                                        ${bookingDetail.numCode || '-'}
+                                    </small>
+                    
+                                    ${noteHtml}
+                                </div>
+                            </div>
+                        </td>
+                    
+                        <td>
+                            <small style="color:#666;">${labelId}</small><br/>
+                            <b>${p.ID || '-'}</b>
+                        </td>
+                    
+                        <td style="text-align:center;">
+                            <div class="flex flex-col items-center">
+                                <b class="text-sm">${p.paxType || '-'}</b>
+                    
+                                <div class="mt-1">
+                                    ${p.paxGender === 'M'
                         ? `<span class="text-[10px] block text-slate-500">Laki-laki</span>`
                         : `<span class="text-[10px] block text-slate-500">Perempuan</span>`
                     }
-        </div>
-    </div>
-</td>
-                    <td>
-                        Dek <b>${p.deck || '-'}</b><br/>
-                        Kabin <b>${p.cabin || '-'}</b> · Kasur <b>${p.bed || '-'}</b>
-                    </td>
-                    <td style="text-align:right;font-weight:bold;">${fmtIDR(p.fare)}</td>
-                </tr>`;
+                                </div>
+                            </div>
+                        </td>
+                    
+                        <td>
+                            Dek <b>${p.deck || '-'}</b><br/>
+                            Kabin <b>${p.cabin || '-'}</b> · Kasur <b>${p.bed || '-'}</b>
+                        </td>
+                    
+                        <td style="text-align:right;font-weight:bold;">
+                            ${fmtIDR(p.fare)}
+                        </td>
+                    </tr>
+                    `;
             })
         );
 
