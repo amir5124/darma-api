@@ -64,32 +64,33 @@ const generatePelniTicketPDF = async (bookingDetail, serviceFee = 0, totalAmount
 
                 return `
                 <tr>
-                    <td style="text-align:center;width:30px;">${i + 1}</td>
-                    <td>
-                        <div style="display:flex;align-items:center;gap:10px;">
-                           
-                            <div>
-                                <b style="font-size:13px;">${p.paxName || '-'}</b><br/>
-                                <small style="color:${primaryColor};font-weight:bold;">
-                                ${bookingDetail.numCode || '-'}
-                                </small>
-                                ${noteHtml}
-                            </div>
-                        </div>
-                    </td>
-                    <td>
-                        <small style="color:#666;">${labelId}</small><br/>
-                        <b>${p.ID || '-'}</b>
-                    </td>
-                   <td>
+                   <td style="text-align:center;width:30px;">${i + 1}</td>
+<td>
+    <div style="display:flex;align-items:center;gap:10px;">
+        <div>
+            <b style="font-size:13px;">
+                ${p.paxName
+                        ? [...new Set(p.paxName.trim().split(/\s+/))].join(' ').toUpperCase()
+                        : '-'
+                    }
+            </b><br/>
+            <small style="color:${primaryColor};font-weight:bold;">
+                ${bookingDetail.numCode || '-'}
+            </small>
+            ${noteHtml}
+        </div>
+    </div>
+</td>
+<td>
+    <small style="color:#666;">${labelId}</small><br/>
+    <b>${p.ID || '-'}</b>
+</td>
     <div class="flex flex-col items-center">
         <b class="text-sm">${p.paxType || '-'}</b>
         <div class="mt-1">
             ${p.paxGender === 'M'
-                        ? `<img src="https://img.icons8.com/color/48/gender-neutral-user.png" alt="Pria" class="w-6 h-6 inline-block">
-                   <span class="text-[10px] block text-slate-500">Laki-laki</span>`
-                        : `<img src="https://img.icons8.com/color/48/female-user.png" alt="Wanita" class="w-6 h-6 inline-block">
-                   <span class="text-[10px] block text-slate-500">Perempuan</span>`
+                        ? `<span class="text-[10px] block text-slate-500">Laki-laki</span>`
+                        : `<span class="text-[10px] block text-slate-500">Perempuan</span>`
                     }
         </div>
     </div>
@@ -242,7 +243,7 @@ const generatePelniTicketPDF = async (bookingDetail, serviceFee = 0, totalAmount
             </style>
         </head>
         <body>
-            <div class="watermark">PELNI</div>
+            <div class="watermark">LINKU</div>
 
             <!-- HEADER -->
             <div class="header">
