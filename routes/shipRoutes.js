@@ -143,7 +143,7 @@ router.post('/get-room', async (req, res) => {
             ticketBuyerEmail: b.ticketBuyerEmail || "guest@mail.com",
             ticketBuyerAddress: b.ticketBuyerAddress || "Indonesia",
             ticketBuyerPhone: b.ticketBuyerPhone || "08123456789",
-            family: b.family === true || b.family === "true", // Boolean
+            family: b.isFamily === true || b.isFamily === "true" || b.family === true || b.family === "true",
             userID: USER_CONFIG.userID,
             accessToken: token
         };
