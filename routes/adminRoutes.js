@@ -409,7 +409,7 @@ router.get('/bookings', async (req, res) => {
         // ============================================
         // STEP 5: EXECUTE MAIN QUERY
         // ============================================
-        const [rows] = await db.execute(query, params);
+        const [rows] = await db.query(query, params);
 
         // ============================================
         // STEP 6: GET PASSENGER COUNT FOR EACH BOOKING
