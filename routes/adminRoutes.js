@@ -391,9 +391,17 @@ router.get('/bookings', async (req, res) => {
         // ============================================
         // STEP 4: ADD PAGINATION
         // ============================================
+        // ============================================
+        // STEP 4: ADD PAGINATION
+        // ============================================
         query += ` ORDER BY b.created_at DESC LIMIT ? OFFSET ?`;
-        const offset = (parseInt(page) - 1) * parseInt(limit);
-        params.push(parseInt(limit), parseInt(offset));
+
+        // Pastikan kalkulasi nilai limit dan offset bertipe Number
+        const safeLimit = parseInt(limit, 10) || 10;
+        const safeOffset = (parseInt(page, 10) - 1) * safeLimit;
+
+        // Push nilai yang sudah pasti integer murni ke dalam array params
+        params.push(safeLimit, safeOffset);
 
         console.log('📊 Main Query:', query);
         console.log('📊 Params:', params);
