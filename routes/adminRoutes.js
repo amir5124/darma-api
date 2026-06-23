@@ -317,27 +317,27 @@ router.get('/bookings', async (req, res) => {
             FROM bookings b 
             WHERE 1=1
         `;
-        const params = [];
+
         const whereClauses = [];
-        const whereParams = [];
+        const params = [];
 
         // Filter status
         if (status && status !== '' && status !== 'undefined') {
             whereClauses.push(` b.ticket_status = ?`);
-            whereParams.push(status);
+            params.push(status);
         }
 
         // Filter airline
         if (airline && airline !== '' && airline !== 'undefined') {
             whereClauses.push(` b.airline_id = ?`);
-            whereParams.push(airline);
+            params.push(airline);
         }
 
         // Filter search
         if (search && search !== '' && search !== 'undefined') {
             whereClauses.push(` (b.booking_code LIKE ? OR b.customer_email LIKE ? OR b.pengguna LIKE ? OR b.reference_no LIKE ?)`);
             const searchTerm = `%${search}%`;
-            whereParams.push(searchTerm, searchTerm, searchTerm, searchTerm);
+            params.push(searchTerm, searchTerm, searchTerm, searchTerm);
         }
 
         // Filter date range
@@ -355,35 +355,43 @@ router.get('/bookings', async (req, res) => {
             }
         }
 
-        // Gabungkan WHERE clauses
+        // Gabungkan WHERE clauses ke query utama
         if (whereClauses.length > 0) {
             query += ` AND ${whereClauses.join(' AND ')}`;
         }
 
-        // Build count query dengan WHERE yang sama
+        console.log('📊 Main Query:', query);
+        console.log('📊 Params:', params);
+
+        // BUILD COUNT QUERY - Copy params untuk count
+        const countParams = [...params];
         let countQuery = `SELECT COUNT(*) as total FROM bookings b WHERE 1=1`;
         if (whereClauses.length > 0) {
             countQuery += ` AND ${whereClauses.join(' AND ')}`;
         }
 
         console.log('📊 Count Query:', countQuery);
-        console.log('📊 Count Params:', whereParams);
+        console.log('📊 Count Params:', countParams);
 
-        // Execute count query
-        const [countResult] = await db.execute(countQuery, whereParams);
-        const total = countResult[0]?.total || 0;
+        // Execute count query - HANYA jika ada params
+        let total = 0;
+        if (countParams.length > 0) {
+            const [countResult] = await db.execute(countQuery, countParams);
+            total = countResult[0]?.total || 0;
+        } else {
+            const [countResult] = await db.execute(countQuery);
+            total = countResult[0]?.total || 0;
+        }
 
         // Add pagination ke query utama
         query += ` ORDER BY b.created_at DESC LIMIT ? OFFSET ?`;
-
-        // Gabungkan params: whereParams + [limit, offset]
         const offset = (parseInt(page) - 1) * parseInt(limit);
-        const allParams = [...whereParams, parseInt(limit), parseInt(offset)];
+        params.push(parseInt(limit), parseInt(offset));
 
-        console.log('📊 Main Query:', query);
-        console.log('📊 All Params:', allParams);
+        console.log('📊 Final Query:', query);
+        console.log('📊 Final Params:', params);
 
-        const [rows] = await db.execute(query, allParams);
+        const [rows] = await db.execute(query, params);
 
         res.json({
             success: true,
