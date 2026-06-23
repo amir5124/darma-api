@@ -277,36 +277,71 @@ async function generatePdfBuffer(htmlContent) {
 // ============================================
 
 // GET: All bookings with filters
+// routes/adminRoutes.js
 router.get('/bookings', async (req, res) => {
     try {
         const { status, airline, dateRange, search, page = 1, limit = 10 } = req.query;
 
+        console.log('📡 GET /bookings - Query params:', req.query);
+
+        // Query dasar
         let query = `
-            SELECT b.*, 
-                   (SELECT COUNT(*) FROM passengers WHERE booking_id = b.id) as total_pax,
-                   (SELECT CONCAT(first_name, ' ', last_name) FROM passengers WHERE booking_id = b.id LIMIT 1) as main_pax_name
+            SELECT 
+                b.id,
+                b.booking_code,
+                b.reference_no,
+                b.airline_id,
+                b.airline_name,
+                b.trip_type,
+                b.origin,
+                b.destination,
+                b.origin_port,
+                b.destination_port,
+                b.depart_date,
+                b.ticket_status,
+                b.total_price,
+                b.sales_price,
+                b.admin_fee,
+                b.time_limit,
+                b.pengguna,
+                b.customer_email,
+                b.created_at,
+                COALESCE(
+                    (SELECT COUNT(*) FROM passengers WHERE booking_id = b.id),
+                    0
+                ) as total_pax,
+                COALESCE(
+                    (SELECT CONCAT(first_name, ' ', last_name) FROM passengers WHERE booking_id = b.id LIMIT 1),
+                    '-'
+                ) as main_pax_name
             FROM bookings b 
             WHERE 1=1
         `;
         const params = [];
+        const whereClauses = [];
+        const whereParams = [];
 
-        if (status && status !== '') {
-            query += ` AND b.ticket_status = ?`;
-            params.push(status);
+        // Filter status
+        if (status && status !== '' && status !== 'undefined') {
+            whereClauses.push(` b.ticket_status = ?`);
+            whereParams.push(status);
         }
 
-        if (airline && airline !== '') {
-            query += ` AND b.airline_id = ?`;
-            params.push(airline);
+        // Filter airline
+        if (airline && airline !== '' && airline !== 'undefined') {
+            whereClauses.push(` b.airline_id = ?`);
+            whereParams.push(airline);
         }
 
-        if (search && search !== '') {
-            query += ` AND (b.booking_code LIKE ? OR b.customer_email LIKE ? OR b.pengguna LIKE ? OR b.reference_no LIKE ?)`;
+        // Filter search
+        if (search && search !== '' && search !== 'undefined') {
+            whereClauses.push(` (b.booking_code LIKE ? OR b.customer_email LIKE ? OR b.pengguna LIKE ? OR b.reference_no LIKE ?)`);
             const searchTerm = `%${search}%`;
-            params.push(searchTerm, searchTerm, searchTerm, searchTerm);
+            whereParams.push(searchTerm, searchTerm, searchTerm, searchTerm);
         }
 
-        if (dateRange && dateRange !== '') {
+        // Filter date range
+        if (dateRange && dateRange !== '' && dateRange !== 'undefined') {
             let dateFilter = '';
             if (dateRange === 'today') {
                 dateFilter = `DATE(b.created_at) = CURDATE()`;
@@ -316,21 +351,39 @@ router.get('/bookings', async (req, res) => {
                 dateFilter = `b.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)`;
             }
             if (dateFilter) {
-                query += ` AND ${dateFilter}`;
+                whereClauses.push(` ${dateFilter}`);
             }
         }
 
-        // Get total count
-        const countQuery = query.replace(/SELECT.*?FROM/, 'SELECT COUNT(*) as total FROM');
-        const [countResult] = await db.execute(countQuery, params);
+        // Gabungkan WHERE clauses
+        if (whereClauses.length > 0) {
+            query += ` AND ${whereClauses.join(' AND ')}`;
+        }
+
+        // Build count query dengan WHERE yang sama
+        let countQuery = `SELECT COUNT(*) as total FROM bookings b WHERE 1=1`;
+        if (whereClauses.length > 0) {
+            countQuery += ` AND ${whereClauses.join(' AND ')}`;
+        }
+
+        console.log('📊 Count Query:', countQuery);
+        console.log('📊 Count Params:', whereParams);
+
+        // Execute count query
+        const [countResult] = await db.execute(countQuery, whereParams);
         const total = countResult[0]?.total || 0;
 
-        // Add pagination
+        // Add pagination ke query utama
         query += ` ORDER BY b.created_at DESC LIMIT ? OFFSET ?`;
-        const offset = (parseInt(page) - 1) * parseInt(limit);
-        params.push(parseInt(limit), offset);
 
-        const [rows] = await db.execute(query, params);
+        // Gabungkan params: whereParams + [limit, offset]
+        const offset = (parseInt(page) - 1) * parseInt(limit);
+        const allParams = [...whereParams, parseInt(limit), parseInt(offset)];
+
+        console.log('📊 Main Query:', query);
+        console.log('📊 All Params:', allParams);
+
+        const [rows] = await db.execute(query, allParams);
 
         res.json({
             success: true,
@@ -340,11 +393,16 @@ router.get('/bookings', async (req, res) => {
             limit: parseInt(limit)
         });
     } catch (error) {
-        console.error('Error fetching bookings:', error);
-        res.status(500).json({ success: false, message: error.message });
+        console.error('❌ Error fetching bookings:', error);
+        console.error('❌ SQL Error:', error.sql);
+        console.error('❌ SQL Message:', error.sqlMessage);
+        res.status(500).json({
+            success: false,
+            message: error.message,
+            sqlError: error.sqlMessage
+        });
     }
 });
-
 // GET: Booking detail
 router.get('/bookings/:id', async (req, res) => {
     try {
