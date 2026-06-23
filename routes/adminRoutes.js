@@ -276,15 +276,16 @@ async function generatePdfBuffer(htmlContent) {
 // ADMIN ROUTES
 // ============================================
 
-// GET: All bookings with filters
-// routes/adminRoutes.js
+// GET: All bookings with filters - ROBUST VERSION
 router.get('/bookings', async (req, res) => {
     try {
         const { status, airline, dateRange, search, page = 1, limit = 10 } = req.query;
 
         console.log('📡 GET /bookings - Query params:', req.query);
 
-        // Query dasar
+        // ============================================
+        // STEP 1: BUILD MAIN QUERY
+        // ============================================
         let query = `
             SELECT 
                 b.id,
@@ -305,75 +306,79 @@ router.get('/bookings', async (req, res) => {
                 b.time_limit,
                 b.pengguna,
                 b.customer_email,
-                b.created_at,
-                COALESCE(
-                    (SELECT COUNT(*) FROM passengers WHERE booking_id = b.id),
-                    0
-                ) as total_pax,
-                COALESCE(
-                    (SELECT CONCAT(first_name, ' ', last_name) FROM passengers WHERE booking_id = b.id LIMIT 1),
-                    '-'
-                ) as main_pax_name
+                b.created_at
             FROM bookings b 
             WHERE 1=1
         `;
 
-        const whereClauses = [];
         const params = [];
 
         // Filter status
         if (status && status !== '' && status !== 'undefined') {
-            whereClauses.push(` b.ticket_status = ?`);
+            query += ` AND b.ticket_status = ?`;
             params.push(status);
         }
 
         // Filter airline
         if (airline && airline !== '' && airline !== 'undefined') {
-            whereClauses.push(` b.airline_id = ?`);
+            query += ` AND b.airline_id = ?`;
             params.push(airline);
         }
 
         // Filter search
         if (search && search !== '' && search !== 'undefined') {
-            whereClauses.push(` (b.booking_code LIKE ? OR b.customer_email LIKE ? OR b.pengguna LIKE ? OR b.reference_no LIKE ?)`);
+            query += ` AND (b.booking_code LIKE ? OR b.customer_email LIKE ? OR b.pengguna LIKE ? OR b.reference_no LIKE ?)`;
             const searchTerm = `%${search}%`;
             params.push(searchTerm, searchTerm, searchTerm, searchTerm);
         }
 
         // Filter date range
         if (dateRange && dateRange !== '' && dateRange !== 'undefined') {
-            let dateFilter = '';
             if (dateRange === 'today') {
-                dateFilter = `DATE(b.created_at) = CURDATE()`;
+                query += ` AND DATE(b.created_at) = CURDATE()`;
             } else if (dateRange === 'week') {
-                dateFilter = `b.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)`;
+                query += ` AND b.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)`;
             } else if (dateRange === 'month') {
-                dateFilter = `b.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)`;
-            }
-            if (dateFilter) {
-                whereClauses.push(` ${dateFilter}`);
+                query += ` AND b.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)`;
             }
         }
 
-        // Gabungkan WHERE clauses ke query utama
-        if (whereClauses.length > 0) {
-            query += ` AND ${whereClauses.join(' AND ')}`;
-        }
-
-        console.log('📊 Main Query:', query);
-        console.log('📊 Params:', params);
-
-        // BUILD COUNT QUERY - Copy params untuk count
-        const countParams = [...params];
+        // ============================================
+        // STEP 2: BUILD COUNT QUERY
+        // ============================================
         let countQuery = `SELECT COUNT(*) as total FROM bookings b WHERE 1=1`;
-        if (whereClauses.length > 0) {
-            countQuery += ` AND ${whereClauses.join(' AND ')}`;
+        const countParams = [];
+
+        // Copy filters ke countQuery
+        if (status && status !== '' && status !== 'undefined') {
+            countQuery += ` AND b.ticket_status = ?`;
+            countParams.push(status);
+        }
+        if (airline && airline !== '' && airline !== 'undefined') {
+            countQuery += ` AND b.airline_id = ?`;
+            countParams.push(airline);
+        }
+        if (search && search !== '' && search !== 'undefined') {
+            countQuery += ` AND (b.booking_code LIKE ? OR b.customer_email LIKE ? OR b.pengguna LIKE ? OR b.reference_no LIKE ?)`;
+            const searchTerm = `%${search}%`;
+            countParams.push(searchTerm, searchTerm, searchTerm, searchTerm);
+        }
+        if (dateRange && dateRange !== '' && dateRange !== 'undefined') {
+            if (dateRange === 'today') {
+                countQuery += ` AND DATE(b.created_at) = CURDATE()`;
+            } else if (dateRange === 'week') {
+                countQuery += ` AND b.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)`;
+            } else if (dateRange === 'month') {
+                countQuery += ` AND b.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)`;
+            }
         }
 
         console.log('📊 Count Query:', countQuery);
         console.log('📊 Count Params:', countParams);
 
-        // Execute count query - HANYA jika ada params
+        // ============================================
+        // STEP 3: EXECUTE COUNT QUERY
+        // ============================================
         let total = 0;
         if (countParams.length > 0) {
             const [countResult] = await db.execute(countQuery, countParams);
@@ -383,15 +388,53 @@ router.get('/bookings', async (req, res) => {
             total = countResult[0]?.total || 0;
         }
 
-        // Add pagination ke query utama
+        // ============================================
+        // STEP 4: ADD PAGINATION
+        // ============================================
         query += ` ORDER BY b.created_at DESC LIMIT ? OFFSET ?`;
         const offset = (parseInt(page) - 1) * parseInt(limit);
         params.push(parseInt(limit), parseInt(offset));
 
-        console.log('📊 Final Query:', query);
-        console.log('📊 Final Params:', params);
+        console.log('📊 Main Query:', query);
+        console.log('📊 Params:', params);
 
+        // ============================================
+        // STEP 5: EXECUTE MAIN QUERY
+        // ============================================
         const [rows] = await db.execute(query, params);
+
+        // ============================================
+        // STEP 6: GET PASSENGER COUNT FOR EACH BOOKING
+        // ============================================
+        // Ambil semua booking_id untuk query passenger count
+        if (rows.length > 0) {
+            const bookingIds = rows.map(r => r.id);
+            const placeholders = bookingIds.map(() => '?').join(',');
+
+            const [passengerCounts] = await db.execute(
+                `SELECT booking_id, COUNT(*) as total_pax, 
+                 (SELECT CONCAT(first_name, ' ', last_name) FROM passengers WHERE booking_id = p.booking_id LIMIT 1) as main_pax_name
+                 FROM passengers p 
+                 WHERE booking_id IN (${placeholders})
+                 GROUP BY booking_id`,
+                bookingIds
+            );
+
+            // Map passenger counts ke rows
+            const countMap = {};
+            passengerCounts.forEach(item => {
+                countMap[item.booking_id] = {
+                    total_pax: item.total_pax,
+                    main_pax_name: item.main_pax_name || '-'
+                };
+            });
+
+            // Tambahkan ke rows
+            rows.forEach(row => {
+                row.total_pax = countMap[row.id]?.total_pax || 0;
+                row.main_pax_name = countMap[row.id]?.main_pax_name || '-';
+            });
+        }
 
         res.json({
             success: true,
@@ -407,10 +450,11 @@ router.get('/bookings', async (req, res) => {
         res.status(500).json({
             success: false,
             message: error.message,
-            sqlError: error.sqlMessage
+            sqlError: error.sqlMessage || null
         });
     }
 });
+
 // GET: Booking detail
 router.get('/bookings/:id', async (req, res) => {
     try {
@@ -567,15 +611,15 @@ router.get('/bookings/export', async (req, res) => {
         `;
         const params = [];
 
-        if (status && status !== '') {
+        if (status && status !== '' && status !== 'undefined') {
             query += ` AND ticket_status = ?`;
             params.push(status);
         }
-        if (airline && airline !== '') {
+        if (airline && airline !== '' && airline !== 'undefined') {
             query += ` AND airline_id = ?`;
             params.push(airline);
         }
-        if (dateRange && dateRange !== '') {
+        if (dateRange && dateRange !== '' && dateRange !== 'undefined') {
             if (dateRange === 'today') {
                 query += ` AND DATE(created_at) = CURDATE()`;
             } else if (dateRange === 'week') {
