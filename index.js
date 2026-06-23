@@ -7,14 +7,15 @@ const { logger } = require('./helpers/darmaHelper');
 const flightRoutes = require('./routes/flightRoutes');
 const agentRoutes = require('./routes/agentRoutes');
 const hotelRoutes = require('./routes/hotelRoutes');
-const shipRoutes = require('./routes/shipRoutes'); 
+const shipRoutes = require('./routes/shipRoutes');
 const shpdluRoutes = require('./routes/shipdluRoutes');
-const trainRoutes = require('./routes/trainRoutes'); 
+const trainRoutes = require('./routes/trainRoutes');
 const historyRoutes = require('./routes/historyRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const shipPaymentRoutes = require('./routes/shipPaymentRoutes');
 const hotelPaymentRoutes = require('./routes/hotelPaymentRoutes');
 const dluPaymentRoutes = require('./routes/dluPaymentRoutes');
+const adminRoutes = require('./routes/adminRoutes')
 
 const app = express();
 
@@ -46,6 +47,7 @@ app.use('/api/booking-history', historyRoutes);
 app.use('/api', paymentRoutes);
 app.use('/api/pay/ship', shipPaymentRoutes);
 app.use('/api/dlu-payments', dluPaymentRoutes);
+app.use('/api/admin', adminRoutes);
 
 const PORT = 3000;
 app.listen(PORT, () => {
