@@ -313,6 +313,8 @@ router.get('/bookings', async (req, res) => {
                 b.total_price,
                 b.sales_price,
                 b.admin_fee,
+                b.discount,
+                (b.total_price + b.admin_fee - b.discount) as total_payment,
                 b.time_limit,
                 b.pengguna,
                 b.customer_email,
@@ -401,16 +403,11 @@ router.get('/bookings', async (req, res) => {
         // ============================================
         // STEP 4: ADD PAGINATION
         // ============================================
-        // ============================================
-        // STEP 4: ADD PAGINATION
-        // ============================================
         query += ` ORDER BY b.created_at DESC LIMIT ? OFFSET ?`;
 
-        // Pastikan kalkulasi nilai limit dan offset bertipe Number
         const safeLimit = parseInt(limit, 10) || 10;
         const safeOffset = (parseInt(page, 10) - 1) * safeLimit;
 
-        // Push nilai yang sudah pasti integer murni ke dalam array params
         params.push(safeLimit, safeOffset);
 
         console.log('📊 Main Query:', query);
@@ -424,7 +421,6 @@ router.get('/bookings', async (req, res) => {
         // ============================================
         // STEP 6: GET PASSENGER COUNT FOR EACH BOOKING
         // ============================================
-        // Ambil semua booking_id untuk query passenger count
         if (rows.length > 0) {
             const bookingIds = rows.map(r => r.id);
             const placeholders = bookingIds.map(() => '?').join(',');
@@ -438,7 +434,6 @@ router.get('/bookings', async (req, res) => {
                 bookingIds
             );
 
-            // Map passenger counts ke rows
             const countMap = {};
             passengerCounts.forEach(item => {
                 countMap[item.booking_id] = {
@@ -447,7 +442,6 @@ router.get('/bookings', async (req, res) => {
                 };
             });
 
-            // Tambahkan ke rows
             rows.forEach(row => {
                 row.total_pax = countMap[row.id]?.total_pax || 0;
                 row.main_pax_name = countMap[row.id]?.main_pax_name || '-';
@@ -481,6 +475,7 @@ router.get('/bookings/:id', async (req, res) => {
         // Get booking detail with passenger info
         const [rows] = await db.execute(
             `SELECT b.*, 
+                    (b.total_price + b.admin_fee - b.discount) as total_payment,
                     (SELECT JSON_ARRAYAGG(
                         JSON_OBJECT(
                             'id', id,
