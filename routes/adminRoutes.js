@@ -16,7 +16,8 @@ async function getTicketHtmlContent(bookingCode, db) {
     const booking = rows[0];
     const ticketPrice = Number(booking.total_price) || 0;
     const adminFee = Number(booking.admin_fee) || 0;
-    const totalAmount = ticketPrice + adminFee;
+    const discount = Number(booking.discount) || 0;
+    const totalAmount = ticketPrice + adminFee - discount;
 
     const eticketNumber = booking.reference_no || '-';
     const payload = typeof booking.payload_request === 'string' ? JSON.parse(booking.payload_request) : booking.payload_request;
@@ -167,7 +168,10 @@ async function getTicketHtmlContent(bookingCode, db) {
             th small, td small { display: block; color: #999; font-weight: normal; font-size: 7.5px; margin-top: 1px; }
             td { padding: 12px 8px; border-bottom: 1px solid #eee; font-size: 9.5px; word-wrap: break-word; vertical-align: middle; }
             .fare-section { margin-top: 15px; }
-            .fare-row { background: #f2f2f2; padding: 10px 15px; display: flex; justify-content: space-between; font-weight: bold; border-radius: 4px; font-size: 10.5px; }
+            .fare-title { font-weight: bold; font-size: 11px; color: #019387ff; margin-bottom: 8px; }
+            .fare-row { background: none; padding: 8px 0; display: flex; justify-content: space-between; font-weight: bold; border-bottom: 1px solid #eee; font-size: 10.5px; }
+            .fare-row.discount { color: #28a745; }
+            .fare-row.total { background: #f2f2f2; padding: 10px 15px; border-radius: 4px; border-bottom: none; }
             .total-row { padding: 10px 15px; display: flex; justify-content: flex-end; align-items: center; gap: 30px; }
             .total-amount { font-size: 18px; font-weight: 900; color: #000; }
             .important-note { margin-top: 20px; background: #fff; }
@@ -225,21 +229,27 @@ async function getTicketHtmlContent(bookingCode, db) {
                 </table>
             </div>
           
-<div class="fare-section">
-    <div class="fare-title">Fares Detail | Detail Harga</div>
-    
-    <div class="fare-row" style="background: none; border-bottom: 1px solid #eee;">
-        <span>Ticket for ${passengers.length} Passenger <br><small style="font-weight:normal; color:#666;">Tiket untuk ${passengers.length} penumpang</small></span>
-        <span>IDR ${totalAmount.toLocaleString('id-ID')},-</span>
-    </div>
+            <div class="fare-section">
+                <div class="fare-title">Fares Detail | Detail Harga</div>
+                
+                <div class="fare-row" style="border-bottom: 1px solid #eee;">
+                    <span>Ticket for ${passengers.length} Passenger <br><small style="font-weight:normal; color:#666;">Tiket untuk ${passengers.length} penumpang</small></span>
+                    <span>IDR ${(ticketPrice + adminFee).toLocaleString('id-ID')},-</span>
+                </div>
 
- 
+                ${discount > 0 ? `
+                <div class="fare-row discount" style="border-bottom: 1px solid #eee;">
+                    <span>Discount <br><small style="font-weight:normal; color:#666;">Potongan harga</small></span>
+                    <span>- IDR ${discount.toLocaleString('id-ID')},-</span>
+                </div>
+                ` : ''}
 
-    <div class="total-row">
-        <div style="text-align:right"><b>Total Amount</b><br><small style="color:#666">Total Pembayaran</small></div>
-        <div class="total-amount">IDR ${totalAmount.toLocaleString('id-ID')},-</div>
-    </div>
-</div>
+                <div class="fare-row total">
+                    <span>Total Payment <br><small style="font-weight:normal; color:#666;">Total Pembayaran</small></span>
+                    <span style="font-size: 16px; color: #e03f7d;">IDR ${totalAmount.toLocaleString('id-ID')},-</span>
+                </div>
+            </div>
+
             <div class="important-note">
                 <div class="note-header">Important Note | Catatan Penting</div>
                 <ul class="note-content">
