@@ -36,9 +36,27 @@ const PaymentController = {
     createPayment: async (req, res) => {
         let connection;
         try {
-            const { booking_id, amount, customer_name, customer_phone, customer_email, method, bank_code, admin_fee_applied } = req.body;
+            const {
+                booking_id,
+                amount,
+                customer_name,
+                customer_phone,
+                customer_email,
+                method,
+                bank_code,
+                admin_fee_applied,
+                discount_applied  // 🔥 TAMBAHKAN INI
+            } = req.body;
 
             const feeAdmin = Number(admin_fee_applied || 0);
+            const discount = Number(discount_applied || 0); // 🔥 Ambil dari frontend
+
+            console.log("💰 [BACKEND] Received:", {
+                booking_id,
+                amount,
+                admin_fee_applied: feeAdmin,
+                discount_applied: discount
+            });
 
             // 1. Logika Perbaikan Nomor Telepon (Konsisten +62)
             let formattedPhone = customer_phone ? customer_phone.toString().trim() : '';
@@ -75,13 +93,12 @@ const PaymentController = {
             }
             const b = rows[0];
 
-            // ** HITUNG DISKON **
-            const hargaAsli = Number(b.total_price || 0);
-            const totalAmount = Number(amount); // Total yang harus dibayar customer
-            // Diskon = (Harga Tiket + Admin Fee) - Total Pembayaran
-            const calculatedDiscount = Math.max(0, (hargaAsli + feeAdmin) - totalAmount);
-
-            console.log(`💰 Kalkulasi Diskon: Harga Tiket=${hargaAsli}, Admin=${feeAdmin}, Total=${totalAmount}, Diskon=${calculatedDiscount}`);
+            console.log("📊 [BACKEND] Booking Data:", {
+                id: b.id,
+                total_price: b.total_price,
+                admin_fee_lama: b.admin_fee,
+                discount_lama: b.discount
+            });
 
             // B. Persiapan Payload LinkQu
             const commonData = {
@@ -116,7 +133,7 @@ const PaymentController = {
             const vaNumber = linkquData.virtual_account || linkquData.va_number || (linkquData.data ? (linkquData.data.virtual_account || linkquData.data.va_number) : null);
             const qrisImage = linkquData.imageqris || linkquData.qr_url || (linkquData.data ? linkquData.data.imageqris : null);
 
-            // D. UPDATE DATABASE - TAMBAHKAN DISCOUNT
+            // 🔥 D. UPDATE DATABASE - GUNAKAN DISKON DARI FRONTEND
             await connection.query(
                 `UPDATE bookings SET 
                     pengguna = ?, 
@@ -127,8 +144,15 @@ const PaymentController = {
                     admin_fee = ?,
                     discount = ?
                  WHERE id = ?`,
-                [customer_name, partner_reff, method === 'VA' ? `VA-${bankName}` : 'QRIS', vaNumber, qrisImage, feeAdmin, calculatedDiscount, booking_id]
+                [customer_name, partner_reff, method === 'VA' ? `VA-${bankName}` : 'QRIS', vaNumber, qrisImage, feeAdmin, discount, booking_id]
             );
+
+            console.log("✅ [BACKEND] Database Updated:", {
+                booking_id,
+                admin_fee: feeAdmin,
+                discount: discount,
+                total_price: b.total_price
+            });
 
             // E. LOGIKA PENGIRIMAN EMAIL
             const subject = `[LinkU] Instruksi Pembayaran - ${b.booking_code}`;
@@ -141,9 +165,8 @@ const PaymentController = {
                 passengers = parsedResponse.paxDetails || [];
             } catch (e) { console.error("Parse error:", e); }
 
-            // Gunakan calculatedDiscount yang sudah dihitung
-            const discountAmount = calculatedDiscount;
-            const finalAmount = totalAmount; // Sudah termasuk diskon
+            const hargaAsli = Number(b.total_price || 0);
+            const finalAmount = Number(amount);
 
             const emailHtml = `
             <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; max-width: 700px; margin: auto; border: 1px solid #eee;">
@@ -170,8 +193,8 @@ const PaymentController = {
                         </td></tr>
                         `}
                         <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Harga Tiket</td><td style="text-align:right; border-bottom: 1px solid #eee;">Rp ${formatIDR(hargaAsli)}</td></tr>
-                        ${discountAmount > 0 ? `<tr><td style="padding: 8px 0; border-bottom: 1px solid #eee; color: green;">Potongan Harga</td><td style="text-align:right; border-bottom: 1px solid #eee; color: green;">- Rp ${formatIDR(discountAmount)}</td></tr>` : ''}
-                        <tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Biaya Admin ${method}</td><td style="text-align:right; border-bottom: 1px solid #eee;">+ Rp ${formatIDR(feeAdmin)}</td></tr>
+                        ${discount > 0 ? `<tr><td style="padding: 8px 0; border-bottom: 1px solid #eee; color: green;">Potongan Harga</td><td style="text-align:right; border-bottom: 1px solid #eee; color: green;">- Rp ${formatIDR(discount)}</td></tr>` : ''}
+                        ${feeAdmin > 0 ? `<tr><td style="padding: 8px 0; border-bottom: 1px solid #eee;">Biaya Admin</td><td style="text-align:right; border-bottom: 1px solid #eee;">+ Rp ${formatIDR(feeAdmin)}</td></tr>` : ''}
                         <tr style="color: #e03f7d; font-weight: bold; font-size: 16px;">
                             <td style="padding: 15px 0;">Total Pembayaran</td>
                             <td style="text-align:right; padding: 15px 0;">Rp ${formatIDR(finalAmount)}</td>
