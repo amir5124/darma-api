@@ -598,6 +598,67 @@ router.post('/update-admin-fee', async (req, res) => {
     }
 });
 
+// POST: Update discount value
+// Dipanggil dari confirmIssued() di frontend Jagel
+router.post('/update-discount', async (req, res) => {
+    try {
+        const { bookingCode, discount, komisi } = req.body;
+
+        if (!bookingCode) {
+            return res.status(400).json({
+                status: "FAILED",
+                message: 'bookingCode wajib diisi'
+            });
+        }
+
+        const nilaiDiskon = Number(discount) || 0;
+        const nilaiKomisi = Number(komisi) || 0;
+
+        // Validasi: diskon tidak boleh negatif
+        if (nilaiDiskon < 0) {
+            return res.status(400).json({
+                status: "FAILED",
+                message: 'Nilai diskon tidak boleh negatif'
+            });
+        }
+
+        const [result] = await db.execute(
+            `UPDATE bookings 
+             SET discount = ?, 
+                 komisi = ?,
+                 updated_at = NOW()
+             WHERE booking_code = ?`,
+            [nilaiDiskon, nilaiKomisi, bookingCode]
+        );
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({
+                status: "FAILED",
+                message: `Booking ${bookingCode} tidak ditemukan`
+            });
+        }
+
+        console.log(`✅ Diskon tersimpan: ${bookingCode} | Diskon: ${nilaiDiskon} | Komisi: ${nilaiKomisi}`);
+
+        res.json({
+            status: "SUCCESS",
+            message: 'Diskon berhasil disimpan',
+            data: {
+                bookingCode,
+                discount: nilaiDiskon,
+                komisi: nilaiKomisi
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error update-discount:', error);
+        res.status(500).json({
+            status: "FAILED",
+            message: error.message
+        });
+    }
+});
+
 // 8. BOOKING DETAIL + AUTO SYNC PRICE
 router.post('/booking-detail', async (req, res) => {
     try {
