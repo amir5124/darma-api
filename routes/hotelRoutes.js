@@ -913,81 +913,124 @@ router.post('/hotel-bookings/draft', async (req, res) => {
 
 router.post('/hotel-bookings/update-after-vendor', async (req, res) => {
     const {
-        reservation_no,  // No reservasi internal/lama
-        os_ref_no,       // Ref No dari Vendor (Darmawisata)
+        reservation_no,
+        os_ref_no,
         agent_os_ref,
         booking_status,
-        vendor_res_no    // No reservasi final dari vendor (jika ada perubahan)
+        vendor_res_no
     } = req.body;
 
-    console.log(`🔄 [VENDOR SYNC] Start syncing: ${reservation_no}`);
-    console.log(`   - OS Ref: ${os_ref_no}, Status: ${booking_status}`);
+    // ========== VALIDASI AWAL ==========
+    if (!reservation_no && !os_ref_no && !vendor_res_no) {
+        console.error('❌ [VENDOR SYNC] No valid identifier provided');
+        return res.status(400).json({
+            status: "Error",
+            message: "Minimal satu identifier wajib diisi: reservation_no, os_ref_no, atau vendor_res_no"
+        });
+    }
+
+    console.log(`🔄 [VENDOR SYNC] Start syncing: ${reservation_no || os_ref_no || vendor_res_no}`);
 
     try {
-        // 1. UPDATE data vendor ke database
-        // Kita gunakan COALESCE/IFNULL agar jika vendor_res_no kosong, tetap pakai yang lama
-        const [result] = await db.execute(
-            `UPDATE hotel_bookings 
-             SET os_ref_no = ?, 
-                 agent_os_ref = ?, 
-                 booking_status = ?, 
-                 reservation_no = IFNULL(?, reservation_no),
-                 updated_at = NOW()
-             WHERE reservation_no = ?`,
-            [
-                os_ref_no || null,
-                agent_os_ref || null,
-                booking_status,
-                vendor_res_no || null,
-                reservation_no
-            ]
-        );
+        // ========== UPDATE DATABASE ==========
+        // Bersihkan semua parameter undefined → null
+        const cleanOsRef = os_ref_no || null;
+        const cleanAgentRef = agent_os_ref || null;
+        const cleanStatus = booking_status || 'PENDING';
+        const cleanVendorRes = vendor_res_no || null;
+        const cleanReservation = reservation_no || null;
 
-        if (result.affectedRows === 0) {
-            console.error(`❌ [VENDOR SYNC] Failed: ${reservation_no} not found.`);
-            return res.status(404).json({ status: "Error", message: "Booking record not found" });
+        // Coba update berdasarkan reservation_no jika ada
+        let result;
+        if (cleanReservation) {
+            [result] = await db.execute(
+                `UPDATE hotel_bookings 
+                 SET os_ref_no = ?, 
+                     agent_os_ref = ?, 
+                     booking_status = ?, 
+                     reservation_no = IFNULL(?, reservation_no),
+                     updated_at = NOW()
+                 WHERE reservation_no = ?`,
+                [cleanOsRef, cleanAgentRef, cleanStatus, cleanVendorRes, cleanReservation]
+            );
         }
 
-        // 2. AMBIL DATA TERBARU (Setelah Update)
-        // Ini krusial agar email mengambil data yang sudah sinkron (No Voucher, No Ref, dll)
+        // Jika tidak ada yang terupdate, coba berdasarkan os_ref_no
+        if (!result || result.affectedRows === 0) {
+            if (cleanOsRef) {
+                [result] = await db.execute(
+                    `UPDATE hotel_bookings 
+                     SET agent_os_ref = ?, 
+                         booking_status = ?, 
+                         reservation_no = IFNULL(?, reservation_no),
+                         updated_at = NOW()
+                     WHERE os_ref_no = ?`,
+                    [cleanAgentRef, cleanStatus, cleanVendorRes, cleanOsRef]
+                );
+            }
+        }
+
+        if (!result || result.affectedRows === 0) {
+            console.error(`❌ [VENDOR SYNC] No booking found for identifiers`);
+            return res.status(404).json({
+                status: "Error",
+                message: "Booking tidak ditemukan"
+            });
+        }
+
+        // ========== AMBIL DATA TERBARU ==========
+        const searchConditions = [];
+        const searchParams = [];
+
+        if (cleanVendorRes) {
+            searchConditions.push('reservation_no = ?');
+            searchParams.push(cleanVendorRes);
+        }
+        if (cleanOsRef) {
+            searchConditions.push('os_ref_no = ?');
+            searchParams.push(cleanOsRef);
+        }
+        if (cleanReservation) {
+            searchConditions.push('reservation_no = ?');
+            searchParams.push(cleanReservation);
+        }
+
         const [rows] = await db.execute(
             `SELECT id, reservation_no, booking_status, contact_email 
              FROM hotel_bookings 
-             WHERE reservation_no = ? OR reservation_no = ? 
+             WHERE ${searchConditions.join(' OR ')}
              LIMIT 1`,
-            [vendor_res_no, reservation_no]
+            searchParams
         );
 
+        // ========== KIRIM EMAIL JIKA STATUS SUCCESS ==========
         if (rows.length > 0) {
             const booking = rows[0];
-
-            // 3. TRIGGER EMAIL HANYA JIKA STATUS FINAL ADALAH SUKSES/ACCEPT
             const isSuccess = ['Accept', 'Success', 'SUCCESS'].includes(booking.booking_status);
 
             if (isSuccess) {
                 console.log(`📧 [VENDOR SYNC] Triggering E-Ticket for Booking ID: ${booking.id}`);
-
-                // Jalankan di background (tanpa await) agar response API ke vendor tetap cepat
-                // Fungsi sendBookingEmails HARUS melakukan query SELECT ke DB berdasarkan ID 
-                // untuk mendapatkan detail hotel & paxes untuk PDF.
+                // Kirim email di background
                 sendBookingEmails(booking.id).catch(err =>
                     console.error(`❌ [MAIL ERROR] Booking ID ${booking.id}:`, err)
                 );
             } else {
-                console.log(`ℹ️ [VENDOR SYNC] Email skipped. Current status: ${booking.booking_status}`);
+                console.log(`ℹ️ [VENDOR SYNC] Email skipped. Status: ${booking.booking_status}`);
             }
         }
 
-        // Berikan respon sukses ke vendor/callback
         res.json({
             status: "Success",
             message: "Database synchronized",
-            synced_reservation_no: vendor_res_no || reservation_no
+            synced_reservation_no: cleanVendorRes || cleanReservation
         });
 
     } catch (err) {
         console.error("❌ [VENDOR SYNC ERROR]:", err.message);
-        res.status(500).json({ status: "Error", message: err.message });
+        res.status(500).json({
+            status: "Error",
+            message: err.message
+        });
     }
 });
 
