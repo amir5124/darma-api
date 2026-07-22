@@ -5,23 +5,23 @@ const db = require('../config/db');
 const { sendBookingEmail } = require('../utils/mailer');
 const { sendBookingEmails } = require('../utils/hotelMailer');
 
-// const config = {
-//     clientId: "5f5aa496-7e16-4ca1-9967-33c768dac6c7",
-//     clientSecret: "TM1rVhfaFm5YJxKruHo0nWMWC",
-//     username: "LI9019VKS",
-//     pin: "5m6uYAScSxQtCmU",
-//     serverKey: "QtwGEr997XDcmMb1Pq8S5X1N",
-//     baseUrl: 'https://api.linkqu.id/linkqu-partner'
-// };
-
 const config = {
-    clientId: "testing",
-    clientSecret: "123",
-    username: "LI307GXIN",
-    pin: "2K2NPCBBNNTovgB",
-    serverKey: "LinkQu@2020",
-    baseUrl: 'https://gateway-dev.linkqu.id/linkqu-partner'
+    clientId: "5f5aa496-7e16-4ca1-9967-33c768dac6c7",
+    clientSecret: "TM1rVhfaFm5YJxKruHo0nWMWC",
+    username: "LI9019VKS",
+    pin: "5m6uYAScSxQtCmU",
+    serverKey: "QtwGEr997XDcmMb1Pq8S5X1N",
+    baseUrl: 'https://api.linkqu.id/linkqu-partner'
 };
+
+// const config = {
+//     clientId: "testing",
+//     clientSecret: "123",
+//     username: "LI307GXIN",
+//     pin: "2K2NPCBBNNTovgB",
+//     serverKey: "LinkQu@2020",
+//     baseUrl: 'https://gateway-dev.linkqu.id/linkqu-partner'
+// };
 
 /**
  * Helper untuk Signature Generator
