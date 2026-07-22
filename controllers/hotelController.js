@@ -1,7 +1,7 @@
 const axios = require('axios');
 const db = require('../config/db');
 const nodemailer = require('nodemailer');
-const { BASE_URL, USER_CONFIG, agent,  logger,api } = require('../helpers/darmaHelper');
+const { BASE_URL, USER_CONFIG, agent,  logger,api } = require('../helpers/darmaSandbox');
 const puppeteer = require('puppeteer');
 
 const transporter = nodemailer.createTransport({
