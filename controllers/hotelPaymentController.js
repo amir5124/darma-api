@@ -5,23 +5,23 @@ const db = require('../config/db');
 const { sendBookingEmail } = require('../utils/mailer');
 const { sendBookingEmails } = require('../utils/hotelMailer');
 
-const config = {
-    clientId: "5f5aa496-7e16-4ca1-9967-33c768dac6c7",
-    clientSecret: "TM1rVhfaFm5YJxKruHo0nWMWC",
-    username: "LI9019VKS",
-    pin: "5m6uYAScSxQtCmU",
-    serverKey: "QtwGEr997XDcmMb1Pq8S5X1N",
-    baseUrl: 'https://api.linkqu.id/linkqu-partner'
-};
-
 // const config = {
-//     clientId: "testing",
-//     clientSecret: "123",
-//     username: "LI307GXIN",
-//     pin: "2K2NPCBBNNTovgB",
-//     serverKey: "LinkQu@2020",
-//     baseUrl: 'https://gateway-dev.linkqu.id/linkqu-partner'
+//     clientId: "5f5aa496-7e16-4ca1-9967-33c768dac6c7",
+//     clientSecret: "TM1rVhfaFm5YJxKruHo0nWMWC",
+//     username: "LI9019VKS",
+//     pin: "5m6uYAScSxQtCmU",
+//     serverKey: "QtwGEr997XDcmMb1Pq8S5X1N",
+//     baseUrl: 'https://api.linkqu.id/linkqu-partner'
 // };
+
+const config = {
+    clientId: "testing",
+    clientSecret: "123",
+    username: "LI307GXIN",
+    pin: "2K2NPCBBNNTovgB",
+    serverKey: "LinkQu@2020",
+    baseUrl: 'https://gateway-dev.linkqu.id/linkqu-partner'
+};
 
 /**
  * Helper untuk Signature Generator
@@ -213,7 +213,6 @@ handleCallback: async (req, res) => {
         const statusUpper = status ? status.toUpperCase() : "";
 
         if (statusUpper === "SUCCESS" || statusUpper === "SETTLED") {
-            // 1. Cari Booking ID terkait
             const [rows] = await db.query(
                 `SELECT p.booking_id FROM hotel_payments p WHERE p.payment_reff = ?`, 
                 [partner_reff]
@@ -222,16 +221,19 @@ handleCallback: async (req, res) => {
             if (rows.length > 0) {
                 const bookingId = rows[0].booking_id;
 
-                // 2. Update status pembayaran & booking di DB (Lokal)
                 await db.query(
                     `UPDATE hotel_payments SET payment_status = 'SETTLED', payment_date = NOW() WHERE payment_reff = ?`,
                     [partner_reff]
                 );
-                
-                // Set status 'PAID' agar frontend tahu pembayaran sukses
                 await db.query(`UPDATE hotel_bookings SET booking_status = 'PAID' WHERE id = ?`, [bookingId]);
 
-                console.log(`✅ [HTL CALLBACK] Reff ${partner_reff} set to PAID. Waiting for vendor sync...`);
+                console.log(`✅ [HTL CALLBACK] Reff ${partner_reff} set to PAID. Sending confirmation email...`);
+
+                // 🔽 INI YANG HILANG
+                sendBookingEmails(bookingId).catch(err =>
+                    console.error(`❌ [HTL CALLBACK MAIL ERROR] Booking ID ${bookingId}:`, err.message)
+                );
+
             } else {
                 console.warn(`⚠️ [HTL CALLBACK] Payment Reff ${partner_reff} not found in database.`);
             }
