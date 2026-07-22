@@ -2,7 +2,6 @@ const puppeteer = require('puppeteer');
 const nodemailer = require('nodemailer');
 const db = require('../config/db');
 
-// 1. Konfigurasi Nodemailer
 const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
     port: 465,
@@ -26,16 +25,18 @@ async function generateBookingPDF(data, paxes) {
         });
         const page = await browser.newPage();
 
-        // 1. Perbaikan Parsing Angka
         const hargaDasar = parseFloat(data.totalPrice || data.total_price || 0);
         const biayaHandling = parseFloat(data.handlingFee || data.handling_fee || 0);
-         const alamatHotel = data.hotel_address;
 
-        // Total Akhir
+        // 🔧 FIX: sebelumnya cuma baca data.hotel_address (snake_case), padahal
+        // pdfData yang dikirim dari sendBookingEmails() pakai key "hotelAddress"
+        // (camelCase) — akibatnya field ini selalu undefined dan tampil "undefined"
+        // di PDF. Sekarang dukung dua-duanya, konsisten dengan field lain di file ini.
+        const alamatHotel = data.hotelAddress || data.hotel_address || 'Alamat hotel tersedia di sistem';
+
         const totalHargaFisik = Math.ceil(hargaDasar + biayaHandling);
         const totalFormatted = totalHargaFisik.toLocaleString('id-ID');
 
-        // Format Tanggal Transaksi
         const paymentDate = new Date().toLocaleDateString('id-ID', {
             day: '2-digit', month: 'long', year: 'numeric'
         });
@@ -47,13 +48,11 @@ async function generateBookingPDF(data, paxes) {
             });
         };
 
-        // 2. Perbaikan Hitung Durasi Malam (Gunakan Math.max agar tidak nol/minus)
         const checkIn = new Date(data.checkInDate || data.check_in_date);
         const checkOut = new Date(data.checkOutDate || data.check_out_date);
         const diffTime = Math.abs(checkOut - checkIn);
         const nights = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
 
-        // 3. Perbaikan Daftar Tamu (Mapping paxes agar mendukung camelCase dan snake_case dari DB)
         const guestNames = paxes && Array.isArray(paxes) && paxes.length > 0
             ? paxes.map((p) => {
                 const title = p.title || p.pax_title || '';
@@ -63,7 +62,6 @@ async function generateBookingPDF(data, paxes) {
             }).join(', ')
             : "Guest";
 
-        // 4. Perbaikan Special Request (Pastikan mengambil dari properti yang benar)
         const requestValue = data.specialRequests || data.special_requests || "";
         const finalSpecialRequest = (requestValue && requestValue !== "" && requestValue !== "-" && requestValue !== "null")
             ? requestValue
@@ -199,35 +197,38 @@ async function generateBookingPDF(data, paxes) {
         if (browser) await browser.close();
     }
 }
+
 /**
  * FUNGSI UTAMA: Mengambil data dari DB, buat PDF, dan kirim Email
  * @param {number} bookingId - ID dari tabel hotel_bookings
  */
 async function sendBookingEmails(bookingId) {
     try {
-        // Beri jeda 2 detik untuk memastikan proses update status di database selesai
         await new Promise(resolve => setTimeout(resolve, 2000));
 
-        // 1. Ambil data booking utama (Pastikan kolom sesuai dengan database Anda)
         const [rows] = await db.execute("SELECT * FROM hotel_bookings WHERE id = ?", [bookingId]);
-        
+
         if (rows.length === 0) {
             console.error(`[Email Error] Booking ID ${bookingId} tidak ditemukan.`);
             return;
         }
-        
+
         const b = rows[0];
 
-        // 2. Ambil data tamu (paxes)
         const [paxes] = await db.execute(
             "SELECT title, first_name as firstName, last_name as lastName FROM hotel_booking_paxes WHERE booking_id = ?",
             [bookingId]
         );
 
-        // 3. Mapping data untuk Generator PDF
+        // 🔧 FIX: b.contact_name tidak pernah ada di tabel hotel_bookings (yang ada
+        // hanya contact_email/contact_phone), jadi sapaan di email selalu jatuh ke
+        // "Pelanggan Setia". Sekarang ambil nama tamu pertama dari paxes sebagai gantinya.
+        const guestFirstName = (paxes && paxes[0] && paxes[0].firstName) ? paxes[0].firstName : null;
+        const greetingName = guestFirstName || b.contact_name || 'Pelanggan Setia';
+
         const pdfData = {
             reservationNo: b.reservation_no,
-           osRefNo: (b.os_ref_no && b.os_ref_no !== "-") ? b.os_ref_no : "-",
+            osRefNo: (b.os_ref_no && b.os_ref_no !== "-") ? b.os_ref_no : "-",
             hotelName: b.hotel_name,
             hotelAddress: b.hotel_address,
             roomName: b.room_name,
@@ -241,32 +242,28 @@ async function sendBookingEmails(bookingId) {
 
         const pdfBuffer = await generateBookingPDF(pdfData, paxes);
 
-        // 4. URL TRACKING (Sangat Penting untuk membawa 'os')
-        // Parameter 'os' digunakan oleh tracking.html untuk hit API /booking-detail
         const trackingParams = new URLSearchParams({
             no: b.reservation_no,
-            os: b.os_ref_no || '', 
+            os: b.os_ref_no || '',
             agent: b.agent_os_ref || ''
         }).toString();
 
         const statusTrackingUrl = `https://darma.siappgo.id/tracking?${trackingParams}`;
 
-        // 5. Konfigurasi Email
         const mailOptions = {
             from: '"LinkU Travel" <linkutransport@gmail.com>',
             to: b.contact_email,
-            // Subjek dinamis: mendahulukan OS Ref agar mudah dicari di inbox
             subject: `E-Voucher Hotel [${b.os_ref_no || b.reservation_no}] - ${b.hotel_name}`,
             html: `
                 <div style="font-family: 'Segoe UI', Tahoma, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; padding: 30px; border-radius: 16px; color: #1e293b; line-height: 1.5;">
                     <div style="text-align: center; margin-bottom: 20px;">
                         <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877917/WhatsApp_Image_2026-01-20_at_09.45.43-removebg-preview_lqkgrw.png" height="50" alt="LinkU Logo">
                     </div>
-                    
+
                     <h2 style="color: #24b3ae; text-align: center; margin-top: 0;">Konfirmasi Reservasi 🎉</h2>
-                    <p>Halo <strong>${b.contact_name || 'Pelanggan Setia'}</strong>,</p>
+                    <p>Halo <strong>${greetingName}</strong>,</p>
                     <p>Terima kasih telah memilih LinkU. Pesanan hotel Anda telah berhasil diproses. Berikut adalah ringkasan reservasi Anda:</p>
-                    
+
                     <div style="background-color: #f1f5f9; padding: 20px; border-radius: 12px; margin: 25px 0; border-left: 5px solid #24b3ae;">
                         <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
                             <tr>
@@ -289,7 +286,7 @@ async function sendBookingEmails(bookingId) {
                     </div>
 
                     <p>E-Voucher PDF telah kami lampirkan pada email ini. Anda juga dapat memantau status terbaru melalui tombol di bawah:</p>
-                    
+
                     <div style="text-align: center; margin: 35px 0;">
                         <a href="${statusTrackingUrl}" 
                            style="background-color: #24b3ae; color: white; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block; box-shadow: 0 4px 6px rgba(36, 179, 174, 0.2);">
@@ -310,14 +307,13 @@ async function sendBookingEmails(bookingId) {
                 </div>
             `,
             attachments: [
-                { 
-                    filename: `E-Voucher-${b.os_ref_no || b.reservation_no}.pdf`, 
-                    content: pdfBuffer 
+                {
+                    filename: `E-Voucher-${b.os_ref_no || b.reservation_no}.pdf`,
+                    content: pdfBuffer
                 }
             ]
         };
 
-        // 6. Kirim Email
         await transporter.sendMail(mailOptions);
         console.log(`[Email Sent] Success for ID ${bookingId}: ${b.reservation_no}`);
 
@@ -328,5 +324,5 @@ async function sendBookingEmails(bookingId) {
 
 module.exports = {
     sendBookingEmails,
-    generateBookingPDF // Tetap diekspor jika ingin digunakan manual
+    generateBookingPDF
 };

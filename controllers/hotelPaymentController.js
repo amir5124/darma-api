@@ -4,6 +4,9 @@ const moment = require('moment-timezone');
 const db = require('../config/db');
 const { sendBookingEmail } = require('../utils/mailer');
 const { sendBookingEmails } = require('../utils/hotelMailer');
+const { processHotelBookingToVendor } = require('../utils/hotelBookingProcessor');
+// catatan: import sendBookingEmails di file ini sudah tidak diperlukan lagi
+// karena pemanggilannya sekarang ada di dalam hotelBookingProcessor.js — boleh dihapus baris importnya di atas kalau mau bersih-bersih.
 
 const config = {
     clientId: "5f5aa496-7e16-4ca1-9967-33c768dac6c7",
@@ -14,27 +17,37 @@ const config = {
     baseUrl: 'https://api.linkqu.id/linkqu-partner'
 };
 
-// const config = {
-//     clientId: "testing",
-//     clientSecret: "123",
-//     username: "LI307GXIN",
-//     pin: "2K2NPCBBNNTovgB",
-//     serverKey: "LinkQu@2020",
-//     baseUrl: 'https://gateway-dev.linkqu.id/linkqu-partner'
-// };
 
-/**
- * Helper untuk Signature Generator
- * Menghapus karakter non-alfanumerik dan menggabungkan data
- */
 function generateSignature(path, method, data) {
     const rawValue = Object.values(data).join('') + config.clientId;
     const cleaned = rawValue.replace(/[^0-9a-zA-Z]/g, "").toLowerCase();
 
-
     return crypto.createHmac("sha256", config.serverKey)
         .update(path + method + cleaned)
         .digest("hex");
+}
+
+// ============================================================
+// Helper terpusat: memicu proses booking ke vendor secara AMAN.
+// Dipakai baik dari handleCallback (jalur utama) MAUPUN checkStatus
+// (jalur fallback kalau webhook LinkQu telat/gagal terkirim).
+// Idempotency check sudah ada DI DALAM processHotelBookingToVendor,
+// jadi aman dipanggil dari dua tempat tanpa risiko double booking.
+// ============================================================
+function triggerVendorBooking(bookingId, source) {
+    processHotelBookingToVendor(bookingId)
+        .then(result => {
+            if (result.skipped) {
+                console.log(`ℹ️ [VENDOR BOOKING/${source}] Booking ${bookingId} dilewati: ${result.reason}`);
+            } else {
+                console.log(`✅ [VENDOR BOOKING/${source}] Booking ${bookingId} berhasil -> ${result.reservationNo}`);
+            }
+        })
+        .catch(err => {
+            console.error(`🚨 [CRITICAL/${source}] Booking ${bookingId} dibayar tapi booking vendor GAGAL:`, err.message);
+            // TODO: kirim alert ke admin (Slack/Telegram/email), misal:
+            // notifyAdmin(`Booking ${bookingId} dibayar tapi gagal booking vendor (${source}): ${err.message}`);
+        });
 }
 
 const HotelPaymentController = {
@@ -44,13 +57,11 @@ const HotelPaymentController = {
         try {
             const { booking_id, amount, customer_name, customer_phone, customer_email, method, bank_code, admin_fee_applied } = req.body;
 
-            // 1. Finalisasi Data (Agar konsisten antara Payload API & Signature)
             const finalAmount = Math.round(Number(amount));
             const feeAdmin = Number(admin_fee_applied || 0);
             const finalCustomerName = (customer_name || 'Customer').substring(0, 30).trim();
             const finalCustomerEmail = (customer_email || 'guest@mail.com').trim();
 
-            // 2. Format Nomor Telepon (+62)
             let formattedPhone = customer_phone ? customer_phone.toString().trim().replace(/[^0-9]/g, '') : '';
             if (formattedPhone.startsWith('0')) {
                 formattedPhone = '+62' + formattedPhone.substring(1);
@@ -63,7 +74,6 @@ const HotelPaymentController = {
             }
             if (formattedPhone.length < 10) formattedPhone = '+628123456789';
 
-            // 3. Persiapan Meta Data
             const bankMap = {
                 "002": "BRI", "008": "MANDIRI", "009": "BNI", "200": "BTN", "014": "BCA",
                 "013": "PERMATA", "022": "CIMB", "441": "DANAMON", "016": "MAYBANK", "451": "BSI"
@@ -75,12 +85,10 @@ const HotelPaymentController = {
 
             connection = await db.getConnection();
 
-            // Ambil Data Booking Hotel
             const [rows] = await connection.query("SELECT * FROM hotel_bookings WHERE id = ?", [booking_id]);
             if (rows.length === 0) return res.status(404).json({ error: "Data booking hotel tidak ditemukan" });
             const b = rows[0];
 
-            // 4. Payload LinkQu
             const commonData = {
                 amount: finalAmount,
                 expired,
@@ -93,7 +101,6 @@ const HotelPaymentController = {
             let endpoint = method === 'VA' ? '/transaction/create/va' : '/transaction/create/qris';
             let payloadLinkQu = { ...commonData, username: config.username, pin: config.pin, url_callback };
 
-            // Menentukan Signature berdasarkan Endpoint
             if (method === 'VA') {
                 payloadLinkQu.bank_code = bank_code;
                 const signatureData = {
@@ -110,7 +117,6 @@ const HotelPaymentController = {
                 payloadLinkQu.signature = generateSignature(endpoint, 'POST', commonData);
             }
 
-            // LOGGING DEBUG SEBELUM KIRIM
             console.log(`🚀 [LINKQU REQ] Sending to ${endpoint} with Reff: ${partner_reff}`);
             console.log(`📦 Payload:`, JSON.stringify(payloadLinkQu));
 
@@ -121,7 +127,6 @@ const HotelPaymentController = {
             const linkquData = resp.data;
             console.log(`✅ [LINKQU RESP] Success:`, JSON.stringify(linkquData));
 
-            // Ekstraksi Data VA / QRIS
             const vaNumber = linkquData.virtual_account || linkquData.va_number || (linkquData.data ? linkquData.data.va_number : null);
             const qrisImage = linkquData.imageqris || linkquData.qr_url || (linkquData.data ? linkquData.data.qr_url : null);
 
@@ -129,8 +134,7 @@ const HotelPaymentController = {
                 throw new Error("Gagal mendapatkan instruksi pembayaran dari LinkQu: " + JSON.stringify(linkquData));
             }
 
-            // 5. Update Tabel hotel_payments
-          const mysqlExpired = moment(expired, 'YYYYMMDDHHmmss').format('YYYY-MM-DD HH:mm:ss');
+            const mysqlExpired = moment(expired, 'YYYYMMDDHHmmss').format('YYYY-MM-DD HH:mm:ss');
 
             await connection.query(
                 `INSERT INTO hotel_payments 
@@ -146,18 +150,17 @@ const HotelPaymentController = {
                     payment_status = 'PENDING',
                     expired_date = VALUES(expired_date)`,
                 [
-                    booking_id, 
-                    partner_reff, 
-                    method === 'VA' ? `VA-${bankName}` : 'QRIS', 
-                    vaNumber, 
-                    qrisImage, 
-                    feeAdmin, 
+                    booking_id,
+                    partner_reff,
+                    method === 'VA' ? `VA-${bankName}` : 'QRIS',
+                    vaNumber,
+                    qrisImage,
+                    feeAdmin,
                     finalAmount,
-                    mysqlExpired // Masukkan nilai expired ke sini
+                    mysqlExpired
                 ]
-);
+            );
 
-            // 6. Kirim Email (Non-blocking)
             const formatIDR = (num) => new Intl.NumberFormat('id-ID').format(num);
             const emailHtml = `
             <div style="font-family: Arial; max-width: 600px; margin: auto; border: 1px solid #24b3ae;">
@@ -206,65 +209,78 @@ const HotelPaymentController = {
         }
     },
 
-handleCallback: async (req, res) => {
-    console.log("📥 [HTL CALLBACK] Incoming:", JSON.stringify(req.body, null, 2));
-    try {
-        const { partner_reff, status } = req.body;
-        const statusUpper = status ? status.toUpperCase() : "";
 
-        if (statusUpper === "SUCCESS" || statusUpper === "SETTLED") {
-            const [rows] = await db.query(
-                `SELECT p.booking_id FROM hotel_payments p WHERE p.payment_reff = ?`, 
-                [partner_reff]
-            );
+    // ============================================================
+    // JALUR UTAMA: dipicu webhook LinkQu (paling cepat & reliable)
+    // ============================================================
+    handleCallback: async (req, res) => {
+        console.log("📥 [HTL CALLBACK] Incoming:", JSON.stringify(req.body, null, 2));
+        try {
+            const { partner_reff, status } = req.body;
+            const statusUpper = status ? status.toUpperCase() : "";
 
-            if (rows.length > 0) {
-                const bookingId = rows[0].booking_id;
-
-                await db.query(
-                    `UPDATE hotel_payments SET payment_status = 'SETTLED', payment_date = NOW() WHERE payment_reff = ?`,
+            if (statusUpper === "SUCCESS" || statusUpper === "SETTLED") {
+                const [rows] = await db.query(
+                    `SELECT p.booking_id FROM hotel_payments p WHERE p.payment_reff = ?`,
                     [partner_reff]
                 );
-                await db.query(`UPDATE hotel_bookings SET booking_status = 'PAID' WHERE id = ?`, [bookingId]);
 
-                console.log(`✅ [HTL CALLBACK] Reff ${partner_reff} set to PAID. Sending confirmation email...`);
+                if (rows.length > 0) {
+                    const bookingId = rows[0].booking_id;
 
-                // 🔽 INI YANG HILANG
-                sendBookingEmails(bookingId).catch(err =>
-                    console.error(`❌ [HTL CALLBACK MAIL ERROR] Booking ID ${bookingId}:`, err.message)
-                );
+                    await db.query(
+                        `UPDATE hotel_payments SET payment_status = 'SETTLED', payment_date = NOW() WHERE payment_reff = ?`,
+                        [partner_reff]
+                    );
+                    await db.query(
+                        `UPDATE hotel_bookings SET booking_status = 'PAID' WHERE id = ? AND booking_status NOT IN ('Accept', 'Processed')`,
+                        [bookingId]
+                    );
 
-            } else {
-                console.warn(`⚠️ [HTL CALLBACK] Payment Reff ${partner_reff} not found in database.`);
+                    console.log(`✅ [HTL CALLBACK] Reff ${partner_reff} set to PAID. Memproses booking ke vendor...`);
+
+                    triggerVendorBooking(bookingId, 'CALLBACK');
+
+                } else {
+                    console.warn(`⚠️ [HTL CALLBACK] Payment Reff ${partner_reff} not found in database.`);
+                }
             }
+
+            return res.json({ message: "OK" });
+        } catch (err) {
+            console.error("❌ [HTL CALLBACK ERROR]:", err.message);
+            return res.status(500).json({ status: "ERROR" });
         }
+    },
 
-        return res.json({ message: "OK" });
-    } catch (err) {
-        console.error("❌ [HTL CALLBACK ERROR]:", err.message);
-        return res.status(500).json({ status: "ERROR" });
-    }
-},
 
+    // ============================================================
+    // JALUR FALLBACK: dipoll dari frontend. Fungsinya HANYA melaporkan
+    // status pembayaran untuk startPollingStatus() di frontend.
+    // TIDAK LAGI menulis booking_status = 'Success' secara langsung —
+    // sebagai gantinya, memicu triggerVendorBooking() yang sama persis
+    // dengan jalur callback, supaya konsisten dan idempotent.
+    //
+    // Kegunaan jalur ini: kalau webhook LinkQu telat/gagal terkirim
+    // (jaringan bermasalah dsb), polling inilah yang "menyelamatkan" —
+    // vendor booking tetap akan terjadi meski callback tidak pernah masuk.
+    // ============================================================
     checkStatus: async (req, res) => {
         const { reff } = req.params;
         try {
-            // 1. CEK DATABASE LOKAL DENGAN VALIDASI LEBIH KUAT
             const [rows] = await db.query(
-                `SELECT p.payment_status, b.booking_status, b.reservation_no 
-             FROM hotel_payments p
-             JOIN hotel_bookings b ON p.booking_id = b.id
-             WHERE p.payment_reff = ?`,
+                `SELECT p.payment_status, p.booking_id, b.booking_status, b.reservation_no 
+                 FROM hotel_payments p
+                 JOIN hotel_bookings b ON p.booking_id = b.id
+                 WHERE p.payment_reff = ?`,
                 [reff]
             );
 
             if (rows.length > 0) {
                 const b = rows[0];
                 const pStatus = (b.payment_status || "").toUpperCase();
-                const bStatus = (b.booking_status || "").toUpperCase();
 
-                // Jika di DB sudah sukses/settled, langsung cut off, jangan tanya vendor lagi
-                if (['SUCCESS', 'SETTLED', 'PAID'].includes(pStatus) || bStatus === 'SUCCESS') {
+                if (['SUCCESS', 'SETTLED', 'PAID'].includes(pStatus)) {
                     console.log(`✅ [POLLING DB] Reff ${reff} sudah lunas di database.`);
                     return res.json({
                         status: 'SUCCESS',
@@ -274,7 +290,6 @@ handleCallback: async (req, res) => {
                 }
             }
 
-            // 2. TANYA VENDOR (LINKQU)
             console.log(`🔍 [POLLING VENDOR] Memeriksa Reff: ${reff}`);
             const resp = await axios.get(`${config.baseUrl}/transaction/check-status`, {
                 params: { partner_reff: reff, username: config.username, pin: config.pin },
@@ -283,26 +298,33 @@ handleCallback: async (req, res) => {
             });
 
             const data = resp.data;
-            // LinkQu terkadang mengirim status di field berbeda atau response_code
             const isSuccess =
                 (data.status && (data.status.toUpperCase() === 'SUCCESS' || data.status.toUpperCase() === 'SETTLED')) ||
                 (data.response_code === '00') ||
                 (data.response_desc && data.response_desc.includes('SUCCESS'));
 
-            // 3. JIKA VENDOR BILANG SUKSES, UPDATE DB & KIRIM RESPONS SUKSES
             if (isSuccess) {
-                console.log(`✅ [POLLING VENDOR SUCCESS] Transaksi ${reff} VALID.`);
+                console.log(`✅ [POLLING VENDOR SUCCESS] Transaksi ${reff} VALID (fallback dari polling).`);
 
-                // Update Sinkron ke tabel Payments & Bookings
-                await db.query(
-                    `UPDATE hotel_payments p
-                 JOIN hotel_bookings b ON p.booking_id = b.id
-                 SET p.payment_status = 'SETTLED', 
-                     p.payment_date = NOW(),
-                     b.booking_status = 'Success'
-                 WHERE p.payment_reff = ?`,
+                const [payRows] = await db.query(
+                    `SELECT booking_id FROM hotel_payments WHERE payment_reff = ?`,
                     [reff]
                 );
+
+                if (payRows.length > 0) {
+                    const bookingId = payRows[0].booking_id;
+
+                    await db.query(
+                        `UPDATE hotel_payments SET payment_status = 'SETTLED', payment_date = NOW() WHERE payment_reff = ?`,
+                        [reff]
+                    );
+                    await db.query(
+                        `UPDATE hotel_bookings SET booking_status = 'PAID' WHERE id = ? AND booking_status NOT IN ('Accept', 'Processed')`,
+                        [bookingId]
+                    );
+
+                    triggerVendorBooking(bookingId, 'POLLING-FALLBACK');
+                }
 
                 return res.json({
                     status: 'SUCCESS',
@@ -311,7 +333,6 @@ handleCallback: async (req, res) => {
                 });
             }
 
-            // 4. JIKA MASIH PENDING
             console.log(`⏳ [POLLING PENDING] Reff ${reff} belum dibayar.`);
             return res.json({ status: 'PENDING', message: 'Menunggu pembayaran' });
 
