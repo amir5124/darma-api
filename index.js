@@ -16,6 +16,7 @@ const shipPaymentRoutes = require('./routes/shipPaymentRoutes');
 const hotelPaymentRoutes = require('./routes/hotelPaymentRoutes');
 const dluPaymentRoutes = require('./routes/dluPaymentRoutes');
 const adminRoutes = require('./routes/adminRoutes')
+const hotelBookingAdminRoutes = require('./routes/hotelBookingAdminRoutes');
 
 const app = express();
 
@@ -48,6 +49,7 @@ app.use('/api', paymentRoutes);
 app.use('/api/pay/ship', shipPaymentRoutes);
 app.use('/api/dlu-payments', dluPaymentRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/hotel-bookings-admin', hotelBookingAdminRoutes);
 
 const PORT = 3000;
 app.listen(PORT, () => {
