@@ -40,10 +40,20 @@ function generateSignature(path, method, data) {
 async function attemptIssueTicket(bookingCode) {
     try {
         const result = await issueTicketForBooking(bookingCode);
-        console.log(`🎟️ [ISSUE] Tiket ${bookingCode} berhasil diterbitkan.`, result?.already ? '(sudah terbit sebelumnya)' : '');
-        return { success: true, data: result };
+
+        if (result && result.status === "SUCCESS") {
+            console.log(`🎟️ [ISSUE OK] ${bookingCode} berhasil diterbitkan.`, result?.already ? '(sudah terbit sebelumnya)' : '');
+            return { success: true, data: result };
+        } else {
+            console.error(`⚠️ [ISSUE NON-SUCCESS] ${bookingCode}:`, JSON.stringify(result));
+            await db.query(
+                "UPDATE bookings SET ticket_status = 'PAID_PENDING_ISSUE' WHERE booking_code = ?",
+                [bookingCode]
+            );
+            return { success: false, error: result?.respMessage || 'Vendor non-SUCCESS' };
+        }
     } catch (issueErr) {
-        console.error(`❌ [ISSUE FAILED] ${bookingCode}:`, issueErr.message);
+        console.error(`❌ [ISSUE EXCEPTION] ${bookingCode}:`, issueErr.message);
         await db.query(
             "UPDATE bookings SET ticket_status = 'PAID_PENDING_ISSUE' WHERE booking_code = ?",
             [bookingCode]

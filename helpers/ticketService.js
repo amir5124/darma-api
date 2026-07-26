@@ -313,24 +313,44 @@ async function issueTicketForBooking(bookingCode) {
         return { status: "SUCCESS", already: true, respMessage: "Tiket sudah terbit sebelumnya" };
     }
 
+    // ✅ Ambil bookingDate ASLI dari raw_response (hasil create-booking dari vendor)
+    // Jangan pakai kolom created_at — formatnya beda dan bikin vendor reject Issued API
+    let bookingDateForVendor = null;
+    try {
+        const raw = typeof b.raw_response === 'string' ? JSON.parse(b.raw_response) : b.raw_response;
+        bookingDateForVendor = raw?.bookingDate;
+    } catch (e) {
+        console.error(`⚠️ Gagal parse raw_response untuk ${bookingCode}: ${e.message}`);
+    }
+
+    if (!bookingDateForVendor) {
+        throw new Error(`bookingDate tidak ditemukan di raw_response untuk booking ${bookingCode}`);
+    }
+
     const token = await getConsistentToken();
+    const payload = {
+        airlineID: b.airline_id,
+        origin: (b.origin || "").substring(0, 3),
+        destination: (b.destination || "").substring(0, 3),
+        tripType: b.trip_type || "OneWay",
+        departDate: b.depart_date,
+        returnDate: "0001-01-01T00:00:00",
+        bookingCode: b.booking_code,
+        bookingDate: bookingDateForVendor.toString().split('.')[0], // "2026-07-26T18:09:20"
+        airlineAccessCode: b.airline_id,
+        userID: USER_CONFIG.userID,
+        accessToken: token
+    };
+
+    console.log(`📤 [ISSUE REQUEST] ${bookingCode}:`, JSON.stringify(payload));
+
     const response = await axios.post(
         `${BASE_URL}/Airline/Issued`,
-        {
-            airlineID: b.airline_id,
-            origin: (b.origin || "").substring(0, 3),
-            destination: (b.destination || "").substring(0, 3),
-            tripType: b.trip_type || "OneWay",
-            departDate: b.depart_date,
-            returnDate: "0001-01-01T00:00:00",
-            bookingCode: b.booking_code,
-            bookingDate: (b.created_at || '').toString().split('.')[0],
-            airlineAccessCode: b.airline_id,
-            userID: USER_CONFIG.userID,
-            accessToken: token
-        },
+        payload,
         { httpsAgent: agent }
     );
+
+    console.log(`📥 [ISSUE RESPONSE] ${bookingCode}:`, JSON.stringify(response.data));
 
     if (response.data.status === "SUCCESS") {
         await db.execute(
