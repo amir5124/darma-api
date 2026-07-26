@@ -4,7 +4,7 @@ const axios = require('axios');
 const db = require('../config/db');
 const puppeteer = require('puppeteer');
 const QRCode = require('qrcode');
-const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('../helpers/darmaHelper');
+const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('../helpers/darmaSandbox');
 const flightController = require('../controllers/flightController');
 const { sendBookingEmail } = require('../utils/mailer');
 const moment = require('moment-timezone');
@@ -700,36 +700,45 @@ router.post('/booking-detail', async (req, res) => {
 });
 
 // 9. ISSUED TICKET + AUTO UPDATE STATUS DB
+// router.post('/issued-ticket', async (req, res) => {
+//     try {
+//         const token = await getConsistentToken();
+//         const response = await axios.post(
+//             `${BASE_URL}/Airline/Issued`,
+//             { ...req.body, userID: USER_CONFIG.userID, accessToken: token },
+//             { httpsAgent: agent }
+//         );
+
+//         if (response.data.status === "SUCCESS") {
+//             const bCode = req.body.bookingCode;
+
+//             // Update status dan kirim email
+//             try {
+//                 await db.execute(
+//                     "UPDATE bookings SET ticket_status = 'Ticketed' WHERE booking_code = ?",
+//                     [bCode]
+//                 );
+
+//                 // Panggil pengiriman email (tanpa await agar user tidak menunggu lama)
+//                 sendTicketEmail(bCode).catch(e => console.error("Background Email Error:", e.message));
+
+//             } catch (dbErr) {
+//                 console.error("DB Update Error during Issued:", dbErr.message);
+//             }
+//         }
+
+//         res.json(response.data);
+//     } catch (error) {
+//         res.json({ status: "FAILED", respMessage: error.message });
+//     }
+// });
+
 router.post('/issued-ticket', async (req, res) => {
     try {
-        const token = await getConsistentToken();
-        const response = await axios.post(
-            `${BASE_URL}/Airline/Issued`,
-            { ...req.body, userID: USER_CONFIG.userID, accessToken: token },
-            { httpsAgent: agent }
-        );
-
-        if (response.data.status === "SUCCESS") {
-            const bCode = req.body.bookingCode;
-
-            // Update status dan kirim email
-            try {
-                await db.execute(
-                    "UPDATE bookings SET ticket_status = 'Ticketed' WHERE booking_code = ?",
-                    [bCode]
-                );
-
-                // Panggil pengiriman email (tanpa await agar user tidak menunggu lama)
-                sendTicketEmail(bCode).catch(e => console.error("Background Email Error:", e.message));
-
-            } catch (dbErr) {
-                console.error("DB Update Error during Issued:", dbErr.message);
-            }
-        }
-
-        res.json(response.data);
-    } catch (error) {
-        res.json({ status: "FAILED", respMessage: error.message });
+        const result = await issueTicketForBooking(req.body.bookingCode);
+        res.json(result);
+    } catch (e) {
+        res.json({ status: "FAILED", respMessage: e.message });
     }
 });
 
