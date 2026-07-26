@@ -3,22 +3,15 @@ const crypto = require('crypto');
 const moment = require('moment-timezone');
 const db = require('../config/db');
 const { sendBookingEmail } = require('../utils/mailer');
-   const { issueTicketForBooking } = require('../helpers/ticketService');
+const { issueTicketForBooking } = require('../helpers/ticketService');
 
 const config = {
-
     clientId: "5f5aa496-7e16-4ca1-9967-33c768dac6c7",
-
     clientSecret: "TM1rVhfaFm5YJxKruHo0nWMWC",
-
     username: "LI9019VKS",
-
     pin: "5m6uYAScSxQtCmU",
-
     serverKey: "QtwGEr997XDcmMb1Pq8S5X1N",
-
     baseUrl: 'https://api.linkqu.id/linkqu-partner'
-
 };
 
 /**
@@ -30,6 +23,24 @@ function generateSignature(path, method, data) {
     return crypto.createHmac("sha256", config.serverKey)
         .update(path + method + cleaned)
         .digest("hex");
+}
+
+/**
+ * Helper internal: coba issue tiket, dan tandai status di DB jika gagal
+ */
+async function attemptIssueTicket(bookingCode) {
+    try {
+        const result = await issueTicketForBooking(bookingCode);
+        console.log(`🎟️ [ISSUE] Tiket ${bookingCode} berhasil diterbitkan.`, result?.already ? '(sudah terbit sebelumnya)' : '');
+        return { success: true, data: result };
+    } catch (issueErr) {
+        console.error(`❌ [ISSUE FAILED] ${bookingCode}:`, issueErr.message);
+        await db.query(
+            "UPDATE bookings SET ticket_status = 'PAID_PENDING_ISSUE' WHERE booking_code = ?",
+            [bookingCode]
+        );
+        return { success: false, error: issueErr.message };
+    }
 }
 
 const PaymentController = {
@@ -46,11 +57,11 @@ const PaymentController = {
                 method,
                 bank_code,
                 admin_fee_applied,
-                discount_applied  // 🔥 TAMBAHKAN INI
+                discount_applied
             } = req.body;
 
             const feeAdmin = Number(admin_fee_applied || 0);
-            const discount = Number(discount_applied || 0); // 🔥 Ambil dari frontend
+            const discount = Number(discount_applied || 0);
 
             console.log("💰 [BACKEND] Received:", {
                 booking_id,
@@ -130,11 +141,10 @@ const PaymentController = {
 
             const linkquData = resp.data;
 
-            // Ambil VA Number atau QRIS Image dari response
             const vaNumber = linkquData.virtual_account || linkquData.va_number || (linkquData.data ? (linkquData.data.virtual_account || linkquData.data.va_number) : null);
             const qrisImage = linkquData.imageqris || linkquData.qr_url || (linkquData.data ? linkquData.data.imageqris : null);
 
-            // 🔥 D. UPDATE DATABASE - GUNAKAN DISKON DARI FRONTEND
+            // D. UPDATE DATABASE
             await connection.query(
                 `UPDATE bookings SET 
                     pengguna = ?, 
@@ -220,7 +230,8 @@ const PaymentController = {
             if (connection) connection.release();
         }
     },
-    // 3. DOWNLOAD QRIS IMAGE
+
+    // DOWNLOAD QRIS IMAGE
     downloadQR: async (req, res) => {
         try {
             const { qr_url, reff } = req.query;
@@ -233,26 +244,63 @@ const PaymentController = {
             return res.status(500).send("Gagal mengunduh gambar QRIS");
         }
     },
-    // 2. CHECK PAYMENT STATUS
-    // 2. CHECK PAYMENT STATUS (Polling Handler)
+
+    // CHECK PAYMENT STATUS (Polling Handler)
     checkStatus: async (req, res) => {
         const { reff } = req.params;
         try {
-            // 1. CEK DATABASE LOKAL DULU (Kunci agar polling berhenti saat callback masuk)
-          const [rows] = await db.query(
-    "SELECT payment_status, ticket_status, booking_code FROM bookings WHERE payment_reff = ?",
-    [reff]
-);
-if (rows.length > 0) {
-    const b = rows[0];
-    if (b.ticket_status?.toLowerCase() === 'ticketed') {
-        return res.json({ status: 'SUCCESS', payment_status: 'SUCCESS', ticket_status: 'TICKETED', bookingCode: b.booking_code });
-    }
-    if (b.payment_status === 'SUCCESS') {
-        // sudah bayar tapi tiket belum terbit (masih diproses backend)
-        return res.json({ status: 'PROCESSING_TICKET', payment_status: 'SUCCESS', bookingCode: b.booking_code });
-    }
-}
+            // 1. CEK DATABASE LOKAL DULU
+            const [rows] = await db.query(
+                "SELECT payment_status, ticket_status, booking_code FROM bookings WHERE payment_reff = ?",
+                [reff]
+            );
+
+            if (rows.length > 0) {
+                const b = rows[0];
+
+                // Sudah terbit → langsung selesai
+                if ((b.ticket_status || '').toLowerCase() === 'ticketed') {
+                    return res.json({
+                        status: 'SUCCESS',
+                        payment_status: 'SUCCESS',
+                        ticket_status: 'TICKETED',
+                        bookingCode: b.booking_code
+                    });
+                }
+
+                // Sudah bayar tapi gagal issue sebelumnya → coba issue ulang di sini (self-healing)
+                if (b.payment_status === 'SUCCESS' && b.ticket_status === 'PAID_PENDING_ISSUE') {
+                    console.log(`🔁 [RETRY-ISSUE] Mencoba issue ulang untuk ${b.booking_code}`);
+                    const retryResult = await attemptIssueTicket(b.booking_code);
+
+                    if (retryResult.success) {
+                        return res.json({
+                            status: 'SUCCESS',
+                            payment_status: 'SUCCESS',
+                            ticket_status: 'TICKETED',
+                            bookingCode: b.booking_code
+                        });
+                    }
+
+                    return res.json({
+                        status: 'PROCESSING_TICKET',
+                        payment_status: 'SUCCESS',
+                        ticket_status: 'PAID_PENDING_ISSUE',
+                        bookingCode: b.booking_code
+                    });
+                }
+
+                // Sudah bayar, sedang menunggu callback trigger issue
+                if (b.payment_status === 'SUCCESS') {
+                    return res.json({
+                        status: 'PROCESSING_TICKET',
+                        payment_status: 'SUCCESS',
+                        ticket_status: b.ticket_status || null,
+                        bookingCode: b.booking_code
+                    });
+                }
+            }
+
             // 2. JIKA DI DB BELUM SUKSES, TANYA KE API LINKQU
             console.log(`🔍 [POLLING VENDOR] Memeriksa status LinkQu untuk Reff: ${reff}`);
             const resp = await axios.get(`${config.baseUrl}/transaction/check-status`, {
@@ -270,14 +318,23 @@ if (rows.length > 0) {
 
             const statusFromServer = resp.data.status || 'PENDING';
 
-            // Jika Vendor bilang sukses, kita update database kita juga (sebagai backup jika callback gagal)
             if (statusFromServer === 'SUCCESS' || statusFromServer === 'SETTLED') {
                 console.log(`✅ [POLLING VENDOR SUCCESS] Transaksi ${reff} lunas via API Vendor.`);
                 await db.query(
                     "UPDATE bookings SET payment_status = 'SUCCESS' WHERE payment_reff = ?",
                     [reff]
                 );
-                return res.json({ ...resp.data, status: 'SUCCESS' });
+
+                // Backup: kalau callback dari vendor belum/tidak sampai, issue di sini juga
+                const [rows2] = await db.query(
+                    "SELECT booking_code, ticket_status FROM bookings WHERE payment_reff = ?",
+                    [reff]
+                );
+                if (rows2.length > 0 && rows2[0].ticket_status !== 'Ticketed') {
+                    await attemptIssueTicket(rows2[0].booking_code);
+                }
+
+                return res.json({ ...resp.data, status: 'PROCESSING_TICKET' });
             }
 
             console.log(`⏳ [POLLING PENDING] Transaksi ${reff} masih menunggu.`);
@@ -289,49 +346,50 @@ if (rows.length > 0) {
         }
     },
 
+    // CALLBACK DARI LINKQU
+    handleCallback: async (req, res) => {
+        console.log("📥 [CALLBACK RECEIVED] Data dari LinkQu:", JSON.stringify(req.body));
 
+        try {
+            const { partner_reff, status } = req.body;
 
-handleCallback: async (req, res) => {
-    try {
-        const { partner_reff, status } = req.body;
+            if (status === "SUCCESS" || status === "SETTLED") {
+                const [rows] = await db.query(
+                    "SELECT booking_code, ticket_status FROM bookings WHERE payment_reff = ?",
+                    [partner_reff]
+                );
 
-        if (status === "SUCCESS" || status === "SETTLED") {
-            const [rows] = await db.query(
-                "SELECT booking_code, ticket_status FROM bookings WHERE payment_reff = ?",
-                [partner_reff]
-            );
-            if (rows.length === 0) return res.json({ message: "OK" });
-
-            const booking = rows[0];
-
-            const [result] = await db.query(
-                `UPDATE bookings SET payment_status = 'SUCCESS'
-                 WHERE payment_reff = ? AND payment_status != 'SUCCESS'`,
-                [partner_reff]
-            );
-
-            // Hindari issue dobel jika callback datang 2x
-            if (booking.ticket_status !== 'Ticketed') {
-                try {
-                    await issueTicketForBooking(booking.booking_code);
-                    console.log(`🎟️ [AUTO-ISSUE] Tiket ${booking.booking_code} berhasil diterbitkan otomatis.`);
-                } catch (issueErr) {
-                    console.error(`❌ [AUTO-ISSUE FAILED] ${booking.booking_code}:`, issueErr.message);
-                    // Tetap balas 200 ke LinkQu, tapi tandai perlu retry manual
-                    await db.query(
-                        "UPDATE bookings SET ticket_status = 'PAID_PENDING_ISSUE' WHERE booking_code = ?",
-                        [booking.booking_code]
-                    );
+                if (rows.length === 0) {
+                    console.warn(`⚠️ [CALLBACK] Booking dengan reff ${partner_reff} tidak ditemukan.`);
+                    return res.json({ message: "OK" });
                 }
-            }
-        }
-        return res.json({ message: "OK" });
-    } catch (err) {
-        console.error("❌ [CALLBACK CRITICAL ERROR]:", err.message);
-        return res.status(500).json({ status: "ERROR", message: err.message });
-    }
-}
 
+                const booking = rows[0];
+
+                await db.query(
+                    `UPDATE bookings SET payment_status = 'SUCCESS'
+                     WHERE payment_reff = ? AND payment_status != 'SUCCESS'`,
+                    [partner_reff]
+                );
+
+                // Hindari issue dobel jika callback datang 2x
+                if ((booking.ticket_status || '').toLowerCase() !== 'ticketed') {
+                    await attemptIssueTicket(booking.booking_code);
+                } else {
+                    console.log(`ℹ️ [CALLBACK INFO] ${booking.booking_code} sudah Ticketed, skip issue.`);
+                }
+            } else {
+                console.log(`ℹ️ [CALLBACK INFO] Status: ${status}, tidak ada perubahan database.`);
+            }
+
+            // LinkQu butuh respon 200 OK agar tidak mengirim ulang callback
+            return res.json({ message: "OK" });
+
+        } catch (err) {
+            console.error("❌ [CALLBACK CRITICAL ERROR]:", err.message);
+            return res.status(500).json({ status: "ERROR", message: err.message });
+        }
+    }
 
 };
 

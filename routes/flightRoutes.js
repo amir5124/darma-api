@@ -9,6 +9,7 @@ const flightController = require('../controllers/flightController');
 const { sendBookingEmail } = require('../utils/mailer');
 const moment = require('moment-timezone');
 const nodemailer = require('nodemailer');
+const { issueTicketForBooking, getTicketHtmlContent, generatePdfBuffer } = require('../helpers/ticketService');
 // const puppeteer = require('puppeteer');
 // const QRCode = require('qrcode');
 /**
@@ -742,6 +743,19 @@ router.post('/issued-ticket', async (req, res) => {
     }
 });
 
+// GENERATE TICKET PDF (pakai fungsi dari ticketService, bukan definisi lokal)
+router.get('/generate-ticket/:bookingCode', async (req, res) => {
+    try {
+        const html = await getTicketHtmlContent(req.params.bookingCode, db);
+        const pdfBuffer = await generatePdfBuffer(html);
+        res.contentType("application/pdf");
+        res.setHeader('Content-Disposition', `attachment; filename=Ticket-${req.params.bookingCode}.pdf`);
+        res.send(pdfBuffer);
+    } catch (e) {
+        res.status(500).send("Error: " + e.message);
+    }
+});
+
 
 async function getTicketHtmlContent(bookingCode, db) {
     const [rows] = await db.execute("SELECT * FROM bookings WHERE booking_code = ?", [bookingCode]);
@@ -1012,20 +1026,7 @@ async function generatePdfBuffer(htmlContent) {
     return pdfBuffer;
 }
 
-/**
- * --- 1. ENDPOINT: GENERATE TICKET (DOWNLOAD LANGSUNG) ---
- */
-router.get('/generate-ticket/:bookingCode', async (req, res) => {
-    try {
-        const html = await getTicketHtmlContent(req.params.bookingCode, db);
-        const pdfBuffer = await generatePdfBuffer(html);
-        res.contentType("application/pdf");
-        res.setHeader('Content-Disposition', `attachment; filename=Ticket-${req.params.bookingCode}.pdf`);
-        res.send(pdfBuffer);
-    } catch (e) {
-        res.status(500).send("Error: " + e.message);
-    }
-});
+
 
 
 async function sendTicketEmail(bookingCode) {
