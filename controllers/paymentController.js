@@ -3,17 +3,9 @@ const crypto = require('crypto');
 const moment = require('moment-timezone');
 const db = require('../config/db');
 const { sendBookingEmail } = require('../utils/mailer');
-const { issueTicketForBooking } = require('../helpers/ticketService');
+const { issueTicketForBooking, checkAndSyncTicketStatus } = require('../helpers/ticketService');
 
-// const config = {
-//     clientId: "5f5aa496-7e16-4ca1-9967-33c768dac6c7",
-//     clientSecret: "TM1rVhfaFm5YJxKruHo0nWMWC",
-//     username: "LI9019VKS",
-//     pin: "5m6uYAScSxQtCmU",
-//     serverKey: "QtwGEr997XDcmMb1Pq8S5X1N",
-//     baseUrl: 'https://api.linkqu.id/linkqu-partner'
-// };
-
+// ⚠️ TESTING/SANDBOX CREDENTIALS — GANTI SEBELUM PRODUCTION
 const config = {
     clientId: "testing",
     clientSecret: "123",
@@ -35,7 +27,9 @@ function generateSignature(path, method, data) {
 }
 
 /**
- * Helper internal: coba issue tiket, dan tandai status di DB jika gagal
+ * Helper internal: coba issue tiket, dan tandai status di DB jika gagal.
+ * Kalau vendor bilang "Processed" (bukan gagal sungguhan), jangan tandai FAILED —
+ * cukup sinkronkan status, biar checkStatus yang poll booking-detail selanjutnya.
  */
 async function attemptIssueTicket(bookingCode) {
     try {
@@ -44,14 +38,25 @@ async function attemptIssueTicket(bookingCode) {
         if (result && result.status === "SUCCESS") {
             console.log(`🎟️ [ISSUE OK] ${bookingCode} berhasil diterbitkan.`, result?.already ? '(sudah terbit sebelumnya)' : '');
             return { success: true, data: result };
-        } else {
-            console.error(`⚠️ [ISSUE NON-SUCCESS] ${bookingCode}:`, JSON.stringify(result));
+        }
+
+        // Vendor bilang booking sudah "Processed" — bukan gagal, cuma belum final
+        if (result?.respMessage?.toLowerCase().includes('processed')) {
+            console.log(`⏳ [ISSUE PROCESSING] ${bookingCode} status vendor: Processed (menunggu penerbitan)`);
             await db.query(
-                "UPDATE bookings SET ticket_status = 'PAID_PENDING_ISSUE' WHERE booking_code = ?",
+                "UPDATE bookings SET ticket_status = 'Processed' WHERE booking_code = ?",
                 [bookingCode]
             );
-            return { success: false, error: result?.respMessage || 'Vendor non-SUCCESS' };
+            return { success: false, processing: true, error: result.respMessage };
         }
+
+        console.error(`⚠️ [ISSUE NON-SUCCESS] ${bookingCode}:`, JSON.stringify(result));
+        await db.query(
+            "UPDATE bookings SET ticket_status = 'PAID_PENDING_ISSUE' WHERE booking_code = ?",
+            [bookingCode]
+        );
+        return { success: false, error: result?.respMessage || 'Vendor non-SUCCESS' };
+
     } catch (issueErr) {
         console.error(`❌ [ISSUE EXCEPTION] ${bookingCode}:`, issueErr.message);
         await db.query(
@@ -287,29 +292,45 @@ const PaymentController = {
                     });
                 }
 
-                // Sudah bayar tapi gagal issue sebelumnya → coba issue ulang di sini (self-healing)
-                if (b.payment_status === 'SUCCESS' && b.ticket_status === 'PAID_PENDING_ISSUE') {
-                    console.log(`🔁 [RETRY-ISSUE] Mencoba issue ulang untuk ${b.booking_code}`);
-                    const retryResult = await attemptIssueTicket(b.booking_code);
+                // Sudah bayar tapi belum ticketed (PAID_PENDING_ISSUE / Processed / null)
+                // → cek status ke vendor via booking-detail, JANGAN retry issue
+                if (b.payment_status === 'SUCCESS' &&
+                    (b.ticket_status === 'PAID_PENDING_ISSUE' || b.ticket_status === 'Processed')) {
 
-                    if (retryResult.success) {
+                    console.log(`🔁 [CHECK VENDOR STATUS] ${b.booking_code}`);
+
+                    try {
+                        const syncResult = await checkAndSyncTicketStatus(b.booking_code);
+
+                        if (syncResult.ticketStatus && syncResult.ticketStatus.toLowerCase() === 'ticketed') {
+                            return res.json({
+                                status: 'SUCCESS',
+                                payment_status: 'SUCCESS',
+                                ticket_status: 'TICKETED',
+                                bookingCode: b.booking_code
+                            });
+                        }
+
+                        // masih belum final di vendor
                         return res.json({
-                            status: 'SUCCESS',
+                            status: 'PROCESSING_TICKET',
                             payment_status: 'SUCCESS',
-                            ticket_status: 'TICKETED',
+                            ticket_status: syncResult.ticketStatus || b.ticket_status,
+                            bookingCode: b.booking_code
+                        });
+
+                    } catch (syncErr) {
+                        console.error(`❌ [SYNC ERROR] ${b.booking_code}:`, syncErr.message);
+                        return res.json({
+                            status: 'PROCESSING_TICKET',
+                            payment_status: 'SUCCESS',
+                            ticket_status: b.ticket_status,
                             bookingCode: b.booking_code
                         });
                     }
-
-                    return res.json({
-                        status: 'PROCESSING_TICKET',
-                        payment_status: 'SUCCESS',
-                        ticket_status: 'PAID_PENDING_ISSUE',
-                        bookingCode: b.booking_code
-                    });
                 }
 
-                // Sudah bayar, sedang menunggu callback trigger issue
+                // Sudah bayar, sedang menunggu callback trigger issue pertama kali
                 if (b.payment_status === 'SUCCESS') {
                     return res.json({
                         status: 'PROCESSING_TICKET',

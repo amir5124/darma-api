@@ -302,7 +302,7 @@ async function sendTicketEmail(bookingCode) {
 }
 
 // ==========================================================
-// 4. ISSUE TICKET KE VENDOR (fungsi baru — dipakai oleh callback & route manual)
+// 4. ISSUE TICKET KE VENDOR (dipakai oleh callback & route manual)
 // ==========================================================
 async function issueTicketForBooking(bookingCode) {
     const [rows] = await db.execute("SELECT * FROM bookings WHERE booking_code = ?", [bookingCode]);
@@ -313,7 +313,7 @@ async function issueTicketForBooking(bookingCode) {
         return { status: "SUCCESS", already: true, respMessage: "Tiket sudah terbit sebelumnya" };
     }
 
-    // ✅ Ambil bookingDate ASLI dari raw_response (hasil create-booking dari vendor)
+    // Ambil bookingDate ASLI dari raw_response (hasil create-booking dari vendor)
     // Jangan pakai kolom created_at — formatnya beda dan bikin vendor reject Issued API
     let bookingDateForVendor = null;
     try {
@@ -363,8 +363,105 @@ async function issueTicketForBooking(bookingCode) {
     return response.data;
 }
 
+// ==========================================================
+// 5. HELPER: AMBIL bookingDate DARI raw_response TERSIMPAN
+// ==========================================================
+function extractBookingDate(bookingRow) {
+    try {
+        const raw = typeof bookingRow.raw_response === 'string'
+            ? JSON.parse(bookingRow.raw_response)
+            : bookingRow.raw_response;
+        return raw?.bookingDate || null;
+    } catch (e) {
+        console.error(`⚠️ Gagal extract bookingDate dari raw_response: ${e.message}`);
+        return null;
+    }
+}
+
+// ==========================================================
+// 6. CEK STATUS TIKET KE VENDOR & SINKRONKAN KE DB
+//    Dipakai untuk polling self-healing (checkStatus) — booking yang
+//    statusnya PAID_PENDING_ISSUE atau Processed. TIDAK melakukan retry
+//    issue (karena vendor akan selalu menolak issue ulang untuk booking
+//    yang statusnya sudah Processed), hanya query booking-detail lalu
+//    sinkronkan hasilnya ke DB. Kalau baru berubah jadi Ticketed, otomatis
+//    kirim email tiket.
+// ==========================================================
+async function checkAndSyncTicketStatus(bookingCode) {
+    const [rows] = await db.execute("SELECT * FROM bookings WHERE booking_code = ?", [bookingCode]);
+    if (rows.length === 0) throw new Error("Booking tidak ditemukan: " + bookingCode);
+    const b = rows[0];
+
+    // Sudah ticketed di DB, tidak perlu cek vendor lagi
+    if ((b.ticket_status || '').toLowerCase() === 'ticketed') {
+        return { ticketStatus: 'Ticketed', alreadySynced: true };
+    }
+
+    const bookingDate = extractBookingDate(b);
+    if (!bookingDate) {
+        throw new Error(`bookingDate tidak ditemukan di raw_response untuk ${bookingCode}`);
+    }
+
+    const token = await getConsistentToken();
+    const response = await axios.post(
+        `${BASE_URL}/Airline/BookingDetail`,
+        {
+            bookingCode: b.booking_code,
+            referenceNo: b.reference_no,
+            bookingDate: bookingDate.toString().split('.')[0],
+            userID: USER_CONFIG.userID,
+            accessToken: token
+        },
+        { httpsAgent: agent }
+    );
+
+    const data = response.data;
+    console.log(`📥 [SYNC BOOKING-DETAIL] ${bookingCode}:`, JSON.stringify({
+        status: data.status,
+        ticketStatus: data.ticketStatus,
+        issuedDate: data.issuedDate,
+        respMessage: data.respMessage
+    }));
+
+    if (data.status !== "SUCCESS") {
+        return { ticketStatus: b.ticket_status, synced: false, respMessage: data.respMessage };
+    }
+
+    const vendorTicketStatus = data.ticketStatus || 'Unknown';
+
+    // Sinkronkan harga & status terbaru ke DB juga (konsisten dengan route booking-detail lama)
+    const tPrice = data.adminFee ? data.adminFee.ticketPrice : b.total_price;
+    const sPrice = data.adminFee ? data.adminFee.salesPrice : b.sales_price;
+
+    await db.execute(
+        `UPDATE bookings SET 
+            total_price = ?, 
+            sales_price = ?, 
+            origin_port = ?,
+            destination_port = ?, 
+            ticket_status = ?
+         WHERE booking_code = ?`,
+        [
+            tPrice,
+            sPrice,
+            data.origin || b.origin_port,
+            data.destination || b.destination_port,
+            vendorTicketStatus,
+            bookingCode
+        ]
+    );
+
+    // Kalau baru saja berubah jadi Ticketed dan sebelumnya belum, kirim email
+    if (vendorTicketStatus.toLowerCase() === 'ticketed' && (b.ticket_status || '').toLowerCase() !== 'ticketed') {
+        sendTicketEmail(bookingCode).catch(e => console.error("Background Email Error:", e.message));
+    }
+
+    return { ticketStatus: vendorTicketStatus, synced: true, raw: data };
+}
+
 module.exports = {
     issueTicketForBooking,
+    checkAndSyncTicketStatus,
     sendTicketEmail,
     getTicketHtmlContent,
     generatePdfBuffer
