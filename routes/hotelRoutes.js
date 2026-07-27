@@ -1061,6 +1061,84 @@ router.post('/hotel-bookings/update-after-vendor', async (req, res) => {
     }
 });
 
+// routes/hotelRoutes.js
+
+// ============================================================
+// ENDPOINT: GET /api/hotels/booking-status/:bookingId
+// Untuk polling status booking setelah pembayaran
+// ============================================================
+router.get('/booking-status/:bookingId', async (req, res) => {
+    let connection;
+    try {
+        const { bookingId } = req.params;
+
+        if (!bookingId || isNaN(bookingId)) {
+            return res.status(400).json({
+                status: "ERROR",
+                respMessage: "Booking ID tidak valid"
+            });
+        }
+
+        connection = await db.getConnection();
+
+        // Ambil data booking
+        const [rows] = await connection.execute(
+            `SELECT 
+                id,
+                reservation_no,
+                hotel_name,
+                hotel_address,
+                room_name,
+                breakfast_type,
+                check_in_date,
+                check_out_date,
+                total_price,
+                handling_fee,
+                booking_status,
+                contact_email,
+                contact_phone,
+                special_requests,
+                username
+             FROM hotel_bookings 
+             WHERE id = ?`,
+            [bookingId]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).json({
+                status: "ERROR",
+                respMessage: "Booking tidak ditemukan"
+            });
+        }
+
+        const booking = rows[0];
+
+        // Ambil data paxes
+        const [paxes] = await connection.execute(
+            `SELECT title, first_name, last_name, pax_type
+             FROM hotel_booking_paxes
+             WHERE booking_id = ?`,
+            [bookingId]
+        );
+
+        booking.paxes = paxes;
+
+        return res.json({
+            status: "SUCCESS",
+            data: booking
+        });
+
+    } catch (error) {
+        logger.error("Booking Status Error: " + error.message);
+        return res.status(500).json({
+            status: "ERROR",
+            respMessage: error.message
+        });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
 router.get('/history', async (req, res) => {
     let connection;
     try {
