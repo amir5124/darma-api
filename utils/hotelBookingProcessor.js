@@ -36,7 +36,9 @@ function validateBookingData(booking) {
     
     // Validasi format room_id - pastikan tidak ada karakter aneh
     if (booking.room_id && booking.room_id.includes('~||~')) {
-        logger.warn(`⚠️ Room ID mengandung separator '~||~', ini mungkin dari format lama. Room ID: ${booking.room_id}`);
+        // Gunakan logger.info atau console.log sebagai ganti logger.warn
+        console.warn(`⚠️ [WARNING] Room ID mengandung separator '~||~', ini mungkin dari format lama. Room ID: ${booking.room_id}`);
+        logger.info(`⚠️ Room ID mengandung separator '~||~', ini mungkin dari format lama. Room ID: ${booking.room_id}`);
     }
     
     return true;
@@ -91,14 +93,14 @@ async function processHotelBookingToVendor(bookingId) {
         const checkInISO = new Date(booking.check_in_date).toISOString();
         const checkOutISO = new Date(booking.check_out_date).toISOString();
 
-        // 7. 🔥 PERBAIKAN: Gunakan data persis dari database, jangan ubah format
+        // 7. Gunakan data persis dari database, jangan ubah format
         const cleanRoomId = String(booking.room_id).trim();
         const cleanHotelId = String(booking.hotel_id).trim();
         const cleanCityId = String(booking.city_id || "").trim();
         const cleanInternalCode = String(booking.internal_code || "SUP").trim();
 
         // 8. LOG data sebelum kirim ke vendor
-        logger.info(`🔍 [PRE-VENDOR CHECK] Booking ${bookingId}:`, {
+        console.log(`🔍 [PRE-VENDOR CHECK] Booking ${bookingId}:`, {
             cityID: cleanCityId,
             hotelID: cleanHotelId,
             roomID: cleanRoomId,
@@ -124,7 +126,7 @@ async function processHotelBookingToVendor(bookingId) {
             internalCode: cleanInternalCode,
             hotelID: cleanHotelId,
             breakfast: booking.breakfast_type || "Room Only",
-            roomID: cleanRoomId,  // 🔥 KRITIS: Harus sama persis
+            roomID: cleanRoomId,
             userID: USER_CONFIG.userID,
             accessToken: token
         };
@@ -147,7 +149,7 @@ async function processHotelBookingToVendor(bookingId) {
             const reason = p.respMessage || "Kamar tidak lagi tersedia di vendor setelah pembayaran.";
             
             // Log detail error
-            logger.error(`🚨 [CRITICAL] Booking ID ${bookingId} DIBAYAR tapi kamar/harga tidak valid lagi:`, {
+            console.error(`🚨 [CRITICAL] Booking ID ${bookingId} DIBAYAR tapi kamar/harga tidak valid lagi:`, {
                 reason: reason,
                 sentData: {
                     cityID: cleanCityId,
@@ -161,16 +163,16 @@ async function processHotelBookingToVendor(bookingId) {
             throw new Error(`${reason} PERLU TINDAKAN MANUAL / REFUND.`);
         }
 
-        // 12. 🔥 PERBAIKAN: Gunakan data dari response Price Info, tapi pastikan konsisten
-        // Jika vendor mengembalikan roomID yang berbeda, gunakan yang dari response
+        // 12. Gunakan data dari response Price Info, tapi pastikan konsisten
         const vendorRoomId = p.roomID || cleanRoomId;
         const vendorHotelId = p.hotelID || cleanHotelId;
         const vendorCityId = p.cityID || cleanCityId;
         const vendorInternalCode = p.internalCode || cleanInternalCode;
 
-        // 13. Log perbedaan jika ada
+        // 13. Log perbedaan jika ada (gunakan console.warn atau logger.info)
         if (vendorRoomId !== cleanRoomId) {
-            logger.warn(`⚠️ [ROOM_ID MISMATCH] Booking ${bookingId}: DB="${cleanRoomId}" vs Vendor="${vendorRoomId}"`);
+            console.warn(`⚠️ [ROOM_ID MISMATCH] Booking ${bookingId}: DB="${cleanRoomId}" vs Vendor="${vendorRoomId}"`);
+            logger.info(`⚠️ [ROOM_ID MISMATCH] Booking ${bookingId}: DB="${cleanRoomId}" vs Vendor="${vendorRoomId}"`);
         }
 
         // 14. Prepare Booking Payload
@@ -193,7 +195,7 @@ async function processHotelBookingToVendor(bookingId) {
             internalCode: vendorInternalCode,
             hotelID: vendorHotelId,
             breakfast: p.breakfast || booking.breakfast_type || "Room Only",
-            roomID: vendorRoomId,  // 🔥 KRITIS: Gunakan dari vendor response
+            roomID: vendorRoomId,
             bedType: (p.bedTypes && p.bedTypes[0]) ? { 
                 ID: p.bedTypes[0].ID || "", 
                 bed: p.bedTypes[0].bed || "" 
@@ -224,7 +226,7 @@ async function processHotelBookingToVendor(bookingId) {
         if (!(resData.status === "SUCCESS" || isAccepted || isProcessed)) {
             await safeUpdateStatus(connection, bookingId, 'FAILED_REJECTED');
             
-            logger.error(`🚨 [CRITICAL] Booking ID ${bookingId} DIBAYAR tapi DITOLAK vendor:`, {
+            console.error(`🚨 [CRITICAL] Booking ID ${bookingId} DIBAYAR tapi DITOLAK vendor:`, {
                 respMessage: resData.respMessage,
                 status: resData.status,
                 bookingStatus: resData.bookingStatus,
