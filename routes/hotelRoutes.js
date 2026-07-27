@@ -6,6 +6,7 @@ const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('..
 const puppeteer = require('puppeteer');
 const nodemailer = require('nodemailer');
 const db = require('../config/db');
+const { processHotelBookingToVendor } = require('../utils/hotelBookingProcessor');
 // --- KONFIGURASI EMAIL ---
 const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
@@ -1180,6 +1181,18 @@ router.get('/history/:reservation_no', async (req, res) => {
         });
     } finally {
         if (connection) connection.release();
+    }
+});
+
+router.post('/admin/retry-vendor-booking', async (req, res) => {
+    try {
+        const { bookingId } = req.body;
+        if (!bookingId) return res.status(400).json({ status: "ERROR", message: "bookingId wajib diisi" });
+
+        const result = await processHotelBookingToVendor(bookingId);
+        res.json({ status: "SUCCESS", result });
+    } catch (e) {
+        res.status(500).json({ status: "ERROR", message: e.message });
     }
 });
 

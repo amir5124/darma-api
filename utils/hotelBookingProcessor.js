@@ -1,43 +1,33 @@
 // utils/hotelBookingProcessor.js
-//
-// Tujuan file ini:
-// Memindahkan logic "executeFinalBooking()" yang SEBELUMNYA jalan di browser (dipicu polling)
-// menjadi proses server-side yang dipicu langsung oleh payment callback LinkQu.
-//
-// Ini menyelesaikan masalah: booking ke vendor hotel hilang/tidak terjadi kalau user
-// menutup tab / koneksi putus / app di-background setelah bayar.
-//
-// CATATAN PENTING SEBELUM PAKAI:
-// 1. Sesuaikan nama kolom di query SELECT/UPDATE dengan skema tabel `hotel_bookings` kamu
-//    yang sebenarnya (saya samakan dengan pola INSERT di hotelRoutes.js /booking dan /draft).
-// 2. Fungsi `sendBookingEmails(bookingId)` diasumsikan sudah ada di `utils/hotelMailer.js`
-//    (sudah dipakai di endpoint /hotel-bookings/update-after-vendor). Kalau signature-nya
-//    beda, sesuaikan pemanggilannya di bagian bawah.
-// 3. Pastikan `getConsistentToken`, `BASE_URL`, `USER_CONFIG`, `agent`, `logger` diexport
-//    dari '../helpers/darmaHelper' (sudah dipakai konsisten di hotelRoutes.js).
-
 const axios = require('axios');
 const db = require('../config/db');
 const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('../helpers/darmaHelper');
 const { sendBookingEmails } = require('./hotelMailer');
 
 /**
- * Memproses booking hotel yang statusnya masih PENDING/PAID ke vendor (Darma),
- * lalu mengupdate DB dan memicu pengiriman email.
- *
- * WAJIB idempotent: kalau dipanggil 2x untuk booking yang sama (misal LinkQu
- * mengirim callback duplikat, yang memang lazim terjadi), booking ke vendor
- * TIDAK boleh dikirim dua kali.
- *
- * @param {number} bookingId - id di tabel hotel_bookings
- * @returns {Promise<object>} hasil proses
+ * Helper: update booking_status dengan aman.
+ * Kalau UPDATE ini sendiri gagal (misal kolom kepanjangan di masa depan),
+ * jangan biarkan error-nya menutupi pesan error bisnis asli — cukup log terpisah.
  */
+async function safeUpdateStatus(connection, bookingId, status, extra = {}) {
+    try {
+        // Truncate defensif — jaga-jaga kalau suatu saat ada status baru yang lebih panjang dari kolom
+        const safeStatus = String(status).substring(0, 45);
+        await connection.execute(
+            `UPDATE hotel_bookings SET booking_status = ?, updated_at = NOW() WHERE id = ?`,
+            [safeStatus, bookingId]
+        );
+    } catch (dbErr) {
+        logger.error(`⚠️ [STATUS UPDATE FAILED] Booking ${bookingId} gagal update status ke '${status}': ${dbErr.message}`);
+        // Sengaja tidak di-throw — supaya error bisnis asli (di pemanggil) tetap yang muncul ke log/alert
+    }
+}
+
 async function processHotelBookingToVendor(bookingId) {
     let connection;
     try {
         connection = await db.getConnection();
 
-        // 1. Ambil data booking (hasil dari /hotel-bookings/draft sebelumnya)
         const [rows] = await connection.execute(
             `SELECT * FROM hotel_bookings WHERE id = ?`,
             [bookingId]
@@ -49,14 +39,11 @@ async function processHotelBookingToVendor(bookingId) {
 
         const booking = rows[0];
 
-        // 2. IDEMPOTENCY CHECK — Ini kunci utama agar tidak double-booking ke vendor
-        //    kalau callback pembayaran terkirim berkali-kali (retry dari LinkQu itu normal).
         if (['Accept', 'Processed'].includes(booking.booking_status)) {
             logger.info(`[VENDOR BOOKING] Booking ID ${bookingId} sudah pernah diproses (status: ${booking.booking_status}). Dilewati.`);
             return { skipped: true, reason: 'already_processed', bookingId, status: booking.booking_status };
         }
 
-        // 3. Ambil data tamu yang sudah disimpan waktu draft dibuat
         const [paxes] = await connection.execute(
             `SELECT title, first_name AS firstName, last_name AS lastName FROM hotel_booking_paxes WHERE booking_id = ?`,
             [bookingId]
@@ -68,7 +55,6 @@ async function processHotelBookingToVendor(bookingId) {
 
         const token = await getConsistentToken();
 
-        // 4. Re-validasi harga & ketersediaan kamar ke vendor (harga bisa berubah sejak draft dibuat)
         const checkInISO = new Date(booking.check_in_date).toISOString();
         const checkOutISO = new Date(booking.check_out_date).toISOString();
 
@@ -101,16 +87,16 @@ async function processHotelBookingToVendor(bookingId) {
 
         const p = priceRes.data;
 
+        // ✅ LOG RESPONSE — ini yang hilang sebelumnya, bikin kita tidak tahu alasan gagal
+        logger.debug("RES_VENDOR_PRICE_INFO (post-payment)", JSON.stringify(p));
+
         if (p.status !== "SUCCESS") {
-            // Kamar sudah tidak tersedia setelah customer bayar — kasus langka tapi harus ditangani manual
-            await connection.execute(
-                `UPDATE hotel_bookings SET booking_status = 'FAILED_VENDOR_NO_ROOM', updated_at = NOW() WHERE id = ?`,
-                [bookingId]
-            );
-            throw new Error(p.respMessage || "Kamar tidak lagi tersedia di vendor setelah pembayaran. PERLU TINDAKAN MANUAL / REFUND.");
+            await safeUpdateStatus(connection, bookingId, 'FAILED_NO_ROOM');
+            const reason = p.respMessage || "Kamar tidak lagi tersedia di vendor setelah pembayaran.";
+            logger.error(`🚨 [CRITICAL] Booking ID ${bookingId} DIBAYAR tapi kamar/harga tidak valid lagi: ${reason}`);
+            throw new Error(reason + " PERLU TINDAKAN MANUAL / REFUND.");
         }
 
-        // 5. Kirim payload booking sungguhan ke vendor
         const bookingPayload = {
             paxPassport: p.paxPassport || "ID",
             countryID: p.countryID || "ID",
@@ -145,17 +131,16 @@ async function processHotelBookingToVendor(bookingId) {
         });
 
         const resData = bookingRes.data;
+
+        // ✅ LOG RESPONSE — sama, wajib ada untuk audit
+        logger.debug("RES_VENDOR_BOOKING (post-payment)", JSON.stringify(resData));
+
         const msg = (resData.respMessage || "").toUpperCase();
         const isProcessed = (resData.status === "FAILED" || resData.status === "ERROR") && msg.includes("PROCESSED");
         const isAccepted = resData.bookingStatus && resData.bookingStatus.trim() === "Accept";
 
         if (!(resData.status === "SUCCESS" || isAccepted || isProcessed)) {
-            // Vendor menolak PADAHAL customer sudah bayar — kasus paling kritis.
-            // Jangan biarkan ini silent — tandai khusus supaya kelihatan di dashboard admin.
-            await connection.execute(
-                `UPDATE hotel_bookings SET booking_status = 'FAILED_VENDOR_REJECTED', updated_at = NOW() WHERE id = ?`,
-                [bookingId]
-            );
+            await safeUpdateStatus(connection, bookingId, 'FAILED_REJECTED');
             logger.error(`🚨 [CRITICAL] Booking ID ${bookingId} DIBAYAR tapi DITOLAK vendor: ${resData.respMessage}`);
             throw new Error(resData.respMessage || "Vendor menolak booking setelah pembayaran diterima. PERLU TINDAKAN MANUAL / REFUND.");
         }
@@ -167,7 +152,6 @@ async function processHotelBookingToVendor(bookingId) {
             resData.voucherNo = resData.voucherNo || resData.reservationNo;
         }
 
-        // 6. Update DB dengan hasil reservasi dari vendor
         await connection.execute(
             `UPDATE hotel_bookings SET
                 reservation_no = ?,
@@ -195,7 +179,6 @@ async function processHotelBookingToVendor(bookingId) {
 
         logger.info(`✅ [VENDOR BOOKING] Booking ID ${bookingId} sukses -> Reservasi: ${resData.reservationNo} (${finalStatus})`);
 
-        // 7. Kirim email e-voucher/tiket — non-blocking, jangan sampai email lambat menahan response callback
         sendBookingEmails(bookingId).catch(err =>
             logger.error(`[MAIL ERROR] Booking ID ${bookingId}: ${err.message}`)
         );
