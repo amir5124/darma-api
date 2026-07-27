@@ -828,20 +828,16 @@ router.post('/booking', async (req, res) => {
     }
 });
 
-// POST /api/hotel-bookings/draft
 router.post('/hotel-bookings/draft', async (req, res) => {
     const b = req.body;
     let connection;
 
-    // 1. Normalisasi Data Input agar sinkron antara Web & Mobile
     const reservationNo = 'RES-' + Date.now();
     const finalEmail = b.contact_email || b.email || "guest@mail.com";
     const finalPhone = b.contact_phone || b.phone || "08123456789";
     const finalTotalPrice = Math.round(parseFloat(b.total_price || b.totalPrice || 0));
     const finalHandlingFee = Math.round(parseFloat(b.handling_fee || b.handlingFee || 0));
-
-    // ✅ TAMBAHKAN INI - definisikan finalCityId
-    const finalCityId = b.city_id || b.cityId || null;  // ← INI YANG KURANG
+    const finalCityId = b.city_id || b.cityId || null;
 
     try {
         connection = await db.getConnection();
@@ -849,30 +845,23 @@ router.post('/hotel-bookings/draft', async (req, res) => {
 
         console.log(`[DRAFT] Creating booking: ${reservationNo} for ${finalEmail}`);
 
-        // 2. Siapkan Values untuk tabel hotel_bookings
-        // LOG sebelum insert
         console.log('📝 Insert booking:', {
             reservationNo,
             city_id: finalCityId,
-            internal_code: b.internal_code || b.internalCode
+            internal_code: b.internal_code || b.internalCode,
+            hotel_id: b.hotel_id || b.hotelID,
+            room_id: b.room_id || b.roomID
         });
 
-        // Tambahkan helper untuk membersihkan ID sebelum disimpan
-        function cleanIdForStorage(id) {
-            if (!id) return id;
-            const parts = String(id).split('~||~');
-            return parts[0] || id;
-        }
-
-        // Di dalam endpoint /hotel-bookings/draft
+        // ✅ HAPUS cleanIdForStorage — simpan hotel_id dan room_id APA ADANYA (utuh)
         const bookingValues = [
             reservationNo,
-            cleanIdForStorage(b.hotel_id || b.hotelID || null),  // 🔥 Bersihkan hotel_id
+            b.hotel_id || b.hotelID || null,   // ✅ utuh, termasuk ~||~10
             b.hotel_name || b.hotelName || "Hotel Name",
             b.hotel_address || b.hotelAddress || null,
             b.check_in_date || b.checkInDate || null,
             b.check_out_date || b.checkOutDate || null,
-            cleanIdForStorage(b.room_id || b.roomID || null),    // 🔥 Bersihkan room_id
+            b.room_id || b.roomID || null,     // ✅ utuh, termasuk seluruh suffix ~||~...
             b.room_name || b.roomName || null,
             b.breakfast_type || b.breakfast || "Room Only",
             finalEmail,
@@ -897,16 +886,14 @@ router.post('/hotel-bookings/draft', async (req, res) => {
 
         console.log('✅ Inserted ID:', result.insertId);
 
-        // Cek hasil insert
         const [check] = await connection.execute(
-            'SELECT id, city_id, internal_code FROM hotel_bookings WHERE id = ?',
+            'SELECT id, city_id, hotel_id, room_id FROM hotel_bookings WHERE id = ?',
             [result.insertId]
         );
         console.log('🔍 Result:', check[0]);
 
         const bookingId = result.insertId;
 
-        // 4. INSERT PAXES (Data Tamu) - Support berbagai format array paxes
         const rawPaxes = b.paxes || (b.roomRequest && b.roomRequest[0]?.paxes) || [];
 
         if (Array.isArray(rawPaxes) && rawPaxes.length > 0) {
