@@ -27,30 +27,7 @@ var _require = require('../helpers/darmaSandbox'),
     logger = _require.logger;
 
 var _require2 = require('./hotelMailer'),
-    sendBookingEmails = _require2.sendBookingEmails;
-/**
- * Helper: Ekstrak ID numerik dari roomID
- * Contoh: "999678631|roomCateg.Promotionid|19431926|v1_...|A" → "999678631"
- */
-
-
-function extractNumericId(id) {
-  if (!id) return id;
-  var str = String(id); // Ambil angka pertama (sebelum pipe atau separator apapun)
-
-  var match = str.match(/^(\d+)/);
-
-  if (match) {
-    return match[1];
-  } // Fallback: ambil semua angka
-
-
-  var numericMatch = str.match(/\d+/);
-  return numericMatch ? numericMatch[0] : str;
-}
-/**
- * Helper: update booking_status dengan aman.
- */
+    sendBookingEmails = _require2.sendBookingEmails; // ❌ HAPUS function extractNumericId(...) { ... } — tidak diperlukan lagi
 
 
 function safeUpdateStatus(connection, bookingId, status) {
@@ -82,7 +59,7 @@ function safeUpdateStatus(connection, bookingId, status) {
 }
 
 function processHotelBookingToVendor(bookingId) {
-  var connection, _ref, _ref2, rows, booking, required, missing, _ref3, _ref4, paxes, token, checkInISO, checkOutISO, numericRoomId, numericHotelId, cityId, internalCode, priceInfoPayload, priceRes, p, reason, bookingPayload, bookingRes, resData, msg, isProcessed, isAccepted, finalStatus;
+  var connection, _ref, _ref2, rows, booking, required, missing, _ref3, _ref4, paxes, token, checkInISO, checkOutISO, roomId, hotelId, cityId, internalCode, priceInfoPayload, priceRes, p, reason, bookingPayload, bookingRes, resData, msg, isProcessed, isAccepted, finalStatus;
 
   return regeneratorRuntime.async(function processHotelBookingToVendor$(_context2) {
     while (1) {
@@ -110,7 +87,7 @@ function processHotelBookingToVendor(bookingId) {
           throw new Error("Booking ID ".concat(bookingId, " tidak ditemukan."));
 
         case 11:
-          booking = rows[0]; // 2. Cek status
+          booking = rows[0];
 
           if (!['Accept', 'Processed'].includes(booking.booking_status)) {
             _context2.next = 15;
@@ -126,7 +103,6 @@ function processHotelBookingToVendor(bookingId) {
           });
 
         case 15:
-          // 3. Validasi data
           required = ['city_id', 'hotel_id', 'room_id', 'internal_code', 'check_in_date', 'check_out_date'];
           missing = required.filter(function (field) {
             return !booking[field];
@@ -161,16 +137,14 @@ function processHotelBookingToVendor(bookingId) {
 
         case 28:
           token = _context2.sent;
-          // 6. Format tanggal
           checkInISO = new Date(booking.check_in_date).toISOString();
-          checkOutISO = new Date(booking.check_out_date).toISOString(); // 7. 🔥 EKSTRAK ID NUMERIK (INI YANG PALING PENTING)
+          checkOutISO = new Date(booking.check_out_date).toISOString(); // ✅ PAKAI LANGSUNG hasil dari cleanIdForStorage di draft route — jangan dipotong lagi
 
-          numericRoomId = extractNumericId(booking.room_id);
-          numericHotelId = extractNumericId(booking.hotel_id);
+          roomId = String(booking.room_id || "").trim();
+          hotelId = String(booking.hotel_id || "").trim();
           cityId = String(booking.city_id || "").trim();
           internalCode = String(booking.internal_code || "SUP").trim();
-          logger.info("\uD83D\uDD0D [BOOKING ".concat(bookingId, "] RoomID: ").concat(numericRoomId, ", HotelID: ").concat(numericHotelId, ", City: ").concat(cityId)); // 8. Prepare Price Info Payload
-
+          logger.info("\uD83D\uDD0D [BOOKING ".concat(bookingId, "] RoomID: ").concat(roomId, ", HotelID: ").concat(hotelId, ", City: ").concat(cityId));
           priceInfoPayload = {
             paxPassport: "ID",
             countryID: "ID",
@@ -184,16 +158,15 @@ function processHotelBookingToVendor(bookingId) {
               childAges: [0]
             }],
             internalCode: internalCode,
-            hotelID: numericHotelId,
-            // 🔥 Hanya angka
+            hotelID: hotelId,
+            // ✅ full string, bukan hasil extractNumericId
             breakfast: booking.breakfast_type || "Room Only",
-            roomID: numericRoomId,
-            // 🔥 Hanya angka
+            roomID: roomId,
+            // ✅ full token, bukan hasil extractNumericId
             userID: USER_CONFIG.userID,
             accessToken: token
           };
-          logger.debug("REQ_VENDOR_PRICE_INFO", priceInfoPayload); // 9. Kirim Price Info
-
+          logger.debug("REQ_VENDOR_PRICE_INFO", priceInfoPayload);
           _context2.next = 40;
           return regeneratorRuntime.awrap(axios.post("".concat(BASE_URL, "/Hotel/PriceAndPolicyInfo"), priceInfoPayload, {
             httpsAgent: agent,
@@ -207,7 +180,7 @@ function processHotelBookingToVendor(bookingId) {
         case 40:
           priceRes = _context2.sent;
           p = priceRes.data;
-          logger.debug("RES_VENDOR_PRICE_INFO", p); // 10. Cek response
+          logger.debug("RES_VENDOR_PRICE_INFO", p);
 
           if (!(p.status !== "SUCCESS")) {
             _context2.next = 49;
@@ -223,7 +196,6 @@ function processHotelBookingToVendor(bookingId) {
           throw new Error("".concat(reason, " PERLU TINDAKAN MANUAL / REFUND."));
 
         case 49:
-          // 11. Prepare Booking Payload
           bookingPayload = {
             paxPassport: p.paxPassport || "ID",
             countryID: p.countryID || "ID",
@@ -244,9 +216,9 @@ function processHotelBookingToVendor(bookingId) {
               });
             }),
             internalCode: p.internalCode || internalCode,
-            hotelID: p.hotelID || numericHotelId,
+            hotelID: p.hotelID || hotelId,
             breakfast: p.breakfast || booking.breakfast_type || "Room Only",
-            roomID: p.roomID || numericRoomId,
+            roomID: p.roomID || roomId,
             bedType: p.bedTypes && p.bedTypes[0] ? {
               ID: p.bedTypes[0].ID || "",
               bed: p.bedTypes[0].bed || ""
@@ -258,8 +230,7 @@ function processHotelBookingToVendor(bookingId) {
             userID: USER_CONFIG.userID,
             accessToken: token
           };
-          logger.debug("REQ_VENDOR_BOOKING", bookingPayload); // 12. Kirim Booking
-
+          logger.debug("REQ_VENDOR_BOOKING", bookingPayload);
           _context2.next = 53;
           return regeneratorRuntime.awrap(axios.post("".concat(BASE_URL, "/Hotel/BookingAllSupplier"), bookingPayload, {
             httpsAgent: agent,
@@ -273,8 +244,7 @@ function processHotelBookingToVendor(bookingId) {
         case 53:
           bookingRes = _context2.sent;
           resData = bookingRes.data;
-          logger.debug("RES_VENDOR_BOOKING", resData); // 13. Cek response Booking
-
+          logger.debug("RES_VENDOR_BOOKING", resData);
           msg = (resData.respMessage || "").toUpperCase();
           isProcessed = (resData.status === "FAILED" || resData.status === "ERROR") && msg.includes("PROCESSED");
           isAccepted = resData.bookingStatus && resData.bookingStatus.trim() === "Accept";
@@ -292,21 +262,18 @@ function processHotelBookingToVendor(bookingId) {
           throw new Error("".concat(resData.respMessage || "Vendor menolak booking", " PERLU TINDAKAN MANUAL / REFUND."));
 
         case 64:
-          // 14. Proses success
           finalStatus = isProcessed ? 'Processed' : 'Accept';
 
           if (isProcessed) {
             resData.reservationNo = resData.reservationNo || "PRC-".concat(Date.now());
             resData.voucherNo = resData.voucherNo || resData.reservationNo;
-          } // 15. Update database
-
+          }
 
           _context2.next = 68;
           return regeneratorRuntime.awrap(connection.execute("UPDATE hotel_bookings SET\n                reservation_no = ?,\n                voucher_no = ?,\n                os_ref_no = ?,\n                agent_os_ref = ?,\n                hotel_name = ?,\n                hotel_address = ?,\n                room_name = ?,\n                booking_status = ?,\n                updated_at = NOW()\n             WHERE id = ?", [resData.reservationNo || booking.reservation_no, resData.voucherNo || resData.reservationNo || booking.voucher_no, resData.osRefNo || booking.os_ref_no || null, bookingPayload.agentOsRef, resData.hotelName || booking.hotel_name, resData.hotelAddress || booking.hotel_address, resData.roomName || booking.room_name, finalStatus, bookingId]));
 
         case 68:
-          logger.success("\u2705 [VENDOR BOOKING] Booking ".concat(bookingId, " sukses -> ").concat(resData.reservationNo, " (").concat(finalStatus, ")")); // 16. Kirim email di background
-
+          logger.success("\u2705 [VENDOR BOOKING] Booking ".concat(bookingId, " sukses -> ").concat(resData.reservationNo, " (").concat(finalStatus, ")"));
           sendBookingEmails(bookingId)["catch"](function (err) {
             return logger.error("[MAIL ERROR] Booking ".concat(bookingId, ": ").concat(err.message));
           });
