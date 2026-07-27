@@ -4,6 +4,28 @@ const db = require('../config/db');
 const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('../helpers/darmaSandbox');
 const { sendBookingEmails } = require('./hotelMailer');
 
+/**
+ * Format check-in date dengan jam 14:00 (sesuai standar hotel)
+ */
+function formatCheckInDate(dateStr) {
+    if (!dateStr) return null;
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return null;
+    date.setHours(14, 0, 0, 0);
+    return date.toISOString();
+}
+
+/**
+ * Format check-out date dengan jam 12:00 (sesuai standar hotel)
+ */
+function formatCheckOutDate(dateStr) {
+    if (!dateStr) return null;
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return null;
+    date.setHours(12, 0, 0, 0);
+    return date.toISOString();
+}
+
 async function safeUpdateStatus(connection, bookingId, status) {
     try {
         const safeStatus = String(status).substring(0, 45);
@@ -105,8 +127,16 @@ async function processHotelBookingToVendor(bookingId) {
         const token = await getConsistentToken();
         logger.info(`✅ Token obtained: ${token ? token.substring(0, 10) + '...' : 'NULL'}`);
 
-        const checkInISO = new Date(booking.check_in_date).toISOString();
-        const checkOutISO = new Date(booking.check_out_date).toISOString();
+        // 🔥 PERBAIKAN: Gunakan format tanggal dengan jam yang benar (14:00 untuk check-in, 12:00 untuk check-out)
+        const checkInISO = formatCheckInDate(booking.check_in_date);
+        const checkOutISO = formatCheckOutDate(booking.check_out_date);
+
+        logger.info(`🔍 [DATES] Booking ${bookingId}:`, {
+            checkIn: checkInISO,
+            checkOut: checkOutISO,
+            originalCheckIn: booking.check_in_date,
+            originalCheckOut: booking.check_out_date
+        });
 
         // 🔥 GUNAKAN ID LENGKAP (TIDAK DIEKSTRAK) — SESUAI DOKUMENTASI API
         const roomId = String(booking.room_id || "").trim();
@@ -159,8 +189,8 @@ async function processHotelBookingToVendor(bookingId) {
             paxPassport: "ID",
             countryID: "ID",
             cityID: cityId,
-            checkInDate: checkInISO,
-            checkOutDate: checkOutISO,
+            checkInDate: checkInISO,   // 🔥 2026-07-31T14:00:00.000Z
+            checkOutDate: checkOutISO,  // 🔥 2026-08-01T12:00:00.000Z
             roomRequest: [roomRequestOriginal],
             internalCode: internalCode,
             hotelID: hotelId,
@@ -170,7 +200,15 @@ async function processHotelBookingToVendor(bookingId) {
             accessToken: token
         };
 
-        logger.debug("REQ_VENDOR_PRICE_INFO", priceInfoPayload);
+        logger.info(`📤 [PRICE INFO PAYLOAD]`, {
+            cityID: priceInfoPayload.cityID,
+            hotelID: priceInfoPayload.hotelID,
+            roomID: priceInfoPayload.roomID.substring(0, 30) + '...',
+            checkInDate: priceInfoPayload.checkInDate,
+            checkOutDate: priceInfoPayload.checkOutDate,
+            roomRequest: priceInfoPayload.roomRequest,
+            internalCode: priceInfoPayload.internalCode
+        });
 
         const priceRes = await requestWithRetry(
             `${BASE_URL}/Hotel/PriceAndPolicyInfo`,
@@ -183,7 +221,19 @@ async function processHotelBookingToVendor(bookingId) {
         if (p.status !== "SUCCESS") {
             await safeUpdateStatus(connection, bookingId, 'FAILED_NO_ROOM');
             const reason = p.respMessage || "Kamar tidak tersedia.";
-            logger.error(`🚨 [CRITICAL] Booking ${bookingId} gagal: ${reason}`);
+            logger.error(`🚨 [CRITICAL] Booking ${bookingId} gagal:`, {
+                reason: reason,
+                sentData: {
+                    cityID: cityId,
+                    hotelID: hotelId,
+                    roomID: roomId,
+                    checkInDate: checkInISO,
+                    checkOutDate: checkOutISO,
+                    roomType: roomType,
+                    childAges: childAges
+                },
+                vendorResponse: p
+            });
             throw new Error(`${reason} PERLU TINDAKAN MANUAL / REFUND.`);
         }
 
