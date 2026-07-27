@@ -1,7 +1,7 @@
 // utils/hotelBookingProcessor.js
 const axios = require('axios');
 const db = require('../config/db');
-const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('../helpers/darmaHelper');
+const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('../helpers/darmaSandbox');
 const { sendBookingEmails } = require('./hotelMailer');
 
 /**
