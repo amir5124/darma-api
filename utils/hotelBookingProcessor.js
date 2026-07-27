@@ -5,29 +5,26 @@ const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('..
 const { sendBookingEmails } = require('./hotelMailer');
 
 /**
- * Helper: Bersihkan ID dari separator '~||~'
- * Contoh: "67553690~||~10" → "67553690"
- *         "1063745958|...|A~||~67553690~||~10~||~SUP" → "1063745958|...|A"
+ * Helper: Ekstrak ID numerik dari roomID
+ * Contoh: "999678631|roomCateg.Promotionid|19431926|v1_...|A" → "999678631"
  */
-function cleanId(id) {
+function extractNumericId(id) {
     if (!id) return id;
-    const parts = String(id).split('~||~');
-    return parts[0] || id;
-}
-
-/**
- * Helper: Bersihkan roomID yang mungkin mengandung separator
- */
-function cleanRoomId(roomId) {
-    if (!roomId) return roomId;
-    const parts = String(roomId).split('~||~');
-    return parts[0] || roomId;
+    const str = String(id);
+    // Ambil angka pertama (sebelum pipe atau separator apapun)
+    const match = str.match(/^(\d+)/);
+    if (match) {
+        return match[1];
+    }
+    // Fallback: ambil semua angka
+    const numericMatch = str.match(/\d+/);
+    return numericMatch ? numericMatch[0] : str;
 }
 
 /**
  * Helper: update booking_status dengan aman.
  */
-async function safeUpdateStatus(connection, bookingId, status, extra = {}) {
+async function safeUpdateStatus(connection, bookingId, status) {
     try {
         const safeStatus = String(status).substring(0, 45);
         await connection.execute(
@@ -35,77 +32,8 @@ async function safeUpdateStatus(connection, bookingId, status, extra = {}) {
             [safeStatus, bookingId]
         );
     } catch (dbErr) {
-        logger.error(`⚠️ [STATUS UPDATE FAILED] Booking ${bookingId} gagal update status ke '${status}': ${dbErr.message}`);
+        logger.error(`⚠️ [STATUS UPDATE FAILED] Booking ${bookingId}: ${dbErr.message}`);
     }
-}
-
-/**
- * Helper: validasi data booking sebelum dikirim ke vendor
- */
-function validateBookingData(booking) {
-    const required = ['city_id', 'hotel_id', 'room_id', 'internal_code', 'check_in_date', 'check_out_date'];
-    const missing = required.filter(field => !booking[field]);
-    
-    if (missing.length > 0) {
-        throw new Error(`Data booking tidak lengkap. Field yang kosong: ${missing.join(', ')}`);
-    }
-    
-    return true;
-}
-
-/**
- * Helper: Request dengan retry mechanism
- */
-async function requestWithRetry(url, payload, maxRetries = 3) {
-    let lastError;
-    for (let i = 0; i < maxRetries; i++) {
-        try {
-            logger.info(`🔄 [RETRY ${i+1}/${maxRetries}] Sending request to ${url}`);
-            
-            const response = await axios.post(url, payload, {
-                httpsAgent: agent,
-                timeout: 30000,
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                }
-            });
-            
-            // Cek jika response status FAILED dengan session error
-            if (response.data && response.data.status === "FAILED") {
-                const msg = (response.data.respMessage || "").toUpperCase();
-                if (msg.includes("SESSION") || msg.includes("INVALID") || msg.includes("EXPIRED")) {
-                    logger.warn(`⚠️ Session error detected, will retry with new token`);
-                    // Refresh token untuk retry berikutnya
-                    await getConsistentToken(true);
-                    continue;
-                }
-            }
-            
-            return response;
-        } catch (error) {
-            lastError = error;
-            logger.error(`❌ [RETRY ${i+1}/${maxRetries}] Failed:`, error.message);
-            
-            if (error.response) {
-                logger.error(`Response status: ${error.response.status}`);
-                logger.error(`Response data:`, JSON.stringify(error.response.data, null, 2));
-            }
-            
-            if (i < maxRetries - 1) {
-                // Tunggu 2 detik sebelum retry
-                logger.info(`⏳ Waiting 2 seconds before retry...`);
-                await new Promise(resolve => setTimeout(resolve, 2000));
-                
-                // Refresh token untuk retry
-                if (error.response?.status === 401 || error.response?.status === 403) {
-                    logger.info('🔄 Token expired, getting new token...');
-                    await getConsistentToken(true);
-                }
-            }
-        }
-    }
-    throw lastError;
 }
 
 async function processHotelBookingToVendor(bookingId) {
@@ -113,87 +41,61 @@ async function processHotelBookingToVendor(bookingId) {
     try {
         connection = await db.getConnection();
 
-        // 1. Ambil data booking dari database
+        // 1. Ambil data booking
         const [rows] = await connection.execute(
             `SELECT * FROM hotel_bookings WHERE id = ?`,
             [bookingId]
         );
 
         if (rows.length === 0) {
-            throw new Error(`Booking ID ${bookingId} tidak ditemukan di database.`);
+            throw new Error(`Booking ID ${bookingId} tidak ditemukan.`);
         }
 
         const booking = rows[0];
 
-        // 2. Cek status - sudah diproses atau belum
+        // 2. Cek status
         if (['Accept', 'Processed'].includes(booking.booking_status)) {
-            logger.info(`[VENDOR BOOKING] Booking ID ${bookingId} sudah pernah diproses (status: ${booking.booking_status}). Dilewati.`);
+            logger.info(`[VENDOR BOOKING] Booking ${bookingId} sudah diproses (status: ${booking.booking_status}).`);
             return { skipped: true, reason: 'already_processed', bookingId, status: booking.booking_status };
         }
 
-        // 3. Validasi data booking
-        try {
-            validateBookingData(booking);
-        } catch (validationError) {
-            await safeUpdateStatus(connection, bookingId, 'FAILED_INVALID_DATA');
-            logger.error(`❌ [VALIDATION ERROR] Booking ${bookingId}: ${validationError.message}`);
-            throw validationError;
+        // 3. Validasi data
+        const required = ['city_id', 'hotel_id', 'room_id', 'internal_code', 'check_in_date', 'check_out_date'];
+        const missing = required.filter(field => !booking[field]);
+        if (missing.length > 0) {
+            throw new Error(`Data booking tidak lengkap: ${missing.join(', ')}`);
         }
 
-        // 4. Ambil data paxes
+        // 4. Ambil paxes
         const [paxes] = await connection.execute(
             `SELECT title, first_name AS firstName, last_name AS lastName FROM hotel_booking_paxes WHERE booking_id = ?`,
             [bookingId]
         );
 
         if (paxes.length === 0) {
-            throw new Error(`Data tamu (paxes) untuk booking ID ${bookingId} kosong — tidak bisa lanjut booking ke vendor.`);
+            throw new Error(`Data tamu (paxes) untuk booking ${bookingId} kosong.`);
         }
 
         // 5. Dapatkan token
-        logger.info(`🔑 Getting token for booking ${bookingId}...`);
         const token = await getConsistentToken();
-        logger.info(`✅ Token obtained: ${token ? token.substring(0, 10) + '...' : 'NULL'}`);
 
         // 6. Format tanggal
         const checkInISO = new Date(booking.check_in_date).toISOString();
         const checkOutISO = new Date(booking.check_out_date).toISOString();
 
-        // 7. BERSIHKAN ID DARI SEPARATOR '~||~'
-        const rawRoomId = String(booking.room_id || "").trim();
-        const rawHotelId = String(booking.hotel_id || "").trim();
-        const cleanCityId = String(booking.city_id || "").trim();
-        const cleanInternalCode = String(booking.internal_code || "SUP").trim();
+        // 7. 🔥 EKSTRAK ID NUMERIK (INI YANG PALING PENTING)
+        const numericRoomId = extractNumericId(booking.room_id);
+        const numericHotelId = extractNumericId(booking.hotel_id);
+        const cityId = String(booking.city_id || "").trim();
+        const internalCode = String(booking.internal_code || "SUP").trim();
 
-        // KRITIS: Bersihkan room_id dan hotel_id
-        const cleanRoomIdForVendor = cleanRoomId(rawRoomId);
-        const cleanHotelIdForVendor = cleanId(rawHotelId);
+        logger.info(`🔍 [BOOKING ${bookingId}] RoomID: ${numericRoomId}, HotelID: ${numericHotelId}, City: ${cityId}`);
 
-        logger.info(`🔍 [CLEANING] Booking ${bookingId}:`, {
-            originalRoomId: rawRoomId.substring(0, 50) + '...',
-            cleanRoomId: cleanRoomIdForVendor.substring(0, 50) + '...',
-            originalHotelId: rawHotelId,
-            cleanHotelId: cleanHotelIdForVendor,
-            cityId: cleanCityId,
-            internalCode: cleanInternalCode
-        });
-
-        // 8. LOG data sebelum kirim ke vendor
-        logger.info(`🔍 [PRE-VENDOR CHECK] Booking ${bookingId}:`, {
-            cityID: cleanCityId,
-            hotelID: cleanHotelIdForVendor,
-            roomID: cleanRoomIdForVendor.substring(0, 50) + '...',
-            internalCode: cleanInternalCode,
-            checkIn: checkInISO,
-            checkOut: checkOutISO,
-            paxesCount: paxes.length
-        });
-
-        // 9. Prepare Price Info Payload
+        // 8. Prepare Price Info Payload
         const priceInfoPayload = {
             paxPassport: "ID",
             countryID: "ID",
-            cityID: cleanCityId,
+            cityID: cityId,
             checkInDate: checkInISO,
             checkOutDate: checkOutISO,
             roomRequest: [{
@@ -202,56 +104,43 @@ async function processHotelBookingToVendor(bookingId) {
                 childNum: 0,
                 childAges: [0]
             }],
-            internalCode: cleanInternalCode,
-            hotelID: cleanHotelIdForVendor,
+            internalCode: internalCode,
+            hotelID: numericHotelId,  // 🔥 Hanya angka
             breakfast: booking.breakfast_type || "Room Only",
-            roomID: cleanRoomIdForVendor,
+            roomID: numericRoomId,    // 🔥 Hanya angka
             userID: USER_CONFIG.userID,
             accessToken: token
         };
 
         logger.debug("REQ_VENDOR_PRICE_INFO", priceInfoPayload);
 
-        // 10. Kirim Price Info ke vendor dengan retry mechanism
-        const priceRes = await requestWithRetry(
-            `${BASE_URL}/Hotel/PriceAndPolicyInfo`,
-            priceInfoPayload
-        );
+        // 9. Kirim Price Info
+        const priceRes = await axios.post(`${BASE_URL}/Hotel/PriceAndPolicyInfo`, priceInfoPayload, {
+            httpsAgent: agent,
+            timeout: 30000,
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            }
+        });
 
         const p = priceRes.data;
 
         logger.debug("RES_VENDOR_PRICE_INFO", p);
 
-        // 11. Cek response Price Info
+        // 10. Cek response
         if (p.status !== "SUCCESS") {
             await safeUpdateStatus(connection, bookingId, 'FAILED_NO_ROOM');
-            const reason = p.respMessage || "Kamar tidak lagi tersedia di vendor setelah pembayaran.";
-            
-            logger.error(`🚨 [CRITICAL] Booking ID ${bookingId} DIBAYAR tapi kamar/harga tidak valid lagi:`, {
-                reason: reason,
-                sentData: {
-                    cityID: cleanCityId,
-                    hotelID: cleanHotelIdForVendor,
-                    roomID: cleanRoomIdForVendor,
-                    internalCode: cleanInternalCode
-                },
-                vendorResponse: p
-            });
-            
+            const reason = p.respMessage || "Kamar tidak tersedia.";
+            logger.error(`🚨 [CRITICAL] Booking ${bookingId} gagal: ${reason}`);
             throw new Error(`${reason} PERLU TINDAKAN MANUAL / REFUND.`);
         }
 
-        // 12. Gunakan data dari response Price Info
-        const vendorRoomId = p.roomID || cleanRoomIdForVendor;
-        const vendorHotelId = p.hotelID || cleanHotelIdForVendor;
-        const vendorCityId = p.cityID || cleanCityId;
-        const vendorInternalCode = p.internalCode || cleanInternalCode;
-
-        // 13. Prepare Booking Payload
+        // 11. Prepare Booking Payload
         const bookingPayload = {
             paxPassport: p.paxPassport || "ID",
             countryID: p.countryID || "ID",
-            cityID: vendorCityId,
+            cityID: p.cityID || cityId,
             checkInDate: p.checkInDate || checkInISO,
             checkOutDate: p.checkOutDate || checkOutISO,
             roomRequest: (p.roomRequest || []).map(room => ({
@@ -264,10 +153,10 @@ async function processHotelBookingToVendor(bookingId) {
                 email: booking.contact_email || 'guest@mail.com',
                 phone: booking.contact_phone || '08123456789'
             })),
-            internalCode: vendorInternalCode,
-            hotelID: vendorHotelId,
+            internalCode: p.internalCode || internalCode,
+            hotelID: p.hotelID || numericHotelId,
             breakfast: p.breakfast || booking.breakfast_type || "Room Only",
-            roomID: vendorRoomId,
+            roomID: p.roomID || numericRoomId,
             bedType: (p.bedTypes && p.bedTypes[0]) ? { 
                 ID: p.bedTypes[0].ID || "", 
                 bed: p.bedTypes[0].bed || "" 
@@ -279,42 +168,32 @@ async function processHotelBookingToVendor(bookingId) {
 
         logger.debug("REQ_VENDOR_BOOKING", bookingPayload);
 
-        // 14. Kirim Booking ke vendor dengan retry mechanism
-        const bookingRes = await requestWithRetry(
-            `${BASE_URL}/Hotel/BookingAllSupplier`,
-            bookingPayload,
-            3 // max retries
-        );
+        // 12. Kirim Booking
+        const bookingRes = await axios.post(`${BASE_URL}/Hotel/BookingAllSupplier`, bookingPayload, {
+            httpsAgent: agent,
+            timeout: 60000,
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            }
+        });
 
         const resData = bookingRes.data;
 
         logger.debug("RES_VENDOR_BOOKING", resData);
 
-        // 15. Cek response Booking
+        // 13. Cek response Booking
         const msg = (resData.respMessage || "").toUpperCase();
         const isProcessed = (resData.status === "FAILED" || resData.status === "ERROR") && msg.includes("PROCESSED");
         const isAccepted = resData.bookingStatus && resData.bookingStatus.trim() === "Accept";
 
-        // 16. Handle error booking
         if (!(resData.status === "SUCCESS" || isAccepted || isProcessed)) {
             await safeUpdateStatus(connection, bookingId, 'FAILED_REJECTED');
-            
-            logger.error(`🚨 [CRITICAL] Booking ID ${bookingId} DIBAYAR tapi DITOLAK vendor:`, {
-                respMessage: resData.respMessage,
-                status: resData.status,
-                bookingStatus: resData.bookingStatus,
-                sentData: {
-                    cityID: vendorCityId,
-                    hotelID: vendorHotelId,
-                    roomID: vendorRoomId,
-                    internalCode: vendorInternalCode
-                }
-            });
-            
+            logger.error(`🚨 [CRITICAL] Booking ${bookingId} ditolak vendor: ${resData.respMessage}`);
             throw new Error(`${resData.respMessage || "Vendor menolak booking"} PERLU TINDAKAN MANUAL / REFUND.`);
         }
 
-        // 17. Proses success
+        // 14. Proses success
         const finalStatus = isProcessed ? 'Processed' : 'Accept';
 
         if (isProcessed) {
@@ -322,7 +201,7 @@ async function processHotelBookingToVendor(bookingId) {
             resData.voucherNo = resData.voucherNo || resData.reservationNo;
         }
 
-        // 18. Update database
+        // 15. Update database
         await connection.execute(
             `UPDATE hotel_bookings SET
                 reservation_no = ?,
@@ -348,11 +227,11 @@ async function processHotelBookingToVendor(bookingId) {
             ]
         );
 
-        logger.success(`✅ [VENDOR BOOKING] Booking ID ${bookingId} sukses -> Reservasi: ${resData.reservationNo} (${finalStatus})`);
+        logger.success(`✅ [VENDOR BOOKING] Booking ${bookingId} sukses -> ${resData.reservationNo} (${finalStatus})`);
 
-        // 19. Kirim email di background
+        // 16. Kirim email di background
         sendBookingEmails(bookingId).catch(err =>
-            logger.error(`[MAIL ERROR] Booking ID ${bookingId}: ${err.message}`)
+            logger.error(`[MAIL ERROR] Booking ${bookingId}: ${err.message}`)
         );
 
         return { 
@@ -364,7 +243,7 @@ async function processHotelBookingToVendor(bookingId) {
         };
 
     } catch (err) {
-        logger.error(`❌ [VENDOR BOOKING ERROR] Booking ID ${bookingId}: ${err.message}`);
+        logger.error(`❌ [VENDOR BOOKING ERROR] Booking ${bookingId}: ${err.message}`);
         throw err;
     } finally {
         if (connection) connection.release();

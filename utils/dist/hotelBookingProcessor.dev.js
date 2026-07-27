@@ -23,34 +23,30 @@ var _require = require('../helpers/darmaSandbox'),
     BASE_URL = _require.BASE_URL,
     USER_CONFIG = _require.USER_CONFIG,
     agent = _require.agent,
-    getConsistentToken = _require.getConsistentToken;
+    getConsistentToken = _require.getConsistentToken,
+    logger = _require.logger;
 
 var _require2 = require('./hotelMailer'),
     sendBookingEmails = _require2.sendBookingEmails;
 /**
- * Helper: Bersihkan ID dari separator '~||~'
- * Contoh: "67553690~||~10" → "67553690"
- *         "1063745958|...|A~||~67553690~||~10~||~SUP" → "1063745958|...|A"
+ * Helper: Ekstrak ID numerik dari roomID
+ * Contoh: "999678631|roomCateg.Promotionid|19431926|v1_...|A" → "999678631"
  */
 
 
-function cleanId(id) {
-  if (!id) return id; // Jika ada '~||~', ambil bagian sebelum separator pertama
+function extractNumericId(id) {
+  if (!id) return id;
+  var str = String(id); // Ambil angka pertama (sebelum pipe atau separator apapun)
 
-  var parts = String(id).split('~||~');
-  return parts[0] || id;
-}
-/**
- * Helper: Bersihkan roomID yang mungkin mengandung separator
- * Room ID format: "1063745958|roomCateg.Promotionid|22633273|v1_...|A~||~67553690~||~10~||~SUP"
- * Yang dibutuhkan hanya bagian sebelum '~||~'
- */
+  var match = str.match(/^(\d+)/);
+
+  if (match) {
+    return match[1];
+  } // Fallback: ambil semua angka
 
 
-function cleanRoomId(roomId) {
-  if (!roomId) return roomId;
-  var parts = String(roomId).split('~||~');
-  return parts[0] || roomId;
+  var numericMatch = str.match(/\d+/);
+  return numericMatch ? numericMatch[0] : str;
 }
 /**
  * Helper: update booking_status dengan aman.
@@ -58,55 +54,35 @@ function cleanRoomId(roomId) {
 
 
 function safeUpdateStatus(connection, bookingId, status) {
-  var extra,
-      safeStatus,
-      _args = arguments;
+  var safeStatus;
   return regeneratorRuntime.async(function safeUpdateStatus$(_context) {
     while (1) {
       switch (_context.prev = _context.next) {
         case 0:
-          extra = _args.length > 3 && _args[3] !== undefined ? _args[3] : {};
-          _context.prev = 1;
+          _context.prev = 0;
           safeStatus = String(status).substring(0, 45);
-          _context.next = 5;
+          _context.next = 4;
           return regeneratorRuntime.awrap(connection.execute("UPDATE hotel_bookings SET booking_status = ?, updated_at = NOW() WHERE id = ?", [safeStatus, bookingId]));
 
-        case 5:
-          _context.next = 10;
+        case 4:
+          _context.next = 9;
           break;
 
-        case 7:
-          _context.prev = 7;
-          _context.t0 = _context["catch"](1);
-          console.error("\u26A0\uFE0F [STATUS UPDATE FAILED] Booking ".concat(bookingId, " gagal update status ke '").concat(status, "': ").concat(_context.t0.message));
+        case 6:
+          _context.prev = 6;
+          _context.t0 = _context["catch"](0);
+          logger.error("\u26A0\uFE0F [STATUS UPDATE FAILED] Booking ".concat(bookingId, ": ").concat(_context.t0.message));
 
-        case 10:
+        case 9:
         case "end":
           return _context.stop();
       }
     }
-  }, null, null, [[1, 7]]);
-}
-/**
- * Helper: validasi data booking sebelum dikirim ke vendor
- */
-
-
-function validateBookingData(booking) {
-  var required = ['city_id', 'hotel_id', 'room_id', 'internal_code', 'check_in_date', 'check_out_date'];
-  var missing = required.filter(function (field) {
-    return !booking[field];
-  });
-
-  if (missing.length > 0) {
-    throw new Error("Data booking tidak lengkap. Field yang kosong: ".concat(missing.join(', ')));
-  }
-
-  return true;
+  }, null, null, [[0, 6]]);
 }
 
 function processHotelBookingToVendor(bookingId) {
-  var connection, _ref, _ref2, rows, booking, _ref3, _ref4, paxes, token, checkInISO, checkOutISO, rawRoomId, rawHotelId, cleanCityId, cleanInternalCode, cleanRoomIdForVendor, cleanHotelIdForVendor, priceInfoPayload, priceRes, p, reason, vendorRoomId, vendorHotelId, vendorCityId, vendorInternalCode, bookingPayload, bookingRes, resData, msg, isProcessed, isAccepted, finalStatus;
+  var connection, _ref, _ref2, rows, booking, required, missing, _ref3, _ref4, paxes, token, checkInISO, checkOutISO, numericRoomId, numericHotelId, cityId, internalCode, priceInfoPayload, priceRes, p, reason, bookingPayload, bookingRes, resData, msg, isProcessed, isAccepted, finalStatus;
 
   return regeneratorRuntime.async(function processHotelBookingToVendor$(_context2) {
     while (1) {
@@ -131,17 +107,17 @@ function processHotelBookingToVendor(bookingId) {
             break;
           }
 
-          throw new Error("Booking ID ".concat(bookingId, " tidak ditemukan di database."));
+          throw new Error("Booking ID ".concat(bookingId, " tidak ditemukan."));
 
         case 11:
-          booking = rows[0]; // 2. Cek status - sudah diproses atau belum
+          booking = rows[0]; // 2. Cek status
 
           if (!['Accept', 'Processed'].includes(booking.booking_status)) {
             _context2.next = 15;
             break;
           }
 
-          console.info("[VENDOR BOOKING] Booking ID ".concat(bookingId, " sudah pernah diproses (status: ").concat(booking.booking_status, "). Dilewati."));
+          logger.info("[VENDOR BOOKING] Booking ".concat(bookingId, " sudah diproses (status: ").concat(booking.booking_status, ")."));
           return _context2.abrupt("return", {
             skipped: true,
             reason: 'already_processed',
@@ -150,77 +126,55 @@ function processHotelBookingToVendor(bookingId) {
           });
 
         case 15:
-          _context2.prev = 15;
-          validateBookingData(booking);
-          _context2.next = 25;
-          break;
+          // 3. Validasi data
+          required = ['city_id', 'hotel_id', 'room_id', 'internal_code', 'check_in_date', 'check_out_date'];
+          missing = required.filter(function (field) {
+            return !booking[field];
+          });
+
+          if (!(missing.length > 0)) {
+            _context2.next = 19;
+            break;
+          }
+
+          throw new Error("Data booking tidak lengkap: ".concat(missing.join(', ')));
 
         case 19:
-          _context2.prev = 19;
-          _context2.t0 = _context2["catch"](15);
-          _context2.next = 23;
-          return regeneratorRuntime.awrap(safeUpdateStatus(connection, bookingId, 'FAILED_INVALID_DATA'));
-
-        case 23:
-          console.error("\u274C [VALIDATION ERROR] Booking ".concat(bookingId, ": ").concat(_context2.t0.message));
-          throw _context2.t0;
-
-        case 25:
-          _context2.next = 27;
+          _context2.next = 21;
           return regeneratorRuntime.awrap(connection.execute("SELECT title, first_name AS firstName, last_name AS lastName FROM hotel_booking_paxes WHERE booking_id = ?", [bookingId]));
 
-        case 27:
+        case 21:
           _ref3 = _context2.sent;
           _ref4 = _slicedToArray(_ref3, 1);
           paxes = _ref4[0];
 
           if (!(paxes.length === 0)) {
-            _context2.next = 32;
+            _context2.next = 26;
             break;
           }
 
-          throw new Error("Data tamu (paxes) untuk booking ID ".concat(bookingId, " kosong \u2014 tidak bisa lanjut booking ke vendor."));
+          throw new Error("Data tamu (paxes) untuk booking ".concat(bookingId, " kosong."));
 
-        case 32:
-          _context2.next = 34;
+        case 26:
+          _context2.next = 28;
           return regeneratorRuntime.awrap(getConsistentToken());
 
-        case 34:
+        case 28:
           token = _context2.sent;
           // 6. Format tanggal
           checkInISO = new Date(booking.check_in_date).toISOString();
-          checkOutISO = new Date(booking.check_out_date).toISOString(); // 7. 🔥 PERBAIKAN: BERSIHKAN ID DARI SEPARATOR '~||~'
+          checkOutISO = new Date(booking.check_out_date).toISOString(); // 7. 🔥 EKSTRAK ID NUMERIK (INI YANG PALING PENTING)
 
-          rawRoomId = String(booking.room_id || "").trim();
-          rawHotelId = String(booking.hotel_id || "").trim();
-          cleanCityId = String(booking.city_id || "").trim();
-          cleanInternalCode = String(booking.internal_code || "SUP").trim(); // 🔥 KRITIS: Bersihkan room_id dan hotel_id
-
-          cleanRoomIdForVendor = cleanRoomId(rawRoomId);
-          cleanHotelIdForVendor = cleanId(rawHotelId);
-          console.log("\uD83D\uDD0D [CLEANING] Booking ".concat(bookingId, ":"), {
-            originalRoomId: rawRoomId,
-            cleanRoomId: cleanRoomIdForVendor,
-            originalHotelId: rawHotelId,
-            cleanHotelId: cleanHotelIdForVendor,
-            cityId: cleanCityId,
-            internalCode: cleanInternalCode
-          }); // 8. LOG data sebelum kirim ke vendor
-
-          console.log("\uD83D\uDD0D [PRE-VENDOR CHECK] Booking ".concat(bookingId, ":"), {
-            cityID: cleanCityId,
-            hotelID: cleanHotelIdForVendor,
-            roomID: cleanRoomIdForVendor,
-            internalCode: cleanInternalCode,
-            checkIn: checkInISO,
-            checkOut: checkOutISO,
-            paxesCount: paxes.length
-          }); // 9. Prepare Price Info Payload - GUNAKAN ID YANG SUDAH DIBERSIHKAN
+          numericRoomId = extractNumericId(booking.room_id);
+          numericHotelId = extractNumericId(booking.hotel_id);
+          cityId = String(booking.city_id || "").trim();
+          internalCode = String(booking.internal_code || "SUP").trim();
+          logger.info("\uD83D\uDD0D [BOOKING ".concat(bookingId, "] RoomID: ").concat(numericRoomId, ", HotelID: ").concat(numericHotelId, ", City: ").concat(cityId)); // 8. Prepare Price Info Payload
 
           priceInfoPayload = {
             paxPassport: "ID",
             countryID: "ID",
-            cityID: cleanCityId,
+            cityID: cityId,
             checkInDate: checkInISO,
             checkOutDate: checkOutISO,
             roomRequest: [{
@@ -229,61 +183,51 @@ function processHotelBookingToVendor(bookingId) {
               childNum: 0,
               childAges: [0]
             }],
-            internalCode: cleanInternalCode,
-            hotelID: cleanHotelIdForVendor,
-            // 🔥 Sudah dibersihkan
+            internalCode: internalCode,
+            hotelID: numericHotelId,
+            // 🔥 Hanya angka
             breakfast: booking.breakfast_type || "Room Only",
-            roomID: cleanRoomIdForVendor,
-            // 🔥 Sudah dibersihkan
+            roomID: numericRoomId,
+            // 🔥 Hanya angka
             userID: USER_CONFIG.userID,
             accessToken: token
           };
-          console.debug("REQ_VENDOR_PRICE_INFO (post-payment)", JSON.stringify(priceInfoPayload, null, 2)); // 10. Kirim Price Info ke vendor
+          logger.debug("REQ_VENDOR_PRICE_INFO", priceInfoPayload); // 9. Kirim Price Info
 
-          _context2.next = 49;
+          _context2.next = 40;
           return regeneratorRuntime.awrap(axios.post("".concat(BASE_URL, "/Hotel/PriceAndPolicyInfo"), priceInfoPayload, {
             httpsAgent: agent,
-            timeout: 30000
+            timeout: 30000,
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            }
           }));
 
-        case 49:
+        case 40:
           priceRes = _context2.sent;
           p = priceRes.data;
-          console.debug("RES_VENDOR_PRICE_INFO (post-payment)", JSON.stringify(p, null, 2)); // 11. Cek response Price Info
+          logger.debug("RES_VENDOR_PRICE_INFO", p); // 10. Cek response
 
           if (!(p.status !== "SUCCESS")) {
-            _context2.next = 58;
+            _context2.next = 49;
             break;
           }
 
-          _context2.next = 55;
+          _context2.next = 46;
           return regeneratorRuntime.awrap(safeUpdateStatus(connection, bookingId, 'FAILED_NO_ROOM'));
 
-        case 55:
-          reason = p.respMessage || "Kamar tidak lagi tersedia di vendor setelah pembayaran.";
-          console.error("\uD83D\uDEA8 [CRITICAL] Booking ID ".concat(bookingId, " DIBAYAR tapi kamar/harga tidak valid lagi:"), {
-            reason: reason,
-            sentData: {
-              cityID: cleanCityId,
-              hotelID: cleanHotelIdForVendor,
-              roomID: cleanRoomIdForVendor,
-              internalCode: cleanInternalCode
-            },
-            vendorResponse: p
-          });
+        case 46:
+          reason = p.respMessage || "Kamar tidak tersedia.";
+          logger.error("\uD83D\uDEA8 [CRITICAL] Booking ".concat(bookingId, " gagal: ").concat(reason));
           throw new Error("".concat(reason, " PERLU TINDAKAN MANUAL / REFUND."));
 
-        case 58:
-          // 12. Gunakan data dari response Price Info
-          vendorRoomId = p.roomID || cleanRoomIdForVendor;
-          vendorHotelId = p.hotelID || cleanHotelIdForVendor;
-          vendorCityId = p.cityID || cleanCityId;
-          vendorInternalCode = p.internalCode || cleanInternalCode; // 13. Prepare Booking Payload
-
+        case 49:
+          // 11. Prepare Booking Payload
           bookingPayload = {
             paxPassport: p.paxPassport || "ID",
             countryID: p.countryID || "ID",
-            cityID: vendorCityId,
+            cityID: p.cityID || cityId,
             checkInDate: p.checkInDate || checkInISO,
             checkOutDate: p.checkOutDate || checkOutISO,
             roomRequest: (p.roomRequest || []).map(function (room) {
@@ -299,10 +243,10 @@ function processHotelBookingToVendor(bookingId) {
                 phone: booking.contact_phone || '08123456789'
               });
             }),
-            internalCode: vendorInternalCode,
-            hotelID: vendorHotelId,
+            internalCode: p.internalCode || internalCode,
+            hotelID: p.hotelID || numericHotelId,
             breakfast: p.breakfast || booking.breakfast_type || "Room Only",
-            roomID: vendorRoomId,
+            roomID: p.roomID || numericRoomId,
             bedType: p.bedTypes && p.bedTypes[0] ? {
               ID: p.bedTypes[0].ID || "",
               bed: p.bedTypes[0].bed || ""
@@ -314,63 +258,57 @@ function processHotelBookingToVendor(bookingId) {
             userID: USER_CONFIG.userID,
             accessToken: token
           };
-          console.debug("REQ_VENDOR_BOOKING (post-payment)", JSON.stringify(bookingPayload, null, 2)); // 14. Kirim Booking ke vendor
+          logger.debug("REQ_VENDOR_BOOKING", bookingPayload); // 12. Kirim Booking
 
-          _context2.next = 66;
+          _context2.next = 53;
           return regeneratorRuntime.awrap(axios.post("".concat(BASE_URL, "/Hotel/BookingAllSupplier"), bookingPayload, {
             httpsAgent: agent,
-            timeout: 60000
+            timeout: 60000,
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            }
           }));
 
-        case 66:
+        case 53:
           bookingRes = _context2.sent;
           resData = bookingRes.data;
-          console.debug("RES_VENDOR_BOOKING (post-payment)", JSON.stringify(resData, null, 2)); // 15. Cek response Booking
+          logger.debug("RES_VENDOR_BOOKING", resData); // 13. Cek response Booking
 
           msg = (resData.respMessage || "").toUpperCase();
           isProcessed = (resData.status === "FAILED" || resData.status === "ERROR") && msg.includes("PROCESSED");
-          isAccepted = resData.bookingStatus && resData.bookingStatus.trim() === "Accept"; // 16. Handle error booking
+          isAccepted = resData.bookingStatus && resData.bookingStatus.trim() === "Accept";
 
           if (resData.status === "SUCCESS" || isAccepted || isProcessed) {
-            _context2.next = 77;
+            _context2.next = 64;
             break;
           }
 
-          _context2.next = 75;
+          _context2.next = 62;
           return regeneratorRuntime.awrap(safeUpdateStatus(connection, bookingId, 'FAILED_REJECTED'));
 
-        case 75:
-          console.error("\uD83D\uDEA8 [CRITICAL] Booking ID ".concat(bookingId, " DIBAYAR tapi DITOLAK vendor:"), {
-            respMessage: resData.respMessage,
-            status: resData.status,
-            bookingStatus: resData.bookingStatus,
-            sentData: {
-              cityID: vendorCityId,
-              hotelID: vendorHotelId,
-              roomID: vendorRoomId,
-              internalCode: vendorInternalCode
-            }
-          });
+        case 62:
+          logger.error("\uD83D\uDEA8 [CRITICAL] Booking ".concat(bookingId, " ditolak vendor: ").concat(resData.respMessage));
           throw new Error("".concat(resData.respMessage || "Vendor menolak booking", " PERLU TINDAKAN MANUAL / REFUND."));
 
-        case 77:
-          // 17. Proses success
+        case 64:
+          // 14. Proses success
           finalStatus = isProcessed ? 'Processed' : 'Accept';
 
           if (isProcessed) {
             resData.reservationNo = resData.reservationNo || "PRC-".concat(Date.now());
             resData.voucherNo = resData.voucherNo || resData.reservationNo;
-          } // 18. Update database - simpan juga ID yang sudah dibersihkan
+          } // 15. Update database
 
 
-          _context2.next = 81;
+          _context2.next = 68;
           return regeneratorRuntime.awrap(connection.execute("UPDATE hotel_bookings SET\n                reservation_no = ?,\n                voucher_no = ?,\n                os_ref_no = ?,\n                agent_os_ref = ?,\n                hotel_name = ?,\n                hotel_address = ?,\n                room_name = ?,\n                booking_status = ?,\n                updated_at = NOW()\n             WHERE id = ?", [resData.reservationNo || booking.reservation_no, resData.voucherNo || resData.reservationNo || booking.voucher_no, resData.osRefNo || booking.os_ref_no || null, bookingPayload.agentOsRef, resData.hotelName || booking.hotel_name, resData.hotelAddress || booking.hotel_address, resData.roomName || booking.room_name, finalStatus, bookingId]));
 
-        case 81:
-          console.info("\u2705 [VENDOR BOOKING] Booking ID ".concat(bookingId, " sukses -> Reservasi: ").concat(resData.reservationNo, " (").concat(finalStatus, ")")); // 19. Kirim email di background
+        case 68:
+          logger.success("\u2705 [VENDOR BOOKING] Booking ".concat(bookingId, " sukses -> ").concat(resData.reservationNo, " (").concat(finalStatus, ")")); // 16. Kirim email di background
 
           sendBookingEmails(bookingId)["catch"](function (err) {
-            return console.error("[MAIL ERROR] Booking ID ".concat(bookingId, ": ").concat(err.message));
+            return logger.error("[MAIL ERROR] Booking ".concat(bookingId, ": ").concat(err.message));
           });
           return _context2.abrupt("return", {
             success: true,
@@ -380,23 +318,23 @@ function processHotelBookingToVendor(bookingId) {
             vendorResponse: resData
           });
 
-        case 86:
-          _context2.prev = 86;
-          _context2.t1 = _context2["catch"](0);
-          console.error("\u274C [VENDOR BOOKING ERROR] Booking ID ".concat(bookingId, ": ").concat(_context2.t1.message));
-          throw _context2.t1;
+        case 73:
+          _context2.prev = 73;
+          _context2.t0 = _context2["catch"](0);
+          logger.error("\u274C [VENDOR BOOKING ERROR] Booking ".concat(bookingId, ": ").concat(_context2.t0.message));
+          throw _context2.t0;
 
-        case 90:
-          _context2.prev = 90;
+        case 77:
+          _context2.prev = 77;
           if (connection) connection.release();
-          return _context2.finish(90);
+          return _context2.finish(77);
 
-        case 93:
+        case 80:
         case "end":
           return _context2.stop();
       }
     }
-  }, null, null, [[0, 86, 90, 93], [15, 19]]);
+  }, null, null, [[0, 73, 77, 80]]);
 }
 
 module.exports = {
