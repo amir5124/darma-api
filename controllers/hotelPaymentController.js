@@ -8,13 +8,22 @@ const { processHotelBookingToVendor } = require('../utils/hotelBookingProcessor'
 // catatan: import sendBookingEmails di file ini sudah tidak diperlukan lagi
 // karena pemanggilannya sekarang ada di dalam hotelBookingProcessor.js — boleh dihapus baris importnya di atas kalau mau bersih-bersih.
 
+// const config = {
+//     clientId: "5f5aa496-7e16-4ca1-9967-33c768dac6c7",
+//     clientSecret: "TM1rVhfaFm5YJxKruHo0nWMWC",
+//     username: "LI9019VKS",
+//     pin: "5m6uYAScSxQtCmU",
+//     serverKey: "QtwGEr997XDcmMb1Pq8S5X1N",
+//     baseUrl: 'https://api.linkqu.id/linkqu-partner'
+// };
+
 const config = {
-    clientId: "5f5aa496-7e16-4ca1-9967-33c768dac6c7",
-    clientSecret: "TM1rVhfaFm5YJxKruHo0nWMWC",
-    username: "LI9019VKS",
-    pin: "5m6uYAScSxQtCmU",
-    serverKey: "QtwGEr997XDcmMb1Pq8S5X1N",
-    baseUrl: 'https://api.linkqu.id/linkqu-partner'
+    clientId: "testing",
+    clientSecret: "123",
+    username: "LI307GXIN",
+    pin: "2K2NPCBBNNTovgB",
+    serverKey: "LinkQu@2020",
+    baseUrl: 'https://gateway-dev.linkqu.id/linkqu-partner'
 };
 
 
