@@ -850,50 +850,55 @@ router.post('/hotel-bookings/draft', async (req, res) => {
             city_id: finalCityId,
             internal_code: b.internal_code || b.internalCode,
             hotel_id: b.hotel_id || b.hotelID,
-            room_id: b.room_id || b.roomID
+            room_id: b.room_id || b.roomID,
+            room_type: b.room_type,
+            child_num: b.child_num,
+            child_ages: b.child_ages
         });
 
-       const finalRoomType = b.room_type !== undefined ? parseInt(b.room_type) : 0;
-const finalChildNum = b.child_num !== undefined ? parseInt(b.child_num) : 0;
-const finalChildAges = b.child_ages ? JSON.stringify(b.child_ages) : JSON.stringify([0]);
+        // 🔥 SIMPAN DATA ROOM REQUEST LENGKAP
+        const finalRoomType = b.room_type !== undefined && b.room_type !== null ? parseInt(b.room_type) : 1;
+        const finalChildNum = b.child_num !== undefined && b.child_num !== null ? parseInt(b.child_num) : 0;
+        const finalChildAges = b.child_ages ? JSON.stringify(b.child_ages) : JSON.stringify([0]);
 
-const bookingValues = [
-    reservationNo,
-    b.hotel_id || b.hotelID || null,
-    b.hotel_name || b.hotelName || "Hotel Name",
-    b.hotel_address || b.hotelAddress || null,
-    b.check_in_date || b.checkInDate || null,
-    b.check_out_date || b.checkOutDate || null,
-    b.room_id || b.roomID || null,
-    b.room_name || b.roomName || null,
-    b.breakfast_type || b.breakfast || "Room Only",
-    finalEmail,
-    finalPhone,
-    finalTotalPrice,
-    finalHandlingFee,
-    b.special_requests || b.requestDescription || null,
-    b.username || 'guest',
-    finalCityId,
-    b.internal_code || b.internalCode || null,
-    finalRoomType,      // ✅ tambahan
-    finalChildNum,      // ✅ tambahan
-    finalChildAges,     // ✅ tambahan
-    'PENDING'
-];
+        const bookingValues = [
+            reservationNo,
+            b.hotel_id || b.hotelID || null,
+            b.hotel_name || b.hotelName || "Hotel Name",
+            b.hotel_address || b.hotelAddress || null,
+            b.check_in_date || b.checkInDate || null,
+            b.check_out_date || b.checkOutDate || null,
+            b.room_id || b.roomID || null,
+            b.room_name || b.roomName || null,
+            b.breakfast_type || b.breakfast || "Room Only",
+            finalEmail,
+            finalPhone,
+            finalTotalPrice,
+            finalHandlingFee,
+            b.special_requests || b.requestDescription || null,
+            b.username || 'guest',
+            finalCityId,
+            b.internal_code || b.internalCode || null,
+            finalRoomType,      // ✅ room_type
+            finalChildNum,      // ✅ child_num
+            finalChildAges,     // ✅ child_ages
+            'PENDING'
+        ];
 
-const [result] = await connection.execute(
-    `INSERT INTO hotel_bookings 
-    (reservation_no, hotel_id, hotel_name, hotel_address, check_in_date, check_out_date, 
-     room_id, room_name, breakfast_type, contact_email, contact_phone, 
-     total_price, handling_fee, special_requests, username, city_id, internal_code, 
-     room_type, child_num, child_ages, booking_status) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    bookingValues
-);
+        const [result] = await connection.execute(
+            `INSERT INTO hotel_bookings 
+            (reservation_no, hotel_id, hotel_name, hotel_address, check_in_date, check_out_date, 
+             room_id, room_name, breakfast_type, contact_email, contact_phone, 
+             total_price, handling_fee, special_requests, username, city_id, internal_code, 
+             room_type, child_num, child_ages, booking_status) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            bookingValues
+        );
+
         console.log('✅ Inserted ID:', result.insertId);
 
         const [check] = await connection.execute(
-            'SELECT id, city_id, hotel_id, room_id FROM hotel_bookings WHERE id = ?',
+            'SELECT id, city_id, hotel_id, room_id, room_type, child_num, child_ages FROM hotel_bookings WHERE id = ?',
             [result.insertId]
         );
         console.log('🔍 Result:', check[0]);
