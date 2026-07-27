@@ -2,7 +2,7 @@ const axios = require('axios');
 const puppeteer = require('puppeteer');
 const QRCode = require('qrcode');
 const db = require('../config/db');
-const { BASE_URL, USER_CONFIG, agent, getConsistentToken } = require('./darmaSandbox');
+const { BASE_URL, USER_CONFIG, agent, getConsistentToken } = require('./darmaHelper');
 const { sendBookingEmail } = require('../utils/mailer');
 
 // ==========================================================
