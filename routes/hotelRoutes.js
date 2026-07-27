@@ -847,6 +847,13 @@ router.post('/hotel-bookings/draft', async (req, res) => {
         console.log(`[DRAFT] Creating booking: ${reservationNo} for ${finalEmail}`);
 
         // 2. Siapkan Values untuk tabel hotel_bookings
+        // LOG sebelum insert
+        console.log('📝 Insert booking:', {
+            reservationNo,
+            city_id: finalCityId,
+            internal_code: b.internal_code || b.internalCode
+        });
+
         const bookingValues = [
             reservationNo,
             b.hotel_id || b.hotelID || null,
@@ -863,18 +870,28 @@ router.post('/hotel-bookings/draft', async (req, res) => {
             finalHandlingFee,
             b.special_requests || b.requestDescription || null,
             b.username || 'guest',
-            'PENDING' // Status awal
+            finalCityId,              // ✅ harus ada
+            b.internal_code || b.internalCode || null,  // ✅ harus ada
+            'PENDING'
         ];
 
-        // 3. Eksekusi Insert Header
         const [result] = await connection.execute(
             `INSERT INTO hotel_bookings 
-            (reservation_no, hotel_id, hotel_name, hotel_address, check_in_date, check_out_date, 
-             room_id, room_name, breakfast_type, contact_email, contact_phone, 
-             total_price, handling_fee, special_requests, username, booking_status) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    (reservation_no, hotel_id, hotel_name, hotel_address, check_in_date, check_out_date, 
+     room_id, room_name, breakfast_type, contact_email, contact_phone, 
+     total_price, handling_fee, special_requests, username, city_id, internal_code, booking_status) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             bookingValues
         );
+
+        console.log('✅ Inserted ID:', result.insertId);
+
+        // Cek hasil insert
+        const [check] = await connection.execute(
+            'SELECT id, city_id, internal_code FROM hotel_bookings WHERE id = ?',
+            [result.insertId]
+        );
+        console.log('🔍 Result:', check[0]);
 
         const bookingId = result.insertId;
 
