@@ -839,7 +839,7 @@ router.post('/hotel-bookings/draft', async (req, res) => {
     const finalPhone = b.contact_phone || b.phone || "08123456789";
     const finalTotalPrice = Math.round(parseFloat(b.total_price || b.totalPrice || 0));
     const finalHandlingFee = Math.round(parseFloat(b.handling_fee || b.handlingFee || 0));
-    
+
     // ✅ TAMBAHKAN INI - definisikan finalCityId
     const finalCityId = b.city_id || b.cityId || null;  // ← INI YANG KURANG
 
@@ -857,14 +857,22 @@ router.post('/hotel-bookings/draft', async (req, res) => {
             internal_code: b.internal_code || b.internalCode
         });
 
+        // Tambahkan helper untuk membersihkan ID sebelum disimpan
+        function cleanIdForStorage(id) {
+            if (!id) return id;
+            const parts = String(id).split('~||~');
+            return parts[0] || id;
+        }
+
+        // Di dalam endpoint /hotel-bookings/draft
         const bookingValues = [
             reservationNo,
-            b.hotel_id || b.hotelID || null,
+            cleanIdForStorage(b.hotel_id || b.hotelID || null),  // 🔥 Bersihkan hotel_id
             b.hotel_name || b.hotelName || "Hotel Name",
             b.hotel_address || b.hotelAddress || null,
             b.check_in_date || b.checkInDate || null,
             b.check_out_date || b.checkOutDate || null,
-            b.room_id || b.roomID || null,
+            cleanIdForStorage(b.room_id || b.roomID || null),    // 🔥 Bersihkan room_id
             b.room_name || b.roomName || null,
             b.breakfast_type || b.breakfast || "Room Only",
             finalEmail,
@@ -873,8 +881,8 @@ router.post('/hotel-bookings/draft', async (req, res) => {
             finalHandlingFee,
             b.special_requests || b.requestDescription || null,
             b.username || 'guest',
-            finalCityId,              // ✅ sekarang sudah defined
-            b.internal_code || b.internalCode || null,  // ✅ harus ada
+            finalCityId,
+            b.internal_code || b.internalCode || null,
             'PENDING'
         ];
 

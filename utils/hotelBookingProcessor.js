@@ -1,25 +1,44 @@
 // utils/hotelBookingProcessor.js
 const axios = require('axios');
 const db = require('../config/db');
-const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('../helpers/darmaSandbox');
+const { BASE_URL, USER_CONFIG, agent, getConsistentToken } = require('../helpers/darmaSandbox');
 const { sendBookingEmails } = require('./hotelMailer');
 
 /**
+ * Helper: Bersihkan ID dari separator '~||~'
+ * Contoh: "67553690~||~10" → "67553690"
+ *         "1063745958|...|A~||~67553690~||~10~||~SUP" → "1063745958|...|A"
+ */
+function cleanId(id) {
+    if (!id) return id;
+    // Jika ada '~||~', ambil bagian sebelum separator pertama
+    const parts = String(id).split('~||~');
+    return parts[0] || id;
+}
+
+/**
+ * Helper: Bersihkan roomID yang mungkin mengandung separator
+ * Room ID format: "1063745958|roomCateg.Promotionid|22633273|v1_...|A~||~67553690~||~10~||~SUP"
+ * Yang dibutuhkan hanya bagian sebelum '~||~'
+ */
+function cleanRoomId(roomId) {
+    if (!roomId) return roomId;
+    const parts = String(roomId).split('~||~');
+    return parts[0] || roomId;
+}
+
+/**
  * Helper: update booking_status dengan aman.
- * Kalau UPDATE ini sendiri gagal (misal kolom kepanjangan di masa depan),
- * jangan biarkan error-nya menutupi pesan error bisnis asli — cukup log terpisah.
  */
 async function safeUpdateStatus(connection, bookingId, status, extra = {}) {
     try {
-        // Truncate defensif — jaga-jaga kalau suatu saat ada status baru yang lebih panjang dari kolom
         const safeStatus = String(status).substring(0, 45);
         await connection.execute(
             `UPDATE hotel_bookings SET booking_status = ?, updated_at = NOW() WHERE id = ?`,
             [safeStatus, bookingId]
         );
     } catch (dbErr) {
-        logger.error(`⚠️ [STATUS UPDATE FAILED] Booking ${bookingId} gagal update status ke '${status}': ${dbErr.message}`);
-        // Sengaja tidak di-throw — supaya error bisnis asli (di pemanggil) tetap yang muncul ke log/alert
+        console.error(`⚠️ [STATUS UPDATE FAILED] Booking ${bookingId} gagal update status ke '${status}': ${dbErr.message}`);
     }
 }
 
@@ -32,11 +51,6 @@ function validateBookingData(booking) {
     
     if (missing.length > 0) {
         throw new Error(`Data booking tidak lengkap. Field yang kosong: ${missing.join(', ')}`);
-    }
-    
-    // Validasi format room_id - pastikan tidak ada karakter aneh
-    if (booking.room_id && booking.room_id.includes('~||~')) {
-        console.warn(`⚠️ Room ID mengandung separator '~||~', ini mungkin dari format lama. Room ID: ${booking.room_id}`);
     }
     
     return true;
@@ -61,7 +75,7 @@ async function processHotelBookingToVendor(bookingId) {
 
         // 2. Cek status - sudah diproses atau belum
         if (['Accept', 'Processed'].includes(booking.booking_status)) {
-            logger.info(`[VENDOR BOOKING] Booking ID ${bookingId} sudah pernah diproses (status: ${booking.booking_status}). Dilewati.`);
+            console.info(`[VENDOR BOOKING] Booking ID ${bookingId} sudah pernah diproses (status: ${booking.booking_status}). Dilewati.`);
             return { skipped: true, reason: 'already_processed', bookingId, status: booking.booking_status };
         }
 
@@ -70,7 +84,7 @@ async function processHotelBookingToVendor(bookingId) {
             validateBookingData(booking);
         } catch (validationError) {
             await safeUpdateStatus(connection, bookingId, 'FAILED_INVALID_DATA');
-            logger.error(`❌ [VALIDATION ERROR] Booking ${bookingId}: ${validationError.message}`);
+            console.error(`❌ [VALIDATION ERROR] Booking ${bookingId}: ${validationError.message}`);
             throw validationError;
         }
 
@@ -91,24 +105,37 @@ async function processHotelBookingToVendor(bookingId) {
         const checkInISO = new Date(booking.check_in_date).toISOString();
         const checkOutISO = new Date(booking.check_out_date).toISOString();
 
-        // 7. 🔥 PERBAIKAN: Gunakan data persis dari database, jangan ubah format
-        const cleanRoomId = String(booking.room_id).trim();
-        const cleanHotelId = String(booking.hotel_id).trim();
+        // 7. 🔥 PERBAIKAN: BERSIHKAN ID DARI SEPARATOR '~||~'
+        const rawRoomId = String(booking.room_id || "").trim();
+        const rawHotelId = String(booking.hotel_id || "").trim();
         const cleanCityId = String(booking.city_id || "").trim();
         const cleanInternalCode = String(booking.internal_code || "SUP").trim();
 
+        // 🔥 KRITIS: Bersihkan room_id dan hotel_id
+        const cleanRoomIdForVendor = cleanRoomId(rawRoomId);
+        const cleanHotelIdForVendor = cleanId(rawHotelId);
+
+        console.log(`🔍 [CLEANING] Booking ${bookingId}:`, {
+            originalRoomId: rawRoomId,
+            cleanRoomId: cleanRoomIdForVendor,
+            originalHotelId: rawHotelId,
+            cleanHotelId: cleanHotelIdForVendor,
+            cityId: cleanCityId,
+            internalCode: cleanInternalCode
+        });
+
         // 8. LOG data sebelum kirim ke vendor
-        logger.info(`🔍 [PRE-VENDOR CHECK] Booking ${bookingId}:`, {
+        console.log(`🔍 [PRE-VENDOR CHECK] Booking ${bookingId}:`, {
             cityID: cleanCityId,
-            hotelID: cleanHotelId,
-            roomID: cleanRoomId,
+            hotelID: cleanHotelIdForVendor,
+            roomID: cleanRoomIdForVendor,
             internalCode: cleanInternalCode,
             checkIn: checkInISO,
             checkOut: checkOutISO,
             paxesCount: paxes.length
         });
 
-        // 9. Prepare Price Info Payload - PASTIKAN SAMA PERSIS dengan data dari database
+        // 9. Prepare Price Info Payload - GUNAKAN ID YANG SUDAH DIBERSIHKAN
         const priceInfoPayload = {
             paxPassport: "ID",
             countryID: "ID",
@@ -122,14 +149,14 @@ async function processHotelBookingToVendor(bookingId) {
                 childAges: [0]
             }],
             internalCode: cleanInternalCode,
-            hotelID: cleanHotelId,
+            hotelID: cleanHotelIdForVendor,  // 🔥 Sudah dibersihkan
             breakfast: booking.breakfast_type || "Room Only",
-            roomID: cleanRoomId,  // 🔥 KRITIS: Harus sama persis
+            roomID: cleanRoomIdForVendor,    // 🔥 Sudah dibersihkan
             userID: USER_CONFIG.userID,
             accessToken: token
         };
 
-        logger.debug("REQ_VENDOR_PRICE_INFO (post-payment)", JSON.stringify(priceInfoPayload, null, 2));
+        console.debug("REQ_VENDOR_PRICE_INFO (post-payment)", JSON.stringify(priceInfoPayload, null, 2));
 
         // 10. Kirim Price Info ke vendor
         const priceRes = await axios.post(`${BASE_URL}/Hotel/PriceAndPolicyInfo`, priceInfoPayload, {
@@ -139,20 +166,19 @@ async function processHotelBookingToVendor(bookingId) {
 
         const p = priceRes.data;
 
-        logger.debug("RES_VENDOR_PRICE_INFO (post-payment)", JSON.stringify(p, null, 2));
+        console.debug("RES_VENDOR_PRICE_INFO (post-payment)", JSON.stringify(p, null, 2));
 
         // 11. Cek response Price Info
         if (p.status !== "SUCCESS") {
             await safeUpdateStatus(connection, bookingId, 'FAILED_NO_ROOM');
             const reason = p.respMessage || "Kamar tidak lagi tersedia di vendor setelah pembayaran.";
             
-            // Log detail error
-            logger.error(`🚨 [CRITICAL] Booking ID ${bookingId} DIBAYAR tapi kamar/harga tidak valid lagi:`, {
+            console.error(`🚨 [CRITICAL] Booking ID ${bookingId} DIBAYAR tapi kamar/harga tidak valid lagi:`, {
                 reason: reason,
                 sentData: {
                     cityID: cleanCityId,
-                    hotelID: cleanHotelId,
-                    roomID: cleanRoomId,
+                    hotelID: cleanHotelIdForVendor,
+                    roomID: cleanRoomIdForVendor,
                     internalCode: cleanInternalCode
                 },
                 vendorResponse: p
@@ -161,19 +187,13 @@ async function processHotelBookingToVendor(bookingId) {
             throw new Error(`${reason} PERLU TINDAKAN MANUAL / REFUND.`);
         }
 
-        // 12. 🔥 PERBAIKAN: Gunakan data dari response Price Info, tapi pastikan konsisten
-        // Jika vendor mengembalikan roomID yang berbeda, gunakan yang dari response
-        const vendorRoomId = p.roomID || cleanRoomId;
-        const vendorHotelId = p.hotelID || cleanHotelId;
+        // 12. Gunakan data dari response Price Info
+        const vendorRoomId = p.roomID || cleanRoomIdForVendor;
+        const vendorHotelId = p.hotelID || cleanHotelIdForVendor;
         const vendorCityId = p.cityID || cleanCityId;
         const vendorInternalCode = p.internalCode || cleanInternalCode;
 
-        // 13. Log perbedaan jika ada
-        if (vendorRoomId !== cleanRoomId) {
-            console.warn(`⚠️ [ROOM_ID MISMATCH] Booking ${bookingId}: DB="${cleanRoomId}" vs Vendor="${vendorRoomId}"`);
-        }
-
-        // 14. Prepare Booking Payload
+        // 13. Prepare Booking Payload
         const bookingPayload = {
             paxPassport: p.paxPassport || "ID",
             countryID: p.countryID || "ID",
@@ -193,7 +213,7 @@ async function processHotelBookingToVendor(bookingId) {
             internalCode: vendorInternalCode,
             hotelID: vendorHotelId,
             breakfast: p.breakfast || booking.breakfast_type || "Room Only",
-            roomID: vendorRoomId,  // 🔥 KRITIS: Gunakan dari vendor response
+            roomID: vendorRoomId,
             bedType: (p.bedTypes && p.bedTypes[0]) ? { 
                 ID: p.bedTypes[0].ID || "", 
                 bed: p.bedTypes[0].bed || "" 
@@ -203,9 +223,9 @@ async function processHotelBookingToVendor(bookingId) {
             accessToken: token
         };
 
-        logger.debug("REQ_VENDOR_BOOKING (post-payment)", JSON.stringify(bookingPayload, null, 2));
+        console.debug("REQ_VENDOR_BOOKING (post-payment)", JSON.stringify(bookingPayload, null, 2));
 
-        // 15. Kirim Booking ke vendor
+        // 14. Kirim Booking ke vendor
         const bookingRes = await axios.post(`${BASE_URL}/Hotel/BookingAllSupplier`, bookingPayload, {
             httpsAgent: agent,
             timeout: 60000
@@ -213,18 +233,18 @@ async function processHotelBookingToVendor(bookingId) {
 
         const resData = bookingRes.data;
 
-        logger.debug("RES_VENDOR_BOOKING (post-payment)", JSON.stringify(resData, null, 2));
+        console.debug("RES_VENDOR_BOOKING (post-payment)", JSON.stringify(resData, null, 2));
 
-        // 16. Cek response Booking
+        // 15. Cek response Booking
         const msg = (resData.respMessage || "").toUpperCase();
         const isProcessed = (resData.status === "FAILED" || resData.status === "ERROR") && msg.includes("PROCESSED");
         const isAccepted = resData.bookingStatus && resData.bookingStatus.trim() === "Accept";
 
-        // 17. Handle error booking
+        // 16. Handle error booking
         if (!(resData.status === "SUCCESS" || isAccepted || isProcessed)) {
             await safeUpdateStatus(connection, bookingId, 'FAILED_REJECTED');
             
-            logger.error(`🚨 [CRITICAL] Booking ID ${bookingId} DIBAYAR tapi DITOLAK vendor:`, {
+            console.error(`🚨 [CRITICAL] Booking ID ${bookingId} DIBAYAR tapi DITOLAK vendor:`, {
                 respMessage: resData.respMessage,
                 status: resData.status,
                 bookingStatus: resData.bookingStatus,
@@ -239,7 +259,7 @@ async function processHotelBookingToVendor(bookingId) {
             throw new Error(`${resData.respMessage || "Vendor menolak booking"} PERLU TINDAKAN MANUAL / REFUND.`);
         }
 
-        // 18. Proses success
+        // 17. Proses success
         const finalStatus = isProcessed ? 'Processed' : 'Accept';
 
         if (isProcessed) {
@@ -247,7 +267,7 @@ async function processHotelBookingToVendor(bookingId) {
             resData.voucherNo = resData.voucherNo || resData.reservationNo;
         }
 
-        // 19. Update database
+        // 18. Update database - simpan juga ID yang sudah dibersihkan
         await connection.execute(
             `UPDATE hotel_bookings SET
                 reservation_no = ?,
@@ -273,11 +293,11 @@ async function processHotelBookingToVendor(bookingId) {
             ]
         );
 
-        logger.info(`✅ [VENDOR BOOKING] Booking ID ${bookingId} sukses -> Reservasi: ${resData.reservationNo} (${finalStatus})`);
+        console.info(`✅ [VENDOR BOOKING] Booking ID ${bookingId} sukses -> Reservasi: ${resData.reservationNo} (${finalStatus})`);
 
-        // 20. Kirim email di background
+        // 19. Kirim email di background
         sendBookingEmails(bookingId).catch(err =>
-            logger.error(`[MAIL ERROR] Booking ID ${bookingId}: ${err.message}`)
+            console.error(`[MAIL ERROR] Booking ID ${bookingId}: ${err.message}`)
         );
 
         return { 
@@ -289,7 +309,7 @@ async function processHotelBookingToVendor(bookingId) {
         };
 
     } catch (err) {
-        logger.error(`❌ [VENDOR BOOKING ERROR] Booking ID ${bookingId}: ${err.message}`);
+        console.error(`❌ [VENDOR BOOKING ERROR] Booking ID ${bookingId}: ${err.message}`);
         throw err;
     } finally {
         if (connection) connection.release();
