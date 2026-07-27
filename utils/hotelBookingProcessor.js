@@ -67,22 +67,26 @@ async function processHotelBookingToVendor(bookingId) {
 
         logger.info(`🔍 [BOOKING ${bookingId}] RoomID: ${roomId}, HotelID: ${hotelId}, City: ${cityId}`);
 
+        const roomRequestOriginal = {
+            roomType: booking.room_type !== null && booking.room_type !== undefined ? Number(booking.room_type) : 0,
+            isRequestChildBed: false,
+            childNum: booking.child_num || 0,
+            childAges: booking.child_ages
+                ? (typeof booking.child_ages === 'string' ? JSON.parse(booking.child_ages) : booking.child_ages)
+                : [0]
+        };
+
         const priceInfoPayload = {
             paxPassport: "ID",
             countryID: "ID",
             cityID: cityId,
             checkInDate: checkInISO,
             checkOutDate: checkOutISO,
-            roomRequest: [{
-                roomType: 0,
-                isRequestChildBed: false,
-                childNum: 0,
-                childAges: [0]
-            }],
+            roomRequest: [roomRequestOriginal],   // ✅ pakai nilai asli, bukan hardcode
             internalCode: internalCode,
-            hotelID: hotelId,   // ✅ full string, bukan hasil extractNumericId
+            hotelID: hotelId,
             breakfast: booking.breakfast_type || "Room Only",
-            roomID: roomId,     // ✅ full token, bukan hasil extractNumericId
+            roomID: roomId,
             userID: USER_CONFIG.userID,
             accessToken: token
         };

@@ -853,37 +853,43 @@ router.post('/hotel-bookings/draft', async (req, res) => {
             room_id: b.room_id || b.roomID
         });
 
-        // ✅ HAPUS cleanIdForStorage — simpan hotel_id dan room_id APA ADANYA (utuh)
-        const bookingValues = [
-            reservationNo,
-            b.hotel_id || b.hotelID || null,   // ✅ utuh, termasuk ~||~10
-            b.hotel_name || b.hotelName || "Hotel Name",
-            b.hotel_address || b.hotelAddress || null,
-            b.check_in_date || b.checkInDate || null,
-            b.check_out_date || b.checkOutDate || null,
-            b.room_id || b.roomID || null,     // ✅ utuh, termasuk seluruh suffix ~||~...
-            b.room_name || b.roomName || null,
-            b.breakfast_type || b.breakfast || "Room Only",
-            finalEmail,
-            finalPhone,
-            finalTotalPrice,
-            finalHandlingFee,
-            b.special_requests || b.requestDescription || null,
-            b.username || 'guest',
-            finalCityId,
-            b.internal_code || b.internalCode || null,
-            'PENDING'
-        ];
+       const finalRoomType = b.room_type !== undefined ? parseInt(b.room_type) : 0;
+const finalChildNum = b.child_num !== undefined ? parseInt(b.child_num) : 0;
+const finalChildAges = b.child_ages ? JSON.stringify(b.child_ages) : JSON.stringify([0]);
 
-        const [result] = await connection.execute(
-            `INSERT INTO hotel_bookings 
-            (reservation_no, hotel_id, hotel_name, hotel_address, check_in_date, check_out_date, 
-             room_id, room_name, breakfast_type, contact_email, contact_phone, 
-             total_price, handling_fee, special_requests, username, city_id, internal_code, booking_status) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            bookingValues
-        );
+const bookingValues = [
+    reservationNo,
+    b.hotel_id || b.hotelID || null,
+    b.hotel_name || b.hotelName || "Hotel Name",
+    b.hotel_address || b.hotelAddress || null,
+    b.check_in_date || b.checkInDate || null,
+    b.check_out_date || b.checkOutDate || null,
+    b.room_id || b.roomID || null,
+    b.room_name || b.roomName || null,
+    b.breakfast_type || b.breakfast || "Room Only",
+    finalEmail,
+    finalPhone,
+    finalTotalPrice,
+    finalHandlingFee,
+    b.special_requests || b.requestDescription || null,
+    b.username || 'guest',
+    finalCityId,
+    b.internal_code || b.internalCode || null,
+    finalRoomType,      // ✅ tambahan
+    finalChildNum,      // ✅ tambahan
+    finalChildAges,     // ✅ tambahan
+    'PENDING'
+];
 
+const [result] = await connection.execute(
+    `INSERT INTO hotel_bookings 
+    (reservation_no, hotel_id, hotel_name, hotel_address, check_in_date, check_out_date, 
+     room_id, room_name, breakfast_type, contact_email, contact_phone, 
+     total_price, handling_fee, special_requests, username, city_id, internal_code, 
+     room_type, child_num, child_ages, booking_status) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    bookingValues
+);
         console.log('✅ Inserted ID:', result.insertId);
 
         const [check] = await connection.execute(

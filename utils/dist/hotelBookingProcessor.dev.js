@@ -59,7 +59,7 @@ function safeUpdateStatus(connection, bookingId, status) {
 }
 
 function processHotelBookingToVendor(bookingId) {
-  var connection, _ref, _ref2, rows, booking, required, missing, _ref3, _ref4, paxes, token, checkInISO, checkOutISO, roomId, hotelId, cityId, internalCode, priceInfoPayload, priceRes, p, reason, bookingPayload, bookingRes, resData, msg, isProcessed, isAccepted, finalStatus;
+  var connection, _ref, _ref2, rows, booking, required, missing, _ref3, _ref4, paxes, token, checkInISO, checkOutISO, roomId, hotelId, cityId, internalCode, roomRequestOriginal, priceInfoPayload, priceRes, p, reason, bookingPayload, bookingRes, resData, msg, isProcessed, isAccepted, finalStatus;
 
   return regeneratorRuntime.async(function processHotelBookingToVendor$(_context2) {
     while (1) {
@@ -145,29 +145,29 @@ function processHotelBookingToVendor(bookingId) {
           cityId = String(booking.city_id || "").trim();
           internalCode = String(booking.internal_code || "SUP").trim();
           logger.info("\uD83D\uDD0D [BOOKING ".concat(bookingId, "] RoomID: ").concat(roomId, ", HotelID: ").concat(hotelId, ", City: ").concat(cityId));
+          roomRequestOriginal = {
+            roomType: booking.room_type !== null && booking.room_type !== undefined ? Number(booking.room_type) : 0,
+            isRequestChildBed: false,
+            childNum: booking.child_num || 0,
+            childAges: booking.child_ages ? typeof booking.child_ages === 'string' ? JSON.parse(booking.child_ages) : booking.child_ages : [0]
+          };
           priceInfoPayload = {
             paxPassport: "ID",
             countryID: "ID",
             cityID: cityId,
             checkInDate: checkInISO,
             checkOutDate: checkOutISO,
-            roomRequest: [{
-              roomType: 0,
-              isRequestChildBed: false,
-              childNum: 0,
-              childAges: [0]
-            }],
+            roomRequest: [roomRequestOriginal],
+            // ✅ pakai nilai asli, bukan hardcode
             internalCode: internalCode,
             hotelID: hotelId,
-            // ✅ full string, bukan hasil extractNumericId
             breakfast: booking.breakfast_type || "Room Only",
             roomID: roomId,
-            // ✅ full token, bukan hasil extractNumericId
             userID: USER_CONFIG.userID,
             accessToken: token
           };
           logger.debug("REQ_VENDOR_PRICE_INFO", priceInfoPayload);
-          _context2.next = 40;
+          _context2.next = 41;
           return regeneratorRuntime.awrap(axios.post("".concat(BASE_URL, "/Hotel/PriceAndPolicyInfo"), priceInfoPayload, {
             httpsAgent: agent,
             timeout: 30000,
@@ -177,25 +177,25 @@ function processHotelBookingToVendor(bookingId) {
             }
           }));
 
-        case 40:
+        case 41:
           priceRes = _context2.sent;
           p = priceRes.data;
           logger.debug("RES_VENDOR_PRICE_INFO", p);
 
           if (!(p.status !== "SUCCESS")) {
-            _context2.next = 49;
+            _context2.next = 50;
             break;
           }
 
-          _context2.next = 46;
+          _context2.next = 47;
           return regeneratorRuntime.awrap(safeUpdateStatus(connection, bookingId, 'FAILED_NO_ROOM'));
 
-        case 46:
+        case 47:
           reason = p.respMessage || "Kamar tidak tersedia.";
           logger.error("\uD83D\uDEA8 [CRITICAL] Booking ".concat(bookingId, " gagal: ").concat(reason));
           throw new Error("".concat(reason, " PERLU TINDAKAN MANUAL / REFUND."));
 
-        case 49:
+        case 50:
           bookingPayload = {
             paxPassport: p.paxPassport || "ID",
             countryID: p.countryID || "ID",
@@ -231,7 +231,7 @@ function processHotelBookingToVendor(bookingId) {
             accessToken: token
           };
           logger.debug("REQ_VENDOR_BOOKING", bookingPayload);
-          _context2.next = 53;
+          _context2.next = 54;
           return regeneratorRuntime.awrap(axios.post("".concat(BASE_URL, "/Hotel/BookingAllSupplier"), bookingPayload, {
             httpsAgent: agent,
             timeout: 60000,
@@ -241,7 +241,7 @@ function processHotelBookingToVendor(bookingId) {
             }
           }));
 
-        case 53:
+        case 54:
           bookingRes = _context2.sent;
           resData = bookingRes.data;
           logger.debug("RES_VENDOR_BOOKING", resData);
@@ -250,18 +250,18 @@ function processHotelBookingToVendor(bookingId) {
           isAccepted = resData.bookingStatus && resData.bookingStatus.trim() === "Accept";
 
           if (resData.status === "SUCCESS" || isAccepted || isProcessed) {
-            _context2.next = 64;
+            _context2.next = 65;
             break;
           }
 
-          _context2.next = 62;
+          _context2.next = 63;
           return regeneratorRuntime.awrap(safeUpdateStatus(connection, bookingId, 'FAILED_REJECTED'));
 
-        case 62:
+        case 63:
           logger.error("\uD83D\uDEA8 [CRITICAL] Booking ".concat(bookingId, " ditolak vendor: ").concat(resData.respMessage));
           throw new Error("".concat(resData.respMessage || "Vendor menolak booking", " PERLU TINDAKAN MANUAL / REFUND."));
 
-        case 64:
+        case 65:
           finalStatus = isProcessed ? 'Processed' : 'Accept';
 
           if (isProcessed) {
@@ -269,10 +269,10 @@ function processHotelBookingToVendor(bookingId) {
             resData.voucherNo = resData.voucherNo || resData.reservationNo;
           }
 
-          _context2.next = 68;
+          _context2.next = 69;
           return regeneratorRuntime.awrap(connection.execute("UPDATE hotel_bookings SET\n                reservation_no = ?,\n                voucher_no = ?,\n                os_ref_no = ?,\n                agent_os_ref = ?,\n                hotel_name = ?,\n                hotel_address = ?,\n                room_name = ?,\n                booking_status = ?,\n                updated_at = NOW()\n             WHERE id = ?", [resData.reservationNo || booking.reservation_no, resData.voucherNo || resData.reservationNo || booking.voucher_no, resData.osRefNo || booking.os_ref_no || null, bookingPayload.agentOsRef, resData.hotelName || booking.hotel_name, resData.hotelAddress || booking.hotel_address, resData.roomName || booking.room_name, finalStatus, bookingId]));
 
-        case 68:
+        case 69:
           logger.success("\u2705 [VENDOR BOOKING] Booking ".concat(bookingId, " sukses -> ").concat(resData.reservationNo, " (").concat(finalStatus, ")"));
           sendBookingEmails(bookingId)["catch"](function (err) {
             return logger.error("[MAIL ERROR] Booking ".concat(bookingId, ": ").concat(err.message));
@@ -285,23 +285,23 @@ function processHotelBookingToVendor(bookingId) {
             vendorResponse: resData
           });
 
-        case 73:
-          _context2.prev = 73;
+        case 74:
+          _context2.prev = 74;
           _context2.t0 = _context2["catch"](0);
           logger.error("\u274C [VENDOR BOOKING ERROR] Booking ".concat(bookingId, ": ").concat(_context2.t0.message));
           throw _context2.t0;
 
-        case 77:
-          _context2.prev = 77;
+        case 78:
+          _context2.prev = 78;
           if (connection) connection.release();
-          return _context2.finish(77);
+          return _context2.finish(78);
 
-        case 80:
+        case 81:
         case "end":
           return _context2.stop();
       }
     }
-  }, null, null, [[0, 73, 77, 80]]);
+  }, null, null, [[0, 74, 78, 81]]);
 }
 
 module.exports = {
