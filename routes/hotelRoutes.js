@@ -839,6 +839,9 @@ router.post('/hotel-bookings/draft', async (req, res) => {
     const finalPhone = b.contact_phone || b.phone || "08123456789";
     const finalTotalPrice = Math.round(parseFloat(b.total_price || b.totalPrice || 0));
     const finalHandlingFee = Math.round(parseFloat(b.handling_fee || b.handlingFee || 0));
+    
+    // ✅ TAMBAHKAN INI - definisikan finalCityId
+    const finalCityId = b.city_id || b.cityId || null;  // ← INI YANG KURANG
 
     try {
         connection = await db.getConnection();
@@ -870,17 +873,17 @@ router.post('/hotel-bookings/draft', async (req, res) => {
             finalHandlingFee,
             b.special_requests || b.requestDescription || null,
             b.username || 'guest',
-            finalCityId,              // ✅ harus ada
+            finalCityId,              // ✅ sekarang sudah defined
             b.internal_code || b.internalCode || null,  // ✅ harus ada
             'PENDING'
         ];
 
         const [result] = await connection.execute(
             `INSERT INTO hotel_bookings 
-    (reservation_no, hotel_id, hotel_name, hotel_address, check_in_date, check_out_date, 
-     room_id, room_name, breakfast_type, contact_email, contact_phone, 
-     total_price, handling_fee, special_requests, username, city_id, internal_code, booking_status) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            (reservation_no, hotel_id, hotel_name, hotel_address, check_in_date, check_out_date, 
+             room_id, room_name, breakfast_type, contact_email, contact_phone, 
+             total_price, handling_fee, special_requests, username, city_id, internal_code, booking_status) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             bookingValues
         );
 
