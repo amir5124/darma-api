@@ -301,7 +301,7 @@ async function sendBookingEmails(bookingId) {
                     <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 30px 0;">
                     <p style="text-align: center; color: #94a3b8; font-size: 12px; margin: 0;">
                         <strong>LinkU Nusantara</strong><br>
-                        Gedung LinkU, Tangerang, Indonesia<br>
+                       Alamat: Ibu Kota Nusantara, Indonesia<br>
                         Layanan Perjalanan Terbaikmu 🚀
                     </p>
                 </div>

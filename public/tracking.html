@@ -30,9 +30,6 @@
         .btn-retry { background: var(--primary); color: white; border: none; padding: 14px 28px; border-radius: 10px; cursor: pointer; text-decoration: none; display: inline-block; font-weight: bold; transition: all 0.2s; width: 100%; box-shadow: 0 4px 6px -1px rgba(36, 179, 174, 0.3); }
         .btn-retry:hover { background: #1d9490; transform: translateY(-1px); }
         
-        .debug-area { margin-top: 25px; text-align: left; }
-        .debug-header { font-size: 11px; color: #94a3b8; cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 5px; background: #f1f5f9; border-radius: 4px; }
-        .debug-log { font-family: 'Courier New', Courier, monospace; font-size: 10px; color: #334155; background: #1e293b; color: #cbd5e1; padding: 12px; border-radius: 6px; display: none; overflow-x: auto; margin-top: 5px; white-space: pre-wrap; }
         .footer-note { font-size: 11px; color: #94a3b8; margin-top: 20px; }
     </style>
 </head>
@@ -49,26 +46,19 @@
         <div id="content" style="display: none;">
             </div>
 
-       
-
         <p class="footer-note">© 2026 LinkU Nusantara • Layanan Perjalanan Terbaikmu</p>
     </div>
 
     <script>
-        const debugLog = document.getElementById('debugLog');
-        
+        // Debug logging cukup ke console browser (F12), tidak lagi bergantung
+        // pada elemen HTML #debugLog yang sebelumnya sudah dihapus dari markup.
         function log(msg, obj = null) {
             const timestamp = new Date().toLocaleTimeString();
-            let text = `[${timestamp}] ${msg}\n`;
-            if (obj) text += JSON.stringify(obj, null, 2) + "\n";
-            debugLog.innerText += text;
-            console.log(msg, obj);
-        }
-
-        function toggleDebug() {
-            const isHidden = debugLog.style.display === "none" || debugLog.style.display === "";
-            debugLog.style.display = isHidden ? "block" : "none";
-            document.getElementById('debugToggleIcon').innerText = isHidden ? "▲" : "▼";
+            if (obj) {
+                console.log(`[${timestamp}] ${msg}`, obj);
+            } else {
+                console.log(`[${timestamp}] ${msg}`);
+            }
         }
 
         async function fetchDetail() {
