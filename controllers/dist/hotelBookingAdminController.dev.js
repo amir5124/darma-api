@@ -131,7 +131,7 @@ var HotelBookingAdminController = {
             _context2.prev = 0;
             id = req.params.id;
             _context2.next = 4;
-            return regeneratorRuntime.awrap(db.query("SELECT\n                    hb.*,\n                    ".concat(SOURCE_CASE_SQL, " AS source,\n                    hp.payment_status,\n                    hp.payment_method,\n                    hp.payment_reff,\n                    hp.booking_code,\n                    hp.reference_no,\n                    hp.va_number,\n                    hp.qris_url,\n                    hp.amount AS payment_amount,\n                    hp.admin_fee AS payment_admin_fee,\n                    hp.ticket_status,\n                    hp.payment_date,\n                    hp.expired_date\n                 FROM hotel_bookings hb\n                 LEFT JOIN hotel_payments hp ON hp.booking_id = hb.id\n                 WHERE hb.id = ?"), [id]));
+            return regeneratorRuntime.awrap(db.query("SELECT\n                hb.*,\n                hp.payment_status,\n                hp.payment_method,\n                hp.payment_reff,\n                hp.booking_code,\n                hp.reference_no,\n                hp.va_number,\n                hp.qris_url,\n                hp.amount AS payment_amount,\n                hp.admin_fee AS payment_admin_fee,\n                hp.ticket_status,\n                hp.payment_date,\n                hp.expired_date\n             FROM hotel_bookings hb\n             LEFT JOIN hotel_payments hp ON hp.booking_id = hb.id\n             WHERE hb.id = ?", [id]));
 
           case 4:
             _ref5 = _context2.sent;

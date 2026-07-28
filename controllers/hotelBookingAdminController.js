@@ -146,31 +146,29 @@ const HotelBookingAdminController = {
     // GET /:id - DETAIL BOOKING
     // ============================================================
     getBookingDetail: async (req, res) => {
-        try {
-            const { id } = req.params;
+    try {
+        const { id } = req.params;
 
-            const [rows] = await db.query(
-                `SELECT
-                    hb.*,
-                    ${SOURCE_CASE_SQL} AS source,
-                    hp.payment_status,
-                    hp.payment_method,
-                    hp.payment_reff,
-                    hp.booking_code,
-                    hp.reference_no,
-                    hp.va_number,
-                    hp.qris_url,
-                    hp.amount AS payment_amount,
-                    hp.admin_fee AS payment_admin_fee,
-                    hp.ticket_status,
-                    hp.payment_date,
-                    hp.expired_date
-                 FROM hotel_bookings hb
-                 LEFT JOIN hotel_payments hp ON hp.booking_id = hb.id
-                 WHERE hb.id = ?`,
-                [id]
-            );
-
+        const [rows] = await db.query(
+            `SELECT
+                hb.*,
+                hp.payment_status,
+                hp.payment_method,
+                hp.payment_reff,
+                hp.booking_code,
+                hp.reference_no,
+                hp.va_number,
+                hp.qris_url,
+                hp.amount AS payment_amount,
+                hp.admin_fee AS payment_admin_fee,
+                hp.ticket_status,
+                hp.payment_date,
+                hp.expired_date
+             FROM hotel_bookings hb
+             LEFT JOIN hotel_payments hp ON hp.booking_id = hb.id
+             WHERE hb.id = ?`,
+            [id]
+        );
             if (rows.length === 0) {
                 return res.status(404).json({
                     status: "ERROR",
