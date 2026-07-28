@@ -574,6 +574,9 @@ router.post('/booking', async (req, res) => {
         const b = req.body;
         const username = b.username || "guest";
 
+        // 🔥 TAMBAHKAN: Deteksi source dari request
+        const source = b.source || req.headers['x-app-source'] || 'Web';
+
         // 1. Konstruksi Payload untuk Vendor (Darmawisata)
         const payload = {
             paxPassport: b.paxPassport || "ID",
@@ -637,7 +640,7 @@ router.post('/booking', async (req, res) => {
             const komisiTercatat = Math.round(parseFloat(b.commission || 0));
             const handlingFeeTercatat = Math.round(parseFloat(b.handlingFee || 0));
 
-            // Simpan ke tabel hotel_bookings (Gunakan || null atau || "" untuk cegah undefined)
+            // 🔥 TAMBAHKAN source di bookingParams
             const bookingParams = [
                 resData.reservationNo ?? null,
                 resData.voucherNo ?? null,
@@ -660,19 +663,20 @@ router.post('/booking', async (req, res) => {
                 handlingFeeTercatat || 0,
                 currentStatus || 'Accept',
                 username || "guest",
-                payload.roomRequest[0]?.requestDescription || ""
-            ].map(item => item === undefined ? null : item); // Double check terakhir
+                payload.roomRequest[0]?.requestDescription || "",
+                source  // 🔥 TAMBAHKAN source
+            ].map(item => item === undefined ? null : item);
 
             const [bookingResult] = await connection.execute(
                 `INSERT INTO hotel_bookings 
-    (
-        reservation_no, voucher_no, os_ref_no, agent_os_ref, hotel_id, 
-        hotel_name, hotel_address, internal_code, check_in_date, check_out_date, 
-        city_id, room_id, room_name, breakfast_type, contact_email, 
-        contact_phone, total_price, commission, handling_fee, booking_status, 
-        username, special_requests
-    ) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                (
+                    reservation_no, voucher_no, os_ref_no, agent_os_ref, hotel_id, 
+                    hotel_name, hotel_address, internal_code, check_in_date, check_out_date, 
+                    city_id, room_id, room_name, breakfast_type, contact_email, 
+                    contact_phone, total_price, commission, handling_fee, booking_status, 
+                    username, special_requests, source  -- 🔥 TAMBAHKAN source
+                ) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,  // 🔥 23 parameter
                 bookingParams
             );
 
@@ -810,6 +814,7 @@ router.post('/booking', async (req, res) => {
                 status: "SUCCESS",
                 booking_id: newBookingId,
                 internalStatus: currentStatus,
+                source: source,  // 🔥 TAMBAHKAN di response (opsional)
                 ...resData
             });
 
@@ -839,11 +844,15 @@ router.post('/hotel-bookings/draft', async (req, res) => {
     const finalHandlingFee = Math.round(parseFloat(b.handling_fee || b.handlingFee || 0));
     const finalCityId = b.city_id || b.cityId || null;
 
+    // 🔥 TAMBAHKAN: Deteksi source dari request
+    // Prioritas: 1. dari body, 2. dari header, 3. default 'Web'
+    const source = b.source || req.headers['x-app-source'] || 'Web';
+
     try {
         connection = await db.getConnection();
         await connection.beginTransaction();
 
-        console.log(`[DRAFT] Creating booking: ${reservationNo} for ${finalEmail}`);
+        console.log(`[DRAFT] Creating booking: ${reservationNo} for ${finalEmail} from source: ${source}`);
 
         console.log('📝 Insert booking:', {
             reservationNo,
@@ -853,7 +862,8 @@ router.post('/hotel-bookings/draft', async (req, res) => {
             room_id: b.room_id || b.roomID,
             room_type: b.room_type,
             child_num: b.child_num,
-            child_ages: b.child_ages
+            child_ages: b.child_ages,
+            source: source  // 🔥 TAMBAHKAN
         });
 
         // 🔥 SIMPAN DATA ROOM REQUEST LENGKAP
@@ -882,7 +892,8 @@ router.post('/hotel-bookings/draft', async (req, res) => {
             finalRoomType,      // ✅ room_type
             finalChildNum,      // ✅ child_num
             finalChildAges,     // ✅ child_ages
-            'PENDING'
+            'PENDING',
+            source  // 🔥 TAMBAHKAN source
         ];
 
         const [result] = await connection.execute(
@@ -890,15 +901,15 @@ router.post('/hotel-bookings/draft', async (req, res) => {
             (reservation_no, hotel_id, hotel_name, hotel_address, check_in_date, check_out_date, 
              room_id, room_name, breakfast_type, contact_email, contact_phone, 
              total_price, handling_fee, special_requests, username, city_id, internal_code, 
-             room_type, child_num, child_ages, booking_status) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             room_type, child_num, child_ages, booking_status, source) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, 
             bookingValues
         );
 
         console.log('✅ Inserted ID:', result.insertId);
 
         const [check] = await connection.execute(
-            'SELECT id, city_id, hotel_id, room_id, room_type, child_num, child_ages FROM hotel_bookings WHERE id = ?',
+            'SELECT id, city_id, hotel_id, room_id, room_type, child_num, child_ages, source FROM hotel_bookings WHERE id = ?',  // 🔥 TAMBAHKAN source
             [result.insertId]
         );
         console.log('🔍 Result:', check[0]);
@@ -926,7 +937,8 @@ router.post('/hotel-bookings/draft', async (req, res) => {
             status: "Success",
             booking_id: bookingId,
             reservation_no: reservationNo,
-            total_price: finalTotalPrice + finalHandlingFee
+            total_price: finalTotalPrice + finalHandlingFee,
+            source: source  // 🔥 TAMBAHKAN di response (opsional)
         });
 
     } catch (err) {

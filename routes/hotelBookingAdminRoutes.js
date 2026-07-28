@@ -3,24 +3,32 @@ const express = require('express');
 const router = express.Router();
 const hotelBookingAdminController = require('../controllers/hotelBookingAdminController');
 
-// GET /api/hotel-bookings-admin/list?page=1&limit=20&search=&status=&source=&date_from=&date_to=
+// ============================================================
+// ROUTES UNTUK ADMIN DASHBOARD
+// ============================================================
+
+// GET /api/hotel-bookings-admin/list
+// Query params: page, limit, search, status, source, date_from, date_to
 router.get('/list', hotelBookingAdminController.listBookings);
 
 // GET /api/hotel-bookings-admin/:id
+// Detail satu booking
 router.get('/:id', hotelBookingAdminController.getBookingDetail);
 
-module.exports = router;
+// ============================================================
+// 🔥 FITUR GENERATE & RESEND E-TIKET
+// ============================================================
 
-// ============================================================
-// CARA DAFTARKAN DI app.js / server.js:
-//
-// const hotelBookingAdminRoutes = require('./routes/hotelBookingAdminRoutes');
-// app.use('/api/hotel-bookings-admin', hotelBookingAdminRoutes);
-//
-// Contoh pemanggilan dari client:
-//   GET /api/hotel-bookings-admin/list
-//   GET /api/hotel-bookings-admin/list?search=balikpapan&status=Accept
-//   GET /api/hotel-bookings-admin/list?source=web&page=2&limit=10
-//   GET /api/hotel-bookings-admin/list?date_from=2026-07-01&date_to=2026-07-31
-//   GET /api/hotel-bookings-admin/42
-// ============================================================
+// POST /api/hotel-bookings-admin/:id/resend-eticket
+// Body: { email?: string } — opsional, kirim ke email berbeda
+router.post('/:id/resend-eticket', hotelBookingAdminController.resendEticket);
+
+// POST /api/hotel-bookings-admin/generate-pdf/:id
+// Generate PDF untuk download manual
+router.post('/generate-pdf/:id', hotelBookingAdminController.generatePdf);
+
+// POST /api/hotel-bookings-admin/bulk-resend
+// Kirim massal ke banyak booking (untuk admin)
+router.post('/bulk-resend', hotelBookingAdminController.bulkResendEticket);
+
+module.exports = router;
