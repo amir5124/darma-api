@@ -3,35 +3,162 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
 const { processHotelBookingToVendor } = require('../utils/hotelBookingProcessor');
-const { 
-    generatePayment, 
-    checkPaymentStatus, 
-    handlePaymentWebhook,
-    getPaymentStatusFromDB 
-} = require('../utils/paymentHelper');
+const hotelPaymentController = require('../controllers/hotelPaymentController');
 const logger = require('../helpers/darmaSandbox').logger;
 
-// ================================================================
+// ============================================================
 // ENDPOINT 1: CREATE DRAFT BOOKING
-// ================================================================
+// ============================================================
 router.post('/draft', async (req, res) => {
-    // ... (sama seperti sebelumnya)
-    // Kode ini tetap sama seperti yang sudah dibuat
+    let connection;
+    try {
+        const b = req.body;
+        const reservationNo = 'DRF-' + Date.now();
+
+        // Validasi data wajib
+        if (!b.hotel_id && !b.hotelID) {
+            return res.status(400).json({
+                status: "ERROR",
+                message: "hotel_id wajib diisi"
+            });
+        }
+
+        if (!b.room_id && !b.roomID) {
+            return res.status(400).json({
+                status: "ERROR",
+                message: "room_id wajib diisi"
+            });
+        }
+
+        console.log('📝 [DRAFT V2] Creating draft booking:', {
+            reservationNo,
+            hotel_id: b.hotel_id || b.hotelID,
+            room_id: b.room_id || b.roomID,
+            total_price: b.total_price
+        });
+
+        connection = await db.getConnection();
+        await connection.beginTransaction();
+
+        const finalHotelId = b.hotel_id || b.hotelID;
+        const finalRoomId = b.room_id || b.roomID;
+        const finalCityId = b.city_id || b.cityId;
+        const finalInternalCode = b.internal_code || b.internalCode;
+        const finalTotalPrice = Math.round(parseFloat(b.total_price || 0));
+        const finalHandlingFee = Math.round(parseFloat(b.handling_fee || 0));
+        const finalRoomType = b.room_type !== undefined && b.room_type !== null ? parseInt(b.room_type) : 1;
+        const finalChildNum = b.child_num !== undefined && b.child_num !== null ? parseInt(b.child_num) : 0;
+        const finalChildAges = b.child_ages ? JSON.stringify(b.child_ages) : JSON.stringify([0]);
+        const finalSpecialRequests = b.special_requests || b.requestDescription || null;
+        const finalContactEmail = b.contact_email || b.email || "guest@mail.com";
+        const finalContactPhone = b.contact_phone || b.phone || "08123456789";
+        const finalUsername = b.username || 'guest';
+        const finalSource = b.source || 'Web';
+        const finalCommission = b.commission || 0;
+        const finalCheckIn = b.check_in_date || b.checkInDate;
+        const finalCheckOut = b.check_out_date || b.checkOutDate;
+
+        // Insert booking dengan status DRAFT
+        const [result] = await connection.execute(
+            `INSERT INTO hotel_bookings 
+            (
+                reservation_no, hotel_id, hotel_name, hotel_address,
+                check_in_date, check_out_date, room_id, room_name,
+                breakfast_type, contact_email, contact_phone,
+                total_price, handling_fee, special_requests,
+                username, city_id, internal_code,
+                room_type, child_num, child_ages,
+                booking_status, source, commission, booking_date
+            ) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?, NOW())`,
+            [
+                reservationNo,
+                finalHotelId,
+                b.hotel_name || b.hotelName || "Hotel",
+                b.hotel_address || b.hotelAddress || null,
+                finalCheckIn,
+                finalCheckOut,
+                finalRoomId,
+                b.room_name || b.roomName || "Room",
+                b.breakfast_type || b.breakfast || "Room Only",
+                finalContactEmail,
+                finalContactPhone,
+                finalTotalPrice,
+                finalHandlingFee,
+                finalSpecialRequests,
+                finalUsername,
+                finalCityId,
+                finalInternalCode,
+                finalRoomType,
+                finalChildNum,
+                finalChildAges,
+                finalSource,
+                finalCommission
+            ]
+        );
+
+        const bookingId = result.insertId;
+        console.log(`✅ [DRAFT V2] Booking created with ID: ${bookingId}`);
+
+        // Simpan data tamu (paxes)
+        const rawPaxes = b.paxes || (b.roomRequest && b.roomRequest[0]?.paxes) || [];
+        
+        if (Array.isArray(rawPaxes) && rawPaxes.length > 0) {
+            console.log(`👤 [DRAFT V2] Saving ${rawPaxes.length} paxes...`);
+            const paxQuery = `INSERT INTO hotel_booking_paxes (booking_id, title, first_name, last_name, pax_type) VALUES (?, ?, ?, ?, 'ADULT')`;
+            
+            for (const pax of rawPaxes) {
+                const firstName = (pax.firstName || pax.first_name || 'Guest').trim().toUpperCase();
+                const lastName = (pax.lastName || pax.last_name || '').trim().toUpperCase();
+                const title = (pax.title || 'Mr.').trim();
+                
+                await connection.execute(paxQuery, [
+                    bookingId,
+                    title,
+                    firstName,
+                    lastName
+                ]);
+            }
+        }
+
+        await connection.commit();
+        console.log(`✅ [DRAFT V2] Booking ${bookingId} saved successfully`);
+
+        res.json({
+            status: "SUCCESS",
+            booking_id: bookingId,
+            reservation_no: reservationNo,
+            total_price: finalTotalPrice + finalHandlingFee,
+            source: finalSource,
+            message: "Draft booking created. Please proceed to payment."
+        });
+
+    } catch (error) {
+        if (connection) await connection.rollback();
+        console.error("❌ [DRAFT V2 ERROR]:", error.message);
+        console.error("❌ [DRAFT V2 STACK]:", error.stack);
+        res.status(500).json({
+            status: "ERROR",
+            message: error.message || "Gagal membuat draft booking"
+        });
+    } finally {
+        if (connection) connection.release();
+    }
 });
 
-// ================================================================
-// ENDPOINT 2: CREATE PAYMENT (menggunakan paymentHelper)
-// ================================================================
+// ============================================================
+// ENDPOINT 2: CREATE PAYMENT (panggil controller yang sudah ada)
+// ============================================================
 router.post('/:bookingId/create-payment', async (req, res) => {
     try {
         const { bookingId } = req.params;
         const { method, bank_code, admin_fee_applied } = req.body;
 
-        // 1. Ambil data booking
+        // Ambil data booking
         const connection = await db.getConnection();
         const [rows] = await connection.execute(
             `SELECT id, total_price, handling_fee, contact_email, contact_phone, 
-                    username, hotel_name, reservation_no
+                    username, hotel_name, reservation_no, booking_status
              FROM hotel_bookings WHERE id = ?`,
             [bookingId]
         );
@@ -46,7 +173,7 @@ router.post('/:bookingId/create-payment', async (req, res) => {
 
         const booking = rows[0];
 
-        // 2. Validasi status booking
+        // Validasi status booking
         if (booking.booking_status !== 'DRAFT') {
             return res.status(400).json({
                 status: "ERROR",
@@ -54,30 +181,34 @@ router.post('/:bookingId/create-payment', async (req, res) => {
             });
         }
 
-        // 3. Hitung total
+        // Hitung total
         const totalAmount = Math.round(booking.total_price + booking.handling_fee);
 
-        // 4. Generate payment via LinkQu
-        const paymentResult = await generatePayment({
-            booking_id: bookingId,
-            amount: totalAmount,
-            customer_name: booking.username || 'Guest',
-            customer_phone: booking.contact_phone,
-            customer_email: booking.contact_email,
-            method: method || 'QRIS',
-            bank_code: bank_code || null,
-            admin_fee_applied: admin_fee_applied || 0
-        });
+        // Panggil controller payment yang sudah ada
+        const mockReq = {
+            body: {
+                booking_id: parseInt(bookingId),
+                amount: totalAmount,
+                customer_name: booking.username || 'Guest',
+                customer_phone: booking.contact_phone,
+                customer_email: booking.contact_email,
+                method: method || 'QRIS',
+                bank_code: bank_code || null,
+                admin_fee_applied: admin_fee_applied || 0
+            }
+        };
 
-        // 5. Return response
-        res.json({
-            status: "SUCCESS",
-            booking_id: bookingId,
-            ...paymentResult
-        });
+        const mockRes = {
+            json: (data) => res.json(data),
+            status: (code) => ({
+                json: (data) => res.status(code).json(data)
+            })
+        };
+
+        await hotelPaymentController.createPayment(mockReq, mockRes);
 
     } catch (error) {
-        logger.error('[CREATE PAYMENT V2] Error:', error.message);
+        console.error("❌ [CREATE PAYMENT V2] Error:", error.message);
         res.status(500).json({ 
             status: "ERROR", 
             message: error.message 
@@ -85,22 +216,25 @@ router.post('/:bookingId/create-payment', async (req, res) => {
     }
 });
 
-// ================================================================
-// ENDPOINT 3: CHECK PAYMENT STATUS (polling)
-// ================================================================
+// ============================================================
+// ENDPOINT 3: CHECK PAYMENT STATUS
+// ============================================================
 router.get('/payment-status/:reff', async (req, res) => {
     try {
         const { reff } = req.params;
 
-        const result = await checkPaymentStatus(reff);
+        const mockReq = { params: { reff } };
+        const mockRes = {
+            json: (data) => res.json(data),
+            status: (code) => ({
+                json: (data) => res.status(code).json(data)
+            })
+        };
 
-        res.json({
-            status: "SUCCESS",
-            ...result
-        });
+        await hotelPaymentController.checkStatus(mockReq, mockRes);
 
     } catch (error) {
-        logger.error('[CHECK PAYMENT STATUS] Error:', error.message);
+        console.error("❌ [CHECK PAYMENT V2] Error:", error.message);
         res.status(500).json({ 
             status: "ERROR", 
             message: error.message 
@@ -108,29 +242,14 @@ router.get('/payment-status/:reff', async (req, res) => {
     }
 });
 
-// ================================================================
-// ENDPOINT 4: WEBHOOK (LinkQu Callback)
-// ================================================================
+// ============================================================
+// ENDPOINT 4: WEBHOOK (callback dari payment)
+// ============================================================
 router.post('/payment-webhook', async (req, res) => {
     try {
-        logger.info(`📥 [WEBHOOK V2] Received:`, JSON.stringify(req.body, null, 2));
-
-        const result = await handlePaymentWebhook(req.body);
-
-        if (result.success) {
-            res.json({ 
-                status: "SUCCESS", 
-                message: "Webhook processed" 
-            });
-        } else {
-            res.status(400).json({ 
-                status: "ERROR", 
-                message: result.message 
-            });
-        }
-
+        await hotelPaymentController.handleCallback(req, res);
     } catch (error) {
-        logger.error('[WEBHOOK V2] Error:', error.message);
+        console.error("❌ [WEBHOOK V2] Error:", error.message);
         res.status(500).json({ 
             status: "ERROR", 
             message: error.message 
@@ -138,9 +257,9 @@ router.post('/payment-webhook', async (req, res) => {
     }
 });
 
-// ================================================================
-// ENDPOINT 5: CONFIRM BOOKING (manual trigger)
-// ================================================================
+// ============================================================
+// ENDPOINT 5: CONFIRM BOOKING (trigger ke vendor)
+// ============================================================
 router.post('/:bookingId/confirm', async (req, res) => {
     let connection;
     try {
@@ -149,7 +268,6 @@ router.post('/:bookingId/confirm', async (req, res) => {
 
         connection = await db.getConnection();
 
-        // 1. Cek status booking
         const [rows] = await connection.execute(
             `SELECT id, booking_status, payment_status FROM hotel_bookings WHERE id = ?`,
             [bookingId]
@@ -164,7 +282,6 @@ router.post('/:bookingId/confirm', async (req, res) => {
 
         const booking = rows[0];
 
-        // 2. Validasi: harus DRAFT atau PAID
         if (!['DRAFT', 'PAID'].includes(booking.booking_status)) {
             return res.status(400).json({
                 status: "ERROR",
@@ -172,7 +289,6 @@ router.post('/:bookingId/confirm', async (req, res) => {
             });
         }
 
-        // 3. Update payment info
         if (payment_reference) {
             await connection.execute(
                 `UPDATE hotel_bookings SET 
@@ -185,12 +301,11 @@ router.post('/:bookingId/confirm', async (req, res) => {
             );
         }
 
-        // 4. 🔥 PROSES KE VENDOR menggunakan hotelBookingProcessor
-        logger.info(`[CONFIRM V2] 🔥 Processing booking ${bookingId} to vendor...`);
-        
-        const result = await processHotelBookingToVendor(bookingId);
-        
         connection.release();
+
+        // Proses ke vendor
+        logger.info(`[CONFIRM V2] 🔥 Processing booking ${bookingId} to vendor...`);
+        const result = await processHotelBookingToVendor(bookingId);
 
         return res.json({
             status: "SUCCESS",
@@ -201,7 +316,7 @@ router.post('/:bookingId/confirm', async (req, res) => {
 
     } catch (error) {
         if (connection) connection.release();
-        logger.error(`[CONFIRM V2 ERROR]: ${error.message}`);
+        console.error("❌ [CONFIRM V2] Error:", error.message);
         return res.status(500).json({
             status: "ERROR",
             message: error.message
@@ -209,9 +324,9 @@ router.post('/:bookingId/confirm', async (req, res) => {
     }
 });
 
-// ================================================================
+// ============================================================
 // ENDPOINT 6: GET BOOKING STATUS (untuk polling)
-// ================================================================
+// ============================================================
 router.get('/:bookingId/status', async (req, res) => {
     let connection;
     try {
@@ -271,7 +386,7 @@ router.get('/:bookingId/status', async (req, res) => {
 
     } catch (error) {
         if (connection) connection.release();
-        logger.error(`[STATUS V2 ERROR]: ${error.message}`);
+        console.error("❌ [STATUS V2] Error:", error.message);
         return res.status(500).json({ 
             status: "ERROR", 
             message: error.message 
