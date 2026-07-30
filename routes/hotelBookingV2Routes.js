@@ -7,6 +7,34 @@ const hotelPaymentController = require('../controllers/hotelPaymentController');
 const logger = require('../helpers/darmaSandbox').logger;
 
 // ============================================================
+// HELPER: Format tanggal untuk MySQL (sama seperti di hotelRoutes.js)
+// ============================================================
+function formatDateForMySQL(dateStr) {
+    if (!dateStr) return null;
+    
+    // Jika sudah dalam format YYYY-MM-DD, langsung return
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        return dateStr;
+    }
+    
+    try {
+        // Buat objek Date dari string
+        const date = new Date(dateStr);
+        if (isNaN(date.getTime())) {
+            // Coba format lain
+            const parsed = new Date(dateStr.replace('Z', ''));
+            if (isNaN(parsed.getTime())) return null;
+            return parsed.toISOString().split('T')[0];
+        }
+        // Return YYYY-MM-DD
+        return date.toISOString().split('T')[0];
+    } catch (e) {
+        console.warn('⚠️ [DATE FORMAT] Gagal parse:', dateStr, e.message);
+        return null;
+    }
+}
+
+// ============================================================
 // ENDPOINT 1: CREATE DRAFT BOOKING
 // ============================================================
 router.post('/draft', async (req, res) => {
@@ -30,11 +58,33 @@ router.post('/draft', async (req, res) => {
             });
         }
 
+        // ============================================================
+        // 🔥 FORMAT TANGGAL - SAMA SEPERTI DI hotelRoutes.js
+        // ============================================================
+        const checkInDate = formatDateForMySQL(b.check_in_date || b.checkInDate);
+        const checkOutDate = formatDateForMySQL(b.check_out_date || b.checkOutDate);
+
+        if (!checkInDate || !checkOutDate) {
+            return res.status(400).json({
+                status: "ERROR",
+                message: "Tanggal check-in dan check-out wajib diisi dengan format yang benar (YYYY-MM-DD)"
+            });
+        }
+
+        console.log('📅 [DRAFT V2] Formatted dates:', {
+            originalCheckIn: b.check_in_date || b.checkInDate,
+            formattedCheckIn: checkInDate,
+            originalCheckOut: b.check_out_date || b.checkOutDate,
+            formattedCheckOut: checkOutDate
+        });
+
         console.log('📝 [DRAFT V2] Creating draft booking:', {
             reservationNo,
             hotel_id: b.hotel_id || b.hotelID,
             room_id: b.room_id || b.roomID,
-            total_price: b.total_price
+            total_price: b.total_price,
+            checkInDate,
+            checkOutDate
         });
 
         connection = await db.getConnection();
@@ -55,10 +105,10 @@ router.post('/draft', async (req, res) => {
         const finalUsername = b.username || 'guest';
         const finalSource = b.source || 'Web';
         const finalCommission = b.commission || 0;
-        const finalCheckIn = b.check_in_date || b.checkInDate;
-        const finalCheckOut = b.check_out_date || b.checkOutDate;
 
-        // Insert booking dengan status DRAFT
+        // ============================================================
+        // 🔥 INSERT QUERY - SAMA SEPERTI DI hotelRoutes.js
+        // ============================================================
         const [result] = await connection.execute(
             `INSERT INTO hotel_bookings 
             (
@@ -76,8 +126,8 @@ router.post('/draft', async (req, res) => {
                 finalHotelId,
                 b.hotel_name || b.hotelName || "Hotel",
                 b.hotel_address || b.hotelAddress || null,
-                finalCheckIn,
-                finalCheckOut,
+                checkInDate,   // ✅ FORMAT YYYY-MM-DD (sama seperti di hotelRoutes)
+                checkOutDate,  // ✅ FORMAT YYYY-MM-DD (sama seperti di hotelRoutes)
                 finalRoomId,
                 b.room_name || b.roomName || "Room",
                 b.breakfast_type || b.breakfast || "Room Only",
@@ -100,7 +150,9 @@ router.post('/draft', async (req, res) => {
         const bookingId = result.insertId;
         console.log(`✅ [DRAFT V2] Booking created with ID: ${bookingId}`);
 
-        // Simpan data tamu (paxes)
+        // ============================================================
+        // SIMPAN DATA TAMU (PAXES) - SAMA SEPERTI DI hotelRoutes.js
+        // ============================================================
         const rawPaxes = b.paxes || (b.roomRequest && b.roomRequest[0]?.paxes) || [];
         
         if (Array.isArray(rawPaxes) && rawPaxes.length > 0) {
