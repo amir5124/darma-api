@@ -37,6 +37,8 @@ var adminRoutes = require('./routes/adminRoutes');
 
 var hotelBookingAdminRoutes = require('./routes/hotelBookingAdminRoutes');
 
+var hotelBookingV2Routes = require('./routes/hotelBookingV2Routes');
+
 var app = express(); // Middleware
 
 app.use(express.json());
@@ -66,6 +68,7 @@ app.use('/api/pay/ship', shipPaymentRoutes);
 app.use('/api/dlu-payments', dluPaymentRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/hotel-bookings-admin', hotelBookingAdminRoutes);
+app.use('/api/hotel-booking-v2', hotelBookingV2Routes);
 var PORT = 3000;
 app.listen(PORT, function () {
   logger.success("=============================================");
