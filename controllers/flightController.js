@@ -1,5 +1,6 @@
-const db = require('../config/db'); // Sesuaikan path jika db.js ada di folder root atau config
-const { sendBookingEmail } = require('../utils/mailer'); 
+// flightController.js
+const db = require('../config/db');
+const { sendBookingEmail } = require('../utils/mailer');
 
 /**
  * Mendapatkan riwayat booking sederhana
@@ -9,7 +10,20 @@ exports.getMyBookings = async (req, res) => {
     try {
         const [rows] = await db.execute(
             `SELECT b.*, 
-             (SELECT COUNT(*) FROM passengers p WHERE p.booking_id = b.id) as total_pax
+             (SELECT COUNT(*) FROM passengers p WHERE p.booking_id = b.id) as total_pax,
+             (SELECT JSON_ARRAYAGG(
+                JSON_OBJECT(
+                    'id', p.id,
+                    'title', p.title,
+                    'first_name', p.first_name,
+                    'last_name', p.last_name,
+                    'pax_type', p.pax_type,
+                    'phone', p.phone,
+                    'id_number', p.id_number,
+                    'birth_date', p.birth_date
+                )
+                ORDER BY p.id ASC
+             ) FROM passengers p WHERE p.booking_id = b.id) as passengers
              FROM bookings b 
              WHERE b.pengguna = ? 
              ORDER BY b.created_at DESC`,
@@ -44,42 +58,41 @@ exports.saveBooking = async (req, res) => {
 
         const finalAdminFee = payload.admin_fee || 0; 
 
-const finalTotalPrice = response.ticketPrice || response.totalPrice || payload.totalPrice || 0;
-const finalSalesPrice = response.salesPrice || 0;
+        const finalTotalPrice = response.ticketPrice || response.totalPrice || payload.totalPrice || 0;
+        const finalSalesPrice = response.salesPrice || 0;
 
-
-const [resBooking] = await connection.execute(
-    `INSERT INTO bookings (
-        booking_code, reference_no, airline_id, airline_name, 
-        trip_type, origin, destination, origin_port, destination_port,
-        depart_date, ticket_status, total_price, sales_price, 
-        admin_fee, 
-        time_limit, 
-        user_id, pengguna, access_token, payload_request, raw_response
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, // Tambah satu tanda tanya (?)
-    [
-        response.bookingCode || response.booking_code,
-        response.referenceNo || response.reference_no,
-        payload.airlineID || response.airline_name,
-        payload.airlineName || payload.airlineID || response.airline_name,
-        payload.tripType || "OneWay",
-        payload.origin,
-        payload.destination,
-        response.origin || payload.origin_port || null,
-        response.destination || payload.destination_port || null,
-        formatDBDate(payload.departDate || response.depart_date),
-        response.ticketStatus || response.ticket_status || "HOLD",
-        finalTotalPrice,
-        finalSalesPrice,
-        finalAdminFee, 
-        formatDBDate(response.timeLimit || response.time_limit),
-        response.userID || payload.userID,
-        username || 'Guest',
-        payload.accessToken,
-        JSON.stringify(payload),
-        JSON.stringify(response)
-    ]
-);
+        const [resBooking] = await connection.execute(
+            `INSERT INTO bookings (
+                booking_code, reference_no, airline_id, airline_name, 
+                trip_type, origin, destination, origin_port, destination_port,
+                depart_date, ticket_status, total_price, sales_price, 
+                admin_fee, 
+                time_limit, 
+                user_id, pengguna, access_token, payload_request, raw_response
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                response.bookingCode || response.booking_code,
+                response.referenceNo || response.reference_no,
+                payload.airlineID || response.airline_name,
+                payload.airlineName || payload.airlineID || response.airline_name,
+                payload.tripType || "OneWay",
+                payload.origin,
+                payload.destination,
+                response.origin || payload.origin_port || null,
+                response.destination || payload.destination_port || null,
+                formatDBDate(payload.departDate || response.depart_date),
+                response.ticketStatus || response.ticket_status || "HOLD",
+                finalTotalPrice,
+                finalSalesPrice,
+                finalAdminFee, 
+                formatDBDate(response.timeLimit || response.time_limit),
+                response.userID || payload.userID,
+                username || 'Guest',
+                payload.accessToken,
+                JSON.stringify(payload),
+                JSON.stringify(response)
+            ]
+        );
 
         const bookingId = resBooking.insertId;
 
@@ -117,7 +130,6 @@ const [resBooking] = await connection.execute(
         }
 
         // --- C. SIMPAN ITINERARY (flight_itinerary) ---
-        // Logika Fallback: Cek response.flightDeparts dulu, jika kosong cek payload.schDeparts
         const itineraryData = (response.flightDeparts && response.flightDeparts.length > 0) 
             ? response.flightDeparts 
             : (payload.schDeparts || []);
@@ -161,8 +173,7 @@ const [resBooking] = await connection.execute(
 };
 
 /**
- * 2. AMBIL RIWAYAT BOOKING PENGGUNA
- * Menggabungkan data dari 3 tabel agar informasi jam dan penumpang lengkap
+ * 2. AMBIL RIWAYAT BOOKING PENGGUNA (LENGKAP DENGAN SEMUA PENUMPANG)
  */
 exports.getBookingPengguna = async (req, res) => {
     const { username } = req.params;
@@ -177,20 +188,58 @@ exports.getBookingPengguna = async (req, res) => {
     try {
         const query = `
             SELECT 
-                b.id AS booking_id, b.booking_code, b.booking_code AS bookingCodeAirline,
-                b.reference_no, b.airline_name, UPPER(b.ticket_status) AS ticket_status,
-                b.total_price, b.sales_price, b.time_limit, b.depart_date,
-                b.origin AS origin_code, b.destination AS destination_code,
-                b.origin_port, b.destination_port,
-                b.access_token AS accessToken, b.payload_request,
-                i.flight_number, i.origin, i.destination, i.depart_time, i.arrival_time, i.flight_class,
-                p.first_name AS main_pax_first, p.last_name AS main_pax_last,
+                b.id AS booking_id, 
+                b.booking_code, 
+                b.booking_code AS bookingCodeAirline,
+                b.reference_no, 
+                b.airline_name, 
+                UPPER(b.ticket_status) AS ticket_status,
+                b.total_price, 
+                b.sales_price, 
+                b.time_limit, 
+                b.depart_date,
+                b.origin AS origin_code, 
+                b.destination AS destination_code,
+                b.origin_port, 
+                b.destination_port,
+                b.access_token AS accessToken, 
+                b.payload_request,
+                i.flight_number, 
+                i.origin, 
+                i.destination, 
+                i.depart_time, 
+                i.arrival_time, 
+                i.flight_class,
+                -- 🔥 SEMUA PENUMPANG (JSON ARRAY)
+                (
+                    SELECT JSON_ARRAYAGG(
+                        JSON_OBJECT(
+                            'id', p.id,
+                            'title', p.title,
+                            'first_name', p.first_name,
+                            'last_name', p.last_name,
+                            'pax_type', p.pax_type,
+                            'phone', p.phone,
+                            'id_number', p.id_number,
+                            'birth_date', p.birth_date
+                        )
+                        ORDER BY p.id ASC
+                    )
+                    FROM passengers p 
+                    WHERE p.booking_id = b.id
+                ) AS passengers,
+                -- 🔥 MAIN PAX (PENUMPANG UTAMA)
+                (
+                    SELECT CONCAT(p.title, ' ', p.first_name, ' ', p.last_name) 
+                    FROM passengers p 
+                    WHERE p.booking_id = b.id 
+                    ORDER BY p.id ASC 
+                    LIMIT 1
+                ) AS main_pax_name,
+                -- 🔥 TOTAL PENUMPANG
                 (SELECT COUNT(*) FROM passengers WHERE booking_id = b.id) AS total_pax
             FROM bookings b
             LEFT JOIN flight_itinerary i ON b.id = i.booking_id
-            LEFT JOIN passengers p ON b.id = p.booking_id AND p.id = (
-                SELECT MIN(id) FROM passengers WHERE booking_id = b.id
-            )
             WHERE b.pengguna = ? 
             ORDER BY b.created_at DESC
         `;
@@ -201,7 +250,6 @@ exports.getBookingPengguna = async (req, res) => {
             const now = new Date();
             const limit = item.time_limit ? new Date(item.time_limit) : null;
 
-            // Fungsi format jam agar seragam HH:mm
             const formatTime = (dateStr) => {
                 if (!dateStr) return '--:--';
                 const d = new Date(dateStr);
@@ -214,7 +262,6 @@ exports.getBookingPengguna = async (req, res) => {
 
             return {
                 ...item,
-                // Logika UI: Nama Port (Jakarta) > Kode Bandara (CGK)
                 origin: item.origin_port || item.origin || item.origin_code,
                 destination: item.destination_port || item.destination || item.destination_code,
                 ticket_status: status,
@@ -228,9 +275,149 @@ exports.getBookingPengguna = async (req, res) => {
             };
         });
 
-        res.status(200).json({ status: 'SUCCESS', results: historyData.length, data: historyData });
+        res.status(200).json({ 
+            status: 'SUCCESS', 
+            results: historyData.length, 
+            data: historyData 
+        });
     } catch (error) {
         console.error("❌ Error GetBookingPengguna:", error);
         res.status(500).json({ status: 'ERROR', message: 'Gagal memuat data riwayat' });
+    }
+};
+
+/**
+ * 3. GET DETAIL BOOKING BY ID (LENGKAP DENGAN SEMUA PENUMPANG)
+ */
+exports.getBookingDetail = async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const [rows] = await db.execute(
+            `SELECT 
+                b.*,
+                (b.total_price + b.admin_fee - b.discount) as total_payment,
+                (
+                    SELECT JSON_ARRAYAGG(
+                        JSON_OBJECT(
+                            'id', p.id,
+                            'title', p.title,
+                            'first_name', p.first_name,
+                            'last_name', p.last_name,
+                            'pax_type', p.pax_type,
+                            'phone', p.phone,
+                            'id_number', p.id_number,
+                            'birth_date', p.birth_date
+                        )
+                        ORDER BY p.id ASC
+                    )
+                    FROM passengers p 
+                    WHERE p.booking_id = b.id
+                ) AS passengers,
+                (
+                    SELECT JSON_ARRAYAGG(
+                        JSON_OBJECT(
+                            'id', i.id,
+                            'category', i.category,
+                            'flight_number', i.flight_number,
+                            'origin', i.origin,
+                            'destination', i.destination,
+                            'depart_time', i.depart_time,
+                            'arrival_time', i.arrival_time,
+                            'flight_class', i.flight_class
+                        )
+                        ORDER BY i.id ASC
+                    )
+                    FROM flight_itinerary i 
+                    WHERE i.booking_id = b.id
+                ) AS itinerary,
+                (SELECT COUNT(*) FROM passengers WHERE booking_id = b.id) AS total_pax,
+                (
+                    SELECT CONCAT(p.title, ' ', p.first_name, ' ', p.last_name) 
+                    FROM passengers p 
+                    WHERE p.booking_id = b.id 
+                    ORDER BY p.id ASC 
+                    LIMIT 1
+                ) AS main_pax_name
+             FROM bookings b 
+             WHERE b.id = ?`,
+            [id]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).json({
+                status: 'ERROR',
+                message: 'Booking tidak ditemukan'
+            });
+        }
+
+        res.status(200).json({
+            status: 'SUCCESS',
+            data: rows[0]
+        });
+
+    } catch (error) {
+        console.error("❌ Error GetBookingDetail:", error);
+        res.status(500).json({ 
+            status: 'ERROR', 
+            message: 'Gagal memuat detail booking' 
+        });
+    }
+};
+
+/**
+ * 4. GET BOOKINGS BY EMAIL (LENGKAP DENGAN SEMUA PENUMPANG)
+ */
+exports.getBookingsByEmail = async (req, res) => {
+    const { email } = req.params;
+
+    try {
+        const [rows] = await db.execute(
+            `SELECT 
+                b.*,
+                (b.total_price + b.admin_fee - b.discount) as total_payment,
+                (
+                    SELECT JSON_ARRAYAGG(
+                        JSON_OBJECT(
+                            'id', p.id,
+                            'title', p.title,
+                            'first_name', p.first_name,
+                            'last_name', p.last_name,
+                            'pax_type', p.pax_type,
+                            'phone', p.phone,
+                            'id_number', p.id_number,
+                            'birth_date', p.birth_date
+                        )
+                        ORDER BY p.id ASC
+                    )
+                    FROM passengers p 
+                    WHERE p.booking_id = b.id
+                ) AS passengers,
+                (SELECT COUNT(*) FROM passengers WHERE booking_id = b.id) AS total_pax,
+                (
+                    SELECT CONCAT(p.title, ' ', p.first_name, ' ', p.last_name) 
+                    FROM passengers p 
+                    WHERE p.booking_id = b.id 
+                    ORDER BY p.id ASC 
+                    LIMIT 1
+                ) AS main_pax_name
+             FROM bookings b 
+             WHERE b.customer_email = ? 
+             ORDER BY b.created_at DESC`,
+            [email]
+        );
+
+        res.status(200).json({
+            status: 'SUCCESS',
+            results: rows.length,
+            data: rows
+        });
+
+    } catch (error) {
+        console.error("❌ Error GetBookingsByEmail:", error);
+        res.status(500).json({ 
+            status: 'ERROR', 
+            message: 'Gagal memuat data booking' 
+        });
     }
 };

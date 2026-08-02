@@ -14,8 +14,8 @@ function _iterableToArrayLimit(arr, i) { if (!(Symbol.iterator in Object(arr) ||
 
 function _arrayWithHoles(arr) { if (Array.isArray(arr)) return arr; }
 
-var db = require('../config/db'); // Sesuaikan path jika db.js ada di folder root atau config
-
+// flightController.js
+var db = require('../config/db');
 
 var _require = require('../utils/mailer'),
     sendBookingEmail = _require.sendBookingEmail;
@@ -34,7 +34,7 @@ exports.getMyBookings = function _callee(req, res) {
           username = req.params.username;
           _context.prev = 1;
           _context.next = 4;
-          return regeneratorRuntime.awrap(db.execute("SELECT b.*, \n             (SELECT COUNT(*) FROM passengers p WHERE p.booking_id = b.id) as total_pax\n             FROM bookings b \n             WHERE b.pengguna = ? \n             ORDER BY b.created_at DESC", [username]));
+          return regeneratorRuntime.awrap(db.execute("SELECT b.*, \n             (SELECT COUNT(*) FROM passengers p WHERE p.booking_id = b.id) as total_pax,\n             (SELECT JSON_ARRAYAGG(\n                JSON_OBJECT(\n                    'id', p.id,\n                    'title', p.title,\n                    'first_name', p.first_name,\n                    'last_name', p.last_name,\n                    'pax_type', p.pax_type,\n                    'phone', p.phone,\n                    'id_number', p.id_number,\n                    'birth_date', p.birth_date\n                )\n                ORDER BY p.id ASC\n             ) FROM passengers p WHERE p.booking_id = b.id) as passengers\n             FROM bookings b \n             WHERE b.pengguna = ? \n             ORDER BY b.created_at DESC", [username]));
 
         case 4:
           _ref = _context.sent;
@@ -104,8 +104,7 @@ exports.saveBooking = function _callee2(req, res) {
           finalTotalPrice = response.ticketPrice || response.totalPrice || payload.totalPrice || 0;
           finalSalesPrice = response.salesPrice || 0;
           _context2.next = 16;
-          return regeneratorRuntime.awrap(connection.execute("INSERT INTO bookings (\n        booking_code, reference_no, airline_id, airline_name, \n        trip_type, origin, destination, origin_port, destination_port,\n        depart_date, ticket_status, total_price, sales_price, \n        admin_fee, \n        time_limit, \n        user_id, pengguna, access_token, payload_request, raw_response\n    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", // Tambah satu tanda tanya (?)
-          [response.bookingCode || response.booking_code, response.referenceNo || response.reference_no, payload.airlineID || response.airline_name, payload.airlineName || payload.airlineID || response.airline_name, payload.tripType || "OneWay", payload.origin, payload.destination, response.origin || payload.origin_port || null, response.destination || payload.destination_port || null, formatDBDate(payload.departDate || response.depart_date), response.ticketStatus || response.ticket_status || "HOLD", finalTotalPrice, finalSalesPrice, finalAdminFee, formatDBDate(response.timeLimit || response.time_limit), response.userID || payload.userID, username || 'Guest', payload.accessToken, JSON.stringify(payload), JSON.stringify(response)]));
+          return regeneratorRuntime.awrap(connection.execute("INSERT INTO bookings (\n                booking_code, reference_no, airline_id, airline_name, \n                trip_type, origin, destination, origin_port, destination_port,\n                depart_date, ticket_status, total_price, sales_price, \n                admin_fee, \n                time_limit, \n                user_id, pengguna, access_token, payload_request, raw_response\n            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [response.bookingCode || response.booking_code, response.referenceNo || response.reference_no, payload.airlineID || response.airline_name, payload.airlineName || payload.airlineID || response.airline_name, payload.tripType || "OneWay", payload.origin, payload.destination, response.origin || payload.origin_port || null, response.destination || payload.destination_port || null, formatDBDate(payload.departDate || response.depart_date), response.ticketStatus || response.ticket_status || "HOLD", finalTotalPrice, finalSalesPrice, finalAdminFee, formatDBDate(response.timeLimit || response.time_limit), response.userID || payload.userID, username || 'Guest', payload.accessToken, JSON.stringify(payload), JSON.stringify(response)]));
 
         case 16:
           _ref3 = _context2.sent;
@@ -241,7 +240,6 @@ exports.saveBooking = function _callee2(req, res) {
 
         case 78:
           // --- C. SIMPAN ITINERARY (flight_itinerary) ---
-          // Logika Fallback: Cek response.flightDeparts dulu, jika kosong cek payload.schDeparts
           itineraryData = response.flightDeparts && response.flightDeparts.length > 0 ? response.flightDeparts : payload.schDeparts || [];
           _iteratorNormalCompletion3 = true;
           _didIteratorError3 = false;
@@ -342,8 +340,7 @@ exports.saveBooking = function _callee2(req, res) {
   }, null, null, [[7, 110, 117, 120], [24, 66, 70, 78], [38, 49, 53, 61], [54,, 56, 60], [71,, 73, 77], [82, 93, 97, 105], [98,, 100, 104]]);
 };
 /**
- * 2. AMBIL RIWAYAT BOOKING PENGGUNA
- * Menggabungkan data dari 3 tabel agar informasi jam dan penumpang lengkap
+ * 2. AMBIL RIWAYAT BOOKING PENGGUNA (LENGKAP DENGAN SEMUA PENUMPANG)
  */
 
 
@@ -370,7 +367,7 @@ exports.getBookingPengguna = function _callee3(req, res) {
 
         case 3:
           _context3.prev = 3;
-          query = "\n            SELECT \n                b.id AS booking_id, b.booking_code, b.booking_code AS bookingCodeAirline,\n                b.reference_no, b.airline_name, UPPER(b.ticket_status) AS ticket_status,\n                b.total_price, b.sales_price, b.time_limit, b.depart_date,\n                b.origin AS origin_code, b.destination AS destination_code,\n                b.origin_port, b.destination_port,\n                b.access_token AS accessToken, b.payload_request,\n                i.flight_number, i.origin, i.destination, i.depart_time, i.arrival_time, i.flight_class,\n                p.first_name AS main_pax_first, p.last_name AS main_pax_last,\n                (SELECT COUNT(*) FROM passengers WHERE booking_id = b.id) AS total_pax\n            FROM bookings b\n            LEFT JOIN flight_itinerary i ON b.id = i.booking_id\n            LEFT JOIN passengers p ON b.id = p.booking_id AND p.id = (\n                SELECT MIN(id) FROM passengers WHERE booking_id = b.id\n            )\n            WHERE b.pengguna = ? \n            ORDER BY b.created_at DESC\n        ";
+          query = "\n            SELECT \n                b.id AS booking_id, \n                b.booking_code, \n                b.booking_code AS bookingCodeAirline,\n                b.reference_no, \n                b.airline_name, \n                UPPER(b.ticket_status) AS ticket_status,\n                b.total_price, \n                b.sales_price, \n                b.time_limit, \n                b.depart_date,\n                b.origin AS origin_code, \n                b.destination AS destination_code,\n                b.origin_port, \n                b.destination_port,\n                b.access_token AS accessToken, \n                b.payload_request,\n                i.flight_number, \n                i.origin, \n                i.destination, \n                i.depart_time, \n                i.arrival_time, \n                i.flight_class,\n                -- \uD83D\uDD25 SEMUA PENUMPANG (JSON ARRAY)\n                (\n                    SELECT JSON_ARRAYAGG(\n                        JSON_OBJECT(\n                            'id', p.id,\n                            'title', p.title,\n                            'first_name', p.first_name,\n                            'last_name', p.last_name,\n                            'pax_type', p.pax_type,\n                            'phone', p.phone,\n                            'id_number', p.id_number,\n                            'birth_date', p.birth_date\n                        )\n                        ORDER BY p.id ASC\n                    )\n                    FROM passengers p \n                    WHERE p.booking_id = b.id\n                ) AS passengers,\n                -- \uD83D\uDD25 MAIN PAX (PENUMPANG UTAMA)\n                (\n                    SELECT CONCAT(p.title, ' ', p.first_name, ' ', p.last_name) \n                    FROM passengers p \n                    WHERE p.booking_id = b.id \n                    ORDER BY p.id ASC \n                    LIMIT 1\n                ) AS main_pax_name,\n                -- \uD83D\uDD25 TOTAL PENUMPANG\n                (SELECT COUNT(*) FROM passengers WHERE booking_id = b.id) AS total_pax\n            FROM bookings b\n            LEFT JOIN flight_itinerary i ON b.id = i.booking_id\n            WHERE b.pengguna = ? \n            ORDER BY b.created_at DESC\n        ";
           _context3.next = 7;
           return regeneratorRuntime.awrap(db.execute(query, [username]));
 
@@ -380,7 +377,7 @@ exports.getBookingPengguna = function _callee3(req, res) {
           rows = _ref8[0];
           historyData = rows.map(function (item) {
             var now = new Date();
-            var limit = item.time_limit ? new Date(item.time_limit) : null; // Fungsi format jam agar seragam HH:mm
+            var limit = item.time_limit ? new Date(item.time_limit) : null;
 
             var formatTime = function formatTime(dateStr) {
               if (!dateStr) return '--:--';
@@ -396,7 +393,6 @@ exports.getBookingPengguna = function _callee3(req, res) {
             var isTicketed = status === 'TICKETED';
             var isExpired = !isTicketed && limit ? now > limit : false;
             return _objectSpread({}, item, {
-              // Logika UI: Nama Port (Jakarta) > Kode Bandara (CGK)
               origin: item.origin_port || item.origin || item.origin_code,
               destination: item.destination_port || item.destination || item.destination_code,
               ticket_status: status,
@@ -436,4 +432,105 @@ exports.getBookingPengguna = function _callee3(req, res) {
       }
     }
   }, null, null, [[3, 14]]);
+};
+/**
+ * 3. GET DETAIL BOOKING BY ID (LENGKAP DENGAN SEMUA PENUMPANG)
+ */
+
+
+exports.getBookingDetail = function _callee4(req, res) {
+  var id, _ref9, _ref10, rows;
+
+  return regeneratorRuntime.async(function _callee4$(_context4) {
+    while (1) {
+      switch (_context4.prev = _context4.next) {
+        case 0:
+          id = req.params.id;
+          _context4.prev = 1;
+          _context4.next = 4;
+          return regeneratorRuntime.awrap(db.execute("SELECT \n                b.*,\n                (b.total_price + b.admin_fee - b.discount) as total_payment,\n                (\n                    SELECT JSON_ARRAYAGG(\n                        JSON_OBJECT(\n                            'id', p.id,\n                            'title', p.title,\n                            'first_name', p.first_name,\n                            'last_name', p.last_name,\n                            'pax_type', p.pax_type,\n                            'phone', p.phone,\n                            'id_number', p.id_number,\n                            'birth_date', p.birth_date\n                        )\n                        ORDER BY p.id ASC\n                    )\n                    FROM passengers p \n                    WHERE p.booking_id = b.id\n                ) AS passengers,\n                (\n                    SELECT JSON_ARRAYAGG(\n                        JSON_OBJECT(\n                            'id', i.id,\n                            'category', i.category,\n                            'flight_number', i.flight_number,\n                            'origin', i.origin,\n                            'destination', i.destination,\n                            'depart_time', i.depart_time,\n                            'arrival_time', i.arrival_time,\n                            'flight_class', i.flight_class\n                        )\n                        ORDER BY i.id ASC\n                    )\n                    FROM flight_itinerary i \n                    WHERE i.booking_id = b.id\n                ) AS itinerary,\n                (SELECT COUNT(*) FROM passengers WHERE booking_id = b.id) AS total_pax,\n                (\n                    SELECT CONCAT(p.title, ' ', p.first_name, ' ', p.last_name) \n                    FROM passengers p \n                    WHERE p.booking_id = b.id \n                    ORDER BY p.id ASC \n                    LIMIT 1\n                ) AS main_pax_name\n             FROM bookings b \n             WHERE b.id = ?", [id]));
+
+        case 4:
+          _ref9 = _context4.sent;
+          _ref10 = _slicedToArray(_ref9, 1);
+          rows = _ref10[0];
+
+          if (!(rows.length === 0)) {
+            _context4.next = 9;
+            break;
+          }
+
+          return _context4.abrupt("return", res.status(404).json({
+            status: 'ERROR',
+            message: 'Booking tidak ditemukan'
+          }));
+
+        case 9:
+          res.status(200).json({
+            status: 'SUCCESS',
+            data: rows[0]
+          });
+          _context4.next = 16;
+          break;
+
+        case 12:
+          _context4.prev = 12;
+          _context4.t0 = _context4["catch"](1);
+          console.error("❌ Error GetBookingDetail:", _context4.t0);
+          res.status(500).json({
+            status: 'ERROR',
+            message: 'Gagal memuat detail booking'
+          });
+
+        case 16:
+        case "end":
+          return _context4.stop();
+      }
+    }
+  }, null, null, [[1, 12]]);
+};
+/**
+ * 4. GET BOOKINGS BY EMAIL (LENGKAP DENGAN SEMUA PENUMPANG)
+ */
+
+
+exports.getBookingsByEmail = function _callee5(req, res) {
+  var email, _ref11, _ref12, rows;
+
+  return regeneratorRuntime.async(function _callee5$(_context5) {
+    while (1) {
+      switch (_context5.prev = _context5.next) {
+        case 0:
+          email = req.params.email;
+          _context5.prev = 1;
+          _context5.next = 4;
+          return regeneratorRuntime.awrap(db.execute("SELECT \n                b.*,\n                (b.total_price + b.admin_fee - b.discount) as total_payment,\n                (\n                    SELECT JSON_ARRAYAGG(\n                        JSON_OBJECT(\n                            'id', p.id,\n                            'title', p.title,\n                            'first_name', p.first_name,\n                            'last_name', p.last_name,\n                            'pax_type', p.pax_type,\n                            'phone', p.phone,\n                            'id_number', p.id_number,\n                            'birth_date', p.birth_date\n                        )\n                        ORDER BY p.id ASC\n                    )\n                    FROM passengers p \n                    WHERE p.booking_id = b.id\n                ) AS passengers,\n                (SELECT COUNT(*) FROM passengers WHERE booking_id = b.id) AS total_pax,\n                (\n                    SELECT CONCAT(p.title, ' ', p.first_name, ' ', p.last_name) \n                    FROM passengers p \n                    WHERE p.booking_id = b.id \n                    ORDER BY p.id ASC \n                    LIMIT 1\n                ) AS main_pax_name\n             FROM bookings b \n             WHERE b.customer_email = ? \n             ORDER BY b.created_at DESC", [email]));
+
+        case 4:
+          _ref11 = _context5.sent;
+          _ref12 = _slicedToArray(_ref11, 1);
+          rows = _ref12[0];
+          res.status(200).json({
+            status: 'SUCCESS',
+            results: rows.length,
+            data: rows
+          });
+          _context5.next = 14;
+          break;
+
+        case 10:
+          _context5.prev = 10;
+          _context5.t0 = _context5["catch"](1);
+          console.error("❌ Error GetBookingsByEmail:", _context5.t0);
+          res.status(500).json({
+            status: 'ERROR',
+            message: 'Gagal memuat data booking'
+          });
+
+        case 14:
+        case "end":
+          return _context5.stop();
+      }
+    }
+  }, null, null, [[1, 10]]);
 };

@@ -16,12 +16,6 @@ router.get('/list', hotelBookingAdminController.listBookings); // GET /api/hotel
 // Detail satu booking
 
 router.get('/:id', hotelBookingAdminController.getBookingDetail); // ============================================================
-// 🔥 EXPORT TO EXCEL
-// ============================================================
-// GET /api/hotel-bookings-admin/export-excel
-// Query params: search, status, source, date_from, date_to (sama dengan filter)
-
-router.get('/export-excel', hotelBookingAdminController.exportToExcel); // ============================================================
 // 🔥 FITUR GENERATE & RESEND E-TIKET
 // ============================================================
 // POST /api/hotel-bookings-admin/:id/resend-eticket
