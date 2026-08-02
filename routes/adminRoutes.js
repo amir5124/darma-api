@@ -13,6 +13,12 @@ async function getTicketHtmlContent(bookingCode, db) {
     const [rows] = await db.execute("SELECT * FROM bookings WHERE booking_code = ?", [bookingCode]);
     if (rows.length === 0) throw new Error("Booking tidak ditemukan");
 
+    // 🔥 AMBIL DATA PASSENGERS DARI DATABASE UNTUK PDF
+    const [dbPassengers] = await db.execute(
+        `SELECT title, first_name, last_name, pax_type FROM passengers WHERE booking_id = ?`,
+        [rows[0].id]
+    );
+
     const booking = rows[0];
     const ticketPrice = Number(booking.total_price) || 0;
     const adminFee = Number(booking.admin_fee) || 0;
@@ -100,13 +106,17 @@ async function getTicketHtmlContent(bookingCode, db) {
         }).join('');
     };
 
-    // Render Passengers
-    const passengers = response.passengers || payload.paxDetails || [];
+    // 🔥 Render Passengers - GUNAKAN DATA DARI DATABASE
     const isRoundTrip = payload.tripType === "RoundTrip";
+    // Gunakan data dari database jika ada, fallback ke payload/response
+    const passengerData = dbPassengers.length > 0 ? dbPassengers : (response.passengers || payload.paxDetails || []);
 
-    const paxRows = passengers.map((p, pIdx) => {
-        const isInfant = p.type === 'Infant' || parseInt(p.type) === 2;
-        const typeLabel = isInfant ? 'Infant<small>Bayi</small>' : (p.type === 'Child' || parseInt(p.type) === 1 ? 'Child<small>Anak</small>' : 'Adult<small>Dewasa</small>');
+    const paxRows = passengerData.map((p, pIdx) => {
+        // Cek tipe dari database atau payload
+        const paxType = p.pax_type || p.type;
+        const isInfant = paxType === 'Infant' || parseInt(paxType) === 2;
+        const typeLabel = isInfant ? 'Infant<small>Bayi</small>' : (paxType === 'Child' || parseInt(paxType) === 1 ? 'Child<small>Anak</small>' : 'Adult<small>Dewasa</small>');
+        
         const originalPax = payload.paxDetails ? payload.paxDetails[pIdx] : null;
         const adPergi = originalPax?.addOns?.[0] || null;
         const adPulang = isRoundTrip ? (originalPax?.addOns?.[1] || null) : null;
@@ -123,7 +133,12 @@ async function getTicketHtmlContent(bookingCode, db) {
         };
         const mealsInfo = isRoundTrip ? `${getMeals(adPergi, 'Pergi')} ${getMeals(adPulang, 'Pulang')}` || '-' : (adPergi?.meals?.length > 0 ? adPergi.meals.map(m => mealMap[m] || m).join(', ') : '-');
 
-        return `<tr><td style="text-align:center">${pIdx + 1}</td><td><b>${p.title} ${p.firstName} ${p.lastName}</b></td><td>${typeLabel}</td><td style="text-align:center">${seatInfo}</td><td style="text-align:center; font-size:8.5px;">${bagInfo}</td><td style="font-size:8.5px;">${mealsInfo}</td></tr>`;
+        // Ambil nama dari database atau payload
+        const firstName = p.first_name || p.firstName || '';
+        const lastName = p.last_name || p.lastName || '';
+        const title = p.title || '';
+
+        return `<tr><td style="text-align:center">${pIdx + 1}</td><td><b>${title} ${firstName} ${lastName}</b></td><td>${typeLabel}</td><td style="text-align:center">${seatInfo}</td><td style="text-align:center; font-size:8.5px;">${bagInfo}</td><td style="font-size:8.5px;">${mealsInfo}</td></tr>`;
     }).join('');
 
     return `
@@ -233,7 +248,7 @@ async function getTicketHtmlContent(bookingCode, db) {
                 <div class="fare-title">Fares Detail | Detail Harga</div>
                 
                 <div class="fare-row" style="border-bottom: 1px solid #eee;">
-                    <span>Ticket for ${passengers.length} Passenger <br><small style="font-weight:normal; color:#666;">Tiket untuk ${passengers.length} penumpang</small></span>
+                    <span>Ticket for ${passengerData.length} Passenger <br><small style="font-weight:normal; color:#666;">Tiket untuk ${passengerData.length} penumpang</small></span>
                     <span>IDR ${(ticketPrice + adminFee).toLocaleString('id-ID')},-</span>
                 </div>
 
@@ -286,7 +301,7 @@ async function generatePdfBuffer(htmlContent) {
 // ADMIN ROUTES
 // ============================================
 
-// GET: All bookings with filters - ROBUST VERSION
+// 🔥 GET: All bookings with filters - DENGAN PASSENGERS LENGKAP
 router.get('/bookings', async (req, res) => {
     try {
         const { status, airline, dateRange, search, page = 1, limit = 10 } = req.query;
@@ -310,6 +325,7 @@ router.get('/bookings', async (req, res) => {
                 b.destination_port,
                 b.depart_date,
                 b.ticket_status,
+                b.payment_status,
                 b.total_price,
                 b.sales_price,
                 b.admin_fee,
@@ -318,7 +334,35 @@ router.get('/bookings', async (req, res) => {
                 b.time_limit,
                 b.pengguna,
                 b.customer_email,
-                b.created_at
+                b.payment_method,
+                b.va_number,
+                b.created_at,
+                -- 🔥 TOTAL PENUMPANG
+                (SELECT COUNT(*) FROM passengers p WHERE p.booking_id = b.id) AS total_pax,
+                -- 🔥 NAMA PENUMPANG UTAMA
+                (SELECT CONCAT(p.title, ' ', p.first_name, ' ', p.last_name) 
+                 FROM passengers p 
+                 WHERE p.booking_id = b.id 
+                 ORDER BY p.id ASC 
+                 LIMIT 1) AS main_pax_name,
+                -- 🔥 SEMUA DATA PENUMPANG (JSON ARRAY)
+                (
+                    SELECT JSON_ARRAYAGG(
+                        JSON_OBJECT(
+                            'id', p.id,
+                            'title', p.title,
+                            'first_name', p.first_name,
+                            'last_name', p.last_name,
+                            'pax_type', p.pax_type,
+                            'phone', p.phone,
+                            'id_number', p.id_number,
+                            'birth_date', p.birth_date
+                        )
+                        ORDER BY p.id ASC
+                    )
+                    FROM passengers p
+                    WHERE p.booking_id = b.id
+                ) AS passengers
             FROM bookings b 
             WHERE 1=1
         `;
@@ -361,7 +405,6 @@ router.get('/bookings', async (req, res) => {
         let countQuery = `SELECT COUNT(*) as total FROM bookings b WHERE 1=1`;
         const countParams = [];
 
-        // Copy filters ke countQuery
         if (status && status !== '' && status !== 'undefined') {
             countQuery += ` AND b.ticket_status = ?`;
             countParams.push(status);
@@ -418,36 +461,6 @@ router.get('/bookings', async (req, res) => {
         // ============================================
         const [rows] = await db.query(query, params);
 
-        // ============================================
-        // STEP 6: GET PASSENGER COUNT FOR EACH BOOKING
-        // ============================================
-        if (rows.length > 0) {
-            const bookingIds = rows.map(r => r.id);
-            const placeholders = bookingIds.map(() => '?').join(',');
-
-            const [passengerCounts] = await db.execute(
-                `SELECT booking_id, COUNT(*) as total_pax, 
-                 (SELECT CONCAT(first_name, ' ', last_name) FROM passengers WHERE booking_id = p.booking_id LIMIT 1) as main_pax_name
-                 FROM passengers p 
-                 WHERE booking_id IN (${placeholders})
-                 GROUP BY booking_id`,
-                bookingIds
-            );
-
-            const countMap = {};
-            passengerCounts.forEach(item => {
-                countMap[item.booking_id] = {
-                    total_pax: item.total_pax,
-                    main_pax_name: item.main_pax_name || '-'
-                };
-            });
-
-            rows.forEach(row => {
-                row.total_pax = countMap[row.id]?.total_pax || 0;
-                row.main_pax_name = countMap[row.id]?.main_pax_name || '-';
-            });
-        }
-
         res.json({
             success: true,
             data: rows,
@@ -467,37 +480,45 @@ router.get('/bookings', async (req, res) => {
     }
 });
 
-// GET: Booking detail
+// 🔥 GET: Booking detail - DENGAN PASSENGERS LENGKAP
 router.get('/bookings/:id', async (req, res) => {
     try {
         const { id } = req.params;
 
-        // Get booking detail with passenger info
         const [rows] = await db.execute(
             `SELECT b.*, 
                     (b.total_price + b.admin_fee - b.discount) as total_payment,
                     (SELECT JSON_ARRAYAGG(
                         JSON_OBJECT(
-                            'id', id,
-                            'title', title,
-                            'first_name', first_name,
-                            'last_name', last_name,
-                            'pax_type', pax_type,
-                            'id_number', id_number,
-                            'birth_date', birth_date
+                            'id', p.id,
+                            'title', p.title,
+                            'first_name', p.first_name,
+                            'last_name', p.last_name,
+                            'pax_type', p.pax_type,
+                            'phone', p.phone,
+                            'id_number', p.id_number,
+                            'birth_date', p.birth_date
                         )
-                    ) FROM passengers WHERE booking_id = b.id) as passengers,
+                        ORDER BY p.id ASC
+                    ) FROM passengers p WHERE p.booking_id = b.id) as passengers,
                     (SELECT JSON_ARRAYAGG(
                         JSON_OBJECT(
-                            'id', id,
-                            'flight_number', flight_number,
-                            'origin', origin,
-                            'destination', destination,
-                            'depart_time', depart_time,
-                            'arrival_time', arrival_time,
-                            'flight_class', flight_class
+                            'id', f.id,
+                            'flight_number', f.flight_number,
+                            'origin', f.origin,
+                            'destination', f.destination,
+                            'depart_time', f.depart_time,
+                            'arrival_time', f.arrival_time,
+                            'flight_class', f.flight_class
                         )
-                    ) FROM flight_itinerary WHERE booking_id = b.id) as itinerary
+                        ORDER BY f.id ASC
+                    ) FROM flight_itinerary f WHERE f.booking_id = b.id) as itinerary,
+                    (SELECT COUNT(*) FROM passengers p WHERE p.booking_id = b.id) as total_pax,
+                    (SELECT CONCAT(p.title, ' ', p.first_name, ' ', p.last_name) 
+                     FROM passengers p 
+                     WHERE p.booking_id = b.id 
+                     ORDER BY p.id ASC 
+                     LIMIT 1) as main_pax_name
              FROM bookings b 
              WHERE b.id = ?`,
             [id]
@@ -529,12 +550,10 @@ router.put('/bookings/:id/status', async (req, res) => {
             [status, id]
         );
 
-        // If status is TICKETED, send email
         if (status === 'TICKETED') {
             try {
                 const [booking] = await db.execute('SELECT booking_code FROM bookings WHERE id = ?', [id]);
                 if (booking.length > 0 && booking[0].booking_code) {
-                    // Trigger email sending in background
                     setTimeout(() => {
                         sendTicketEmail(booking[0].booking_code).catch(console.error);
                     }, 100);
@@ -561,7 +580,6 @@ router.get('/statistics', async (req, res) => {
         const [cancelled] = await db.execute("SELECT COUNT(*) as cancelled FROM bookings WHERE ticket_status = 'CANCELLED'");
         const [revenue] = await db.execute('SELECT SUM(total_price + admin_fee) as revenue FROM bookings WHERE ticket_status = "TICKETED"');
 
-        // Airline distribution
         const [airlineDist] = await db.execute(
             `SELECT airline_id as name, COUNT(*) as value 
              FROM bookings 
@@ -570,7 +588,6 @@ router.get('/statistics', async (req, res) => {
              LIMIT 10`
         );
 
-        // Daily trend (last 7 days)
         const [dailyTrend] = await db.execute(`
             SELECT 
                 DATE(created_at) as date,
@@ -646,22 +663,10 @@ router.get('/bookings/export', async (req, res) => {
 
         const [rows] = await db.execute(query, params);
 
-        // Convert to CSV
         const headers = [
-            'Booking Code',
-            'Airline',
-            'Airline ID',
-            'Origin',
-            'Destination',
-            'Depart Date',
-            'Total Price',
-            'Admin Fee',
-            'Status',
-            'User',
-            'Email',
-            'Reference No',
-            'Trip Type',
-            'Created At'
+            'Booking Code', 'Airline', 'Airline ID', 'Origin', 'Destination',
+            'Depart Date', 'Total Price', 'Admin Fee', 'Status', 'User',
+            'Email', 'Reference No', 'Trip Type', 'Created At'
         ];
 
         const csv = [
@@ -709,7 +714,6 @@ router.post('/bookings/:id/reminder', async (req, res) => {
             return res.status(400).json({ success: false, message: 'Email customer tidak ditemukan' });
         }
 
-        // Kirim email reminder
         const subject = `[LinkU] Reminder Pembayaran - ${booking.booking_code}`;
         const emailBody = `
             <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
