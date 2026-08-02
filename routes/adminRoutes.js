@@ -106,13 +106,11 @@ async function getTicketHtmlContent(bookingCode, db) {
         }).join('');
     };
 
-    // 🔥 Render Passengers - GUNAKAN DATA DARI DATABASE
+    // Render Passengers - GUNAKAN DATA DARI DATABASE
     const isRoundTrip = payload.tripType === "RoundTrip";
-    // Gunakan data dari database jika ada, fallback ke payload/response
     const passengerData = dbPassengers.length > 0 ? dbPassengers : (response.passengers || payload.paxDetails || []);
 
     const paxRows = passengerData.map((p, pIdx) => {
-        // Cek tipe dari database atau payload
         const paxType = p.pax_type || p.type;
         const isInfant = paxType === 'Infant' || parseInt(paxType) === 2;
         const typeLabel = isInfant ? 'Infant<small>Bayi</small>' : (paxType === 'Child' || parseInt(paxType) === 1 ? 'Child<small>Anak</small>' : 'Adult<small>Dewasa</small>');
@@ -133,7 +131,6 @@ async function getTicketHtmlContent(bookingCode, db) {
         };
         const mealsInfo = isRoundTrip ? `${getMeals(adPergi, 'Pergi')} ${getMeals(adPulang, 'Pulang')}` || '-' : (adPergi?.meals?.length > 0 ? adPergi.meals.map(m => mealMap[m] || m).join(', ') : '-');
 
-        // Ambil nama dari database atau payload
         const firstName = p.first_name || p.firstName || '';
         const lastName = p.last_name || p.lastName || '';
         const title = p.title || '';
@@ -301,16 +298,13 @@ async function generatePdfBuffer(htmlContent) {
 // ADMIN ROUTES
 // ============================================
 
-// 🔥 GET: All bookings with filters - DENGAN PASSENGERS LENGKAP
+// 🔥 GET: All bookings with filters - DENGAN PASSENGERS LENGKAP (TANPA ORDER BY DI JSON_ARRAYAGG)
 router.get('/bookings', async (req, res) => {
     try {
         const { status, airline, dateRange, search, page = 1, limit = 10 } = req.query;
 
         console.log('📡 GET /bookings - Query params:', req.query);
 
-        // ============================================
-        // STEP 1: BUILD MAIN QUERY
-        // ============================================
         let query = `
             SELECT 
                 b.id,
@@ -337,15 +331,11 @@ router.get('/bookings', async (req, res) => {
                 b.payment_method,
                 b.va_number,
                 b.created_at,
-                -- 🔥 TOTAL PENUMPANG
                 (SELECT COUNT(*) FROM passengers p WHERE p.booking_id = b.id) AS total_pax,
-                -- 🔥 NAMA PENUMPANG UTAMA
                 (SELECT CONCAT(p.title, ' ', p.first_name, ' ', p.last_name) 
                  FROM passengers p 
                  WHERE p.booking_id = b.id 
-                 ORDER BY p.id ASC 
                  LIMIT 1) AS main_pax_name,
-                -- 🔥 SEMUA DATA PENUMPANG (JSON ARRAY)
                 (
                     SELECT JSON_ARRAYAGG(
                         JSON_OBJECT(
@@ -358,7 +348,6 @@ router.get('/bookings', async (req, res) => {
                             'id_number', p.id_number,
                             'birth_date', p.birth_date
                         )
-                        ORDER BY p.id ASC
                     )
                     FROM passengers p
                     WHERE p.booking_id = b.id
@@ -369,26 +358,22 @@ router.get('/bookings', async (req, res) => {
 
         const params = [];
 
-        // Filter status
         if (status && status !== '' && status !== 'undefined') {
             query += ` AND b.ticket_status = ?`;
             params.push(status);
         }
 
-        // Filter airline
         if (airline && airline !== '' && airline !== 'undefined') {
             query += ` AND b.airline_id = ?`;
             params.push(airline);
         }
 
-        // Filter search
         if (search && search !== '' && search !== 'undefined') {
             query += ` AND (b.booking_code LIKE ? OR b.customer_email LIKE ? OR b.pengguna LIKE ? OR b.reference_no LIKE ?)`;
             const searchTerm = `%${search}%`;
             params.push(searchTerm, searchTerm, searchTerm, searchTerm);
         }
 
-        // Filter date range
         if (dateRange && dateRange !== '' && dateRange !== 'undefined') {
             if (dateRange === 'today') {
                 query += ` AND DATE(b.created_at) = CURDATE()`;
@@ -399,9 +384,7 @@ router.get('/bookings', async (req, res) => {
             }
         }
 
-        // ============================================
-        // STEP 2: BUILD COUNT QUERY
-        // ============================================
+        // COUNT QUERY
         let countQuery = `SELECT COUNT(*) as total FROM bookings b WHERE 1=1`;
         const countParams = [];
 
@@ -428,12 +411,6 @@ router.get('/bookings', async (req, res) => {
             }
         }
 
-        console.log('📊 Count Query:', countQuery);
-        console.log('📊 Count Params:', countParams);
-
-        // ============================================
-        // STEP 3: EXECUTE COUNT QUERY
-        // ============================================
         let total = 0;
         if (countParams.length > 0) {
             const [countResult] = await db.execute(countQuery, countParams);
@@ -443,9 +420,6 @@ router.get('/bookings', async (req, res) => {
             total = countResult[0]?.total || 0;
         }
 
-        // ============================================
-        // STEP 4: ADD PAGINATION
-        // ============================================
         query += ` ORDER BY b.created_at DESC LIMIT ? OFFSET ?`;
 
         const safeLimit = parseInt(limit, 10) || 10;
@@ -453,12 +427,6 @@ router.get('/bookings', async (req, res) => {
 
         params.push(safeLimit, safeOffset);
 
-        console.log('📊 Main Query:', query);
-        console.log('📊 Params:', params);
-
-        // ============================================
-        // STEP 5: EXECUTE MAIN QUERY
-        // ============================================
         const [rows] = await db.query(query, params);
 
         res.json({
@@ -480,7 +448,7 @@ router.get('/bookings', async (req, res) => {
     }
 });
 
-// 🔥 GET: Booking detail - DENGAN PASSENGERS LENGKAP
+// 🔥 GET: Booking detail - DENGAN PASSENGERS LENGKAP (TANPA ORDER BY DI JSON_ARRAYAGG)
 router.get('/bookings/:id', async (req, res) => {
     try {
         const { id } = req.params;
@@ -499,7 +467,6 @@ router.get('/bookings/:id', async (req, res) => {
                             'id_number', p.id_number,
                             'birth_date', p.birth_date
                         )
-                        ORDER BY p.id ASC
                     ) FROM passengers p WHERE p.booking_id = b.id) as passengers,
                     (SELECT JSON_ARRAYAGG(
                         JSON_OBJECT(
@@ -511,13 +478,11 @@ router.get('/bookings/:id', async (req, res) => {
                             'arrival_time', f.arrival_time,
                             'flight_class', f.flight_class
                         )
-                        ORDER BY f.id ASC
                     ) FROM flight_itinerary f WHERE f.booking_id = b.id) as itinerary,
                     (SELECT COUNT(*) FROM passengers p WHERE p.booking_id = b.id) as total_pax,
                     (SELECT CONCAT(p.title, ' ', p.first_name, ' ', p.last_name) 
                      FROM passengers p 
                      WHERE p.booking_id = b.id 
-                     ORDER BY p.id ASC 
                      LIMIT 1) as main_pax_name
              FROM bookings b 
              WHERE b.id = ?`,
