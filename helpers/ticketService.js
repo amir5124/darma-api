@@ -20,6 +20,12 @@ async function getTicketHtmlContent(bookingCode, dbConn) {
     const payload = typeof booking.payload_request === 'string' ? JSON.parse(booking.payload_request) : booking.payload_request;
     const response = typeof booking.raw_response === 'string' ? JSON.parse(booking.raw_response) : booking.raw_response;
 
+    // 🆕 Ambil data penumpang dari DB (sumber eticket_number per pax)
+    const [dbPassengers] = await dbConn.execute(
+        "SELECT title, first_name, last_name, pax_type, eticket_number FROM passengers WHERE booking_id = ? ORDER BY id ASC",
+        [booking.id]
+    );
+
     const calculateDuration = (depart, arrival) => {
         if (!depart || !arrival) return '--';
         const start = new Date(depart);
@@ -33,9 +39,11 @@ async function getTicketHtmlContent(bookingCode, dbConn) {
     const baggageMap = { "PBAA": "15kg", "PBAB": "20kg", "PBAC": "25kg", "PBAD": "30kg", "PBAF": "40kg" };
     const mealMap = { "NPCB": "Nasi Padang", "NLCB": "Pak Nasser", "NKCB": "Nasi Kuning", "GCCB": "Thai Green", "CRCB": "Uncle Chin" };
     const airlineNames = { "QZ": "AirAsia", "ID": "Batik Air", "GA": "Garuda Indonesia", "JT": "Lion Air", "QG": "Citilink" };
+
+    // 🔧 FIX: default baggage tanpa pilihan bagasi -> 10kg (bukan 0kg)
     const defaultBaggage = {
-        "GA": "20kg", "ID": "20kg", "QG": "15kg", "JT": "0kg", "IW": "0kg",
-        "QZ": "0kg", "SJ": "20kg", "IN": "20kg", "IU": "20kg", "IP": "20kg", "TN": "10kg"
+        "GA": "20kg", "ID": "20kg", "QG": "15kg", "JT": "10kg", "IW": "10kg",
+        "QZ": "10kg", "SJ": "20kg", "IN": "20kg", "IU": "20kg", "IP": "20kg", "TN": "10kg"
     };
 
     const qrDataUrl = await QRCode.toDataURL(response.bookingCodeAirline || booking.booking_code);
@@ -89,6 +97,23 @@ async function getTicketHtmlContent(bookingCode, dbConn) {
     const passengers = response.passengers || payload.paxDetails || [];
     const isRoundTrip = payload.tripType === "RoundTrip";
 
+    // 🆕 Helper cari eticket_number milik pax tertentu dari data DB
+    const findEticketForPax = (p, pIdx) => {
+        // Coba cocokkan berdasarkan index dulu (urutan insert biasanya sama dengan urutan vendor)
+        const byIndex = dbPassengers[pIdx];
+        if (byIndex &&
+            (byIndex.first_name || '').toUpperCase() === (p.firstName || '').toUpperCase() &&
+            (byIndex.last_name || '').toUpperCase() === (p.lastName || '').toUpperCase()) {
+            return byIndex.eticket_number || null;
+        }
+        // Fallback: cocokkan berdasarkan nama saja
+        const byName = dbPassengers.find(dp =>
+            (dp.first_name || '').toUpperCase() === (p.firstName || '').toUpperCase() &&
+            (dp.last_name || '').toUpperCase() === (p.lastName || '').toUpperCase()
+        );
+        return byName?.eticket_number || null;
+    };
+
     const paxRows = passengers.map((p, pIdx) => {
         const isInfant = p.type === 'Infant' || parseInt(p.type) === 2;
         const typeLabel = isInfant ? 'Infant<small>Bayi</small>' : (p.type === 'Child' || parseInt(p.type) === 1 ? 'Child<small>Anak</small>' : 'Adult<small>Dewasa</small>');
@@ -98,7 +123,7 @@ async function getTicketHtmlContent(bookingCode, dbConn) {
         const getBagLabel = (ad) => {
             if (isInfant) return '-';
             const raw = ad?.baggageString || "";
-            return (raw === "" || raw === "-") ? (defaultBaggage[booking.airline_id] || "0kg") : (baggageMap[raw] || raw);
+            return (raw === "" || raw === "-") ? (defaultBaggage[booking.airline_id] || "10kg") : (baggageMap[raw] || raw);
         };
         const bagInfo = isRoundTrip ? `<div style="border-bottom:1px solid #eee; padding-bottom:2px;">🛫 ${getBagLabel(adPergi)}</div><div style="padding-top:2px;">🛬 ${getBagLabel(adPulang)}</div>` : getBagLabel(adPergi);
         const seatInfo = isRoundTrip ? `${adPergi?.seat || '-'} / ${adPulang?.seat || '-'}` : (adPergi?.seat || '-');
@@ -108,7 +133,20 @@ async function getTicketHtmlContent(bookingCode, dbConn) {
         };
         const mealsInfo = isRoundTrip ? `${getMeals(adPergi, 'Pergi')} ${getMeals(adPulang, 'Pulang')}` || '-' : (adPergi?.meals?.length > 0 ? adPergi.meals.map(m => mealMap[m] || m).join(', ') : '-');
 
-        return `<tr><td style="text-align:center">${pIdx + 1}</td><td><b>${p.title} ${p.firstName} ${p.lastName}</b></td><td>${typeLabel}</td><td style="text-align:center">${seatInfo}</td><td style="text-align:center; font-size:8.5px;">${bagInfo}</td><td style="font-size:8.5px;">${mealsInfo}</td></tr>`;
+        // 🆕 Eticket per penumpang
+        const paxEticket = findEticketForPax(p, pIdx) || eticketNumber;
+
+        return `<tr>
+            <td style="text-align:center">${pIdx + 1}</td>
+            <td>
+                <b>${p.title} ${p.firstName} ${p.lastName}</b>
+                <small style="color:#019387; font-weight:bold; display:block; margin-top:2px;">Eticket: ${paxEticket}</small>
+            </td>
+            <td>${typeLabel}</td>
+            <td style="text-align:center">${seatInfo}</td>
+            <td style="text-align:center; font-size:8.5px;">${bagInfo}</td>
+            <td style="font-size:8.5px;">${mealsInfo}</td>
+        </tr>`;
     }).join('');
 
     return `
@@ -178,8 +216,6 @@ async function getTicketHtmlContent(bookingCode, dbConn) {
                         <div style="margin-top: 5px; text-align: center; width: 85px;">
                             <div style="font-size: 8px; color: #666; text-transform: uppercase;">Booking Code</div>
                             <div style="font-size: 14px; font-weight: bold; color: #24b3ae; letter-spacing: 1px;">${response.bookingCodeAirline || booking.booking_code}</div>
-                            <div style="font-size: 7px; color: #666; text-transform: uppercase; margin-top: 4px;">Eticket Number</div>
-                            <div style="font-size: 7px; font-weight: bold; color: #333;">${eticketNumber}</div>
                         </div>
                     </td>
                 </tr>
@@ -198,11 +234,11 @@ async function getTicketHtmlContent(bookingCode, dbConn) {
                     <thead>
                         <tr>
                             <th style="width:30px; text-align:center">No</th>
-                            <th style="width:160px;">Passenger <small>Penumpang</small></th>
-                            <th style="width:70px;">Type <small>Tipe</small></th>
-                            <th style="width:70px; text-align:center">Seat <small>Kursi</small></th>
-                            <th style="width:80px; text-align:center">Baggage <small>Bagasi</small></th>
-                            <th style="width:100px;">Add-ons <small>Makanan</small></th>
+                            <th style="width:180px;">Passenger <small>Penumpang</small></th>
+                            <th style="width:60px;">Type <small>Tipe</small></th>
+                            <th style="width:60px; text-align:center">Seat <small>Kursi</small></th>
+                            <th style="width:70px; text-align:center">Baggage <small>Bagasi</small></th>
+                            <th style="width:90px;">Add-ons <small>Makanan</small></th>
                         </tr>
                     </thead>
                     <tbody>${paxRows}</tbody>
@@ -459,10 +495,93 @@ async function checkAndSyncTicketStatus(bookingCode) {
     return { ticketStatus: vendorTicketStatus, synced: true, raw: data };
 }
 
+// ==========================================================
+// 7. BATCH SYNC ETICKET NUMBER UNTUK BOOKING LAMA
+//    Dipakai sekali untuk mengisi eticket_number booking yang 
+//    statusnya sudah Ticketed tapi passengers.eticket_number masih NULL
+// ==========================================================
+async function batchSyncOldEticketNumbers() {
+    // Ambil semua booking yang sudah ticketed tapi masih ada passenger tanpa eticket_number
+    const [bookings] = await db.execute(`
+        SELECT DISTINCT b.id, b.booking_code, b.reference_no, b.raw_response
+        FROM bookings b
+        INNER JOIN passengers p ON p.booking_id = b.id
+        WHERE LOWER(b.ticket_status) = 'ticketed'
+          AND p.eticket_number IS NULL
+    `);
+
+    console.log(`🔍 Ditemukan ${bookings.length} booking yang perlu di-sync eticket number-nya.`);
+
+    const results = { success: 0, failed: 0, skipped: 0, details: [] };
+
+    for (const b of bookings) {
+        try {
+            const bookingDate = extractBookingDate(b);
+            if (!bookingDate) {
+                results.skipped++;
+                results.details.push({ bookingCode: b.booking_code, status: 'SKIPPED', reason: 'bookingDate tidak ditemukan di raw_response' });
+                continue;
+            }
+
+            const token = await getConsistentToken();
+            const response = await axios.post(
+                `${BASE_URL}/Airline/BookingDetail`,
+                {
+                    bookingCode: b.booking_code,
+                    referenceNo: b.reference_no,
+                    bookingDate: bookingDate.toString().split('.')[0],
+                    userID: USER_CONFIG.userID,
+                    accessToken: token
+                },
+                { httpsAgent: agent }
+            );
+
+            const data = response.data;
+
+            if (data.status !== "SUCCESS" || !Array.isArray(data.passengers)) {
+                results.failed++;
+                results.details.push({ bookingCode: b.booking_code, status: 'FAILED', reason: data.respMessage || 'No passengers in response' });
+                continue;
+            }
+
+            let updatedCount = 0;
+            for (const pax of data.passengers) {
+                if (!pax.ticketNumber) continue;
+
+                const [updateResult] = await db.execute(
+                    `UPDATE passengers 
+                     SET eticket_number = ?
+                     WHERE booking_id = ? 
+                       AND UPPER(first_name) = UPPER(?) 
+                       AND UPPER(last_name) = UPPER(?)`,
+                    [pax.ticketNumber, b.id, pax.firstName || '', pax.lastName || '']
+                );
+                if (updateResult.affectedRows > 0) updatedCount++;
+            }
+
+            results.success++;
+            results.details.push({ bookingCode: b.booking_code, status: 'SUCCESS', passengersUpdated: updatedCount });
+            console.log(`✅ [SYNC] ${b.booking_code}: ${updatedCount} passenger eticket tersimpan`);
+
+            // Kasih jeda kecil biar tidak membanjiri API vendor
+            await new Promise(r => setTimeout(r, 300));
+
+        } catch (err) {
+            results.failed++;
+            results.details.push({ bookingCode: b.booking_code, status: 'FAILED', reason: err.message });
+            console.error(`❌ [SYNC ERROR] ${b.booking_code}:`, err.message);
+        }
+    }
+
+    console.log(`🏁 Batch sync selesai. Success: ${results.success}, Failed: ${results.failed}, Skipped: ${results.skipped}`);
+    return results;
+}
+
 module.exports = {
     issueTicketForBooking,
     checkAndSyncTicketStatus,
     sendTicketEmail,
     getTicketHtmlContent,
-    generatePdfBuffer
+    generatePdfBuffer,
+    batchSyncOldEticketNumbers
 };

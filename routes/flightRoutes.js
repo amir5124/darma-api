@@ -6,7 +6,7 @@ const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('..
 const flightController = require('../controllers/flightController');
 const { sendBookingEmail } = require('../utils/mailer');
 const moment = require('moment-timezone');
-const { issueTicketForBooking, getTicketHtmlContent, generatePdfBuffer } = require('../helpers/ticketService');
+const { issueTicketForBooking, getTicketHtmlContent, generatePdfBuffer, batchSyncOldEticketNumbers } = require('../helpers/ticketService');
 // const puppeteer = require('puppeteer');
 // const QRCode = require('qrcode');
 /**
@@ -657,7 +657,7 @@ router.post('/update-discount', async (req, res) => {
     }
 });
 
-// 8. BOOKING DETAIL + AUTO SYNC PRICE
+// 8. BOOKING DETAIL + AUTO SYNC PRICE + SYNC ETICKET NUMBER
 router.post('/booking-detail', async (req, res) => {
     try {
         const token = await getConsistentToken();
@@ -671,6 +671,12 @@ router.post('/booking-detail', async (req, res) => {
             const tPrice = data.adminFee ? data.adminFee.ticketPrice : 0;
             const sPrice = data.adminFee ? data.adminFee.salesPrice : 0;
 
+            // Cari booking_id internal berdasarkan booking_code
+            const [bookingRows] = await db.execute(
+                `SELECT id FROM bookings WHERE booking_code = ?`,
+                [data.bookingCode]
+            );
+
             // Sync data ke tabel bookings
             await db.execute(
                 `UPDATE bookings SET 
@@ -683,16 +689,40 @@ router.post('/booking-detail', async (req, res) => {
                 [
                     tPrice,
                     sPrice,
-                    data.origin,      // Dari API Detail biasanya nama lengkap
-                    data.destination, // Dari API Detail biasanya nama lengkap
+                    data.origin,
+                    data.destination,
                     data.ticketStatus,
                     data.bookingCode
                 ]
             );
+
+            // Sync eticket_number per passenger (match by nama)
+            if (bookingRows.length > 0 && Array.isArray(data.passengers)) {
+                const bookingId = bookingRows[0].id;
+
+                for (const pax of data.passengers) {
+                    if (!pax.ticketNumber) continue;
+
+                    try {
+                        await db.execute(
+                            `UPDATE passengers 
+                             SET eticket_number = ?
+                             WHERE booking_id = ? 
+                               AND UPPER(first_name) = UPPER(?) 
+                               AND UPPER(last_name) = UPPER(?)`,
+                            [pax.ticketNumber, bookingId, pax.firstName || '', pax.lastName || '']
+                        );
+                        console.log(`🎫 Eticket tersimpan: ${pax.firstName} ${pax.lastName} -> ${pax.ticketNumber}`);
+                    } catch (paxErr) {
+                        console.error(`⚠️ Gagal update eticket untuk ${pax.firstName} ${pax.lastName}:`, paxErr.message);
+                    }
+                }
+            }
         }
 
         res.json(data);
     } catch (error) {
+        console.error("🔥 Error Booking Detail:", error.message);
         res.json({ status: "FAILED", respMessage: error.message });
     }
 });
@@ -750,6 +780,15 @@ router.get('/generate-ticket/:bookingCode', async (req, res) => {
         res.send(pdfBuffer);
     } catch (e) {
         res.status(500).send("Error: " + e.message);
+    }
+});
+
+router.post('/sync-old-eticket', async (req, res) => {
+    try {
+        const results = await batchSyncOldEticketNumbers();
+        res.json({ status: "SUCCESS", ...results });
+    } catch (e) {
+        res.status(500).json({ status: "FAILED", respMessage: e.message });
     }
 });
 

@@ -1,7 +1,6 @@
 // controllers/hotelBookingAdminController.js
 const db = require('../config/db');
 const { sendBookingEmails, generateBookingPDF } = require('../utils/hotelMailer');
-// ❌ HAPUS: const XLSX = require('xlsx');
 
 // ============================================================
 // SOURCE DETECTION (Heuristik)
@@ -147,29 +146,29 @@ const HotelBookingAdminController = {
     // GET /:id - DETAIL BOOKING
     // ============================================================
     getBookingDetail: async (req, res) => {
-        try {
-            const { id } = req.params;
+    try {
+        const { id } = req.params;
 
-            const [rows] = await db.query(
-                `SELECT
-                    hb.*,
-                    hp.payment_status,
-                    hp.payment_method,
-                    hp.payment_reff,
-                    hp.booking_code,
-                    hp.reference_no,
-                    hp.va_number,
-                    hp.qris_url,
-                    hp.amount AS payment_amount,
-                    hp.admin_fee AS payment_admin_fee,
-                    hp.ticket_status,
-                    hp.payment_date,
-                    hp.expired_date
-                 FROM hotel_bookings hb
-                 LEFT JOIN hotel_payments hp ON hp.booking_id = hb.id
-                 WHERE hb.id = ?`,
-                [id]
-            );
+        const [rows] = await db.query(
+            `SELECT
+                hb.*,
+                hp.payment_status,
+                hp.payment_method,
+                hp.payment_reff,
+                hp.booking_code,
+                hp.reference_no,
+                hp.va_number,
+                hp.qris_url,
+                hp.amount AS payment_amount,
+                hp.admin_fee AS payment_admin_fee,
+                hp.ticket_status,
+                hp.payment_date,
+                hp.expired_date
+             FROM hotel_bookings hb
+             LEFT JOIN hotel_payments hp ON hp.booking_id = hb.id
+             WHERE hb.id = ?`,
+            [id]
+        );
             if (rows.length === 0) {
                 return res.status(404).json({
                     status: "ERROR",
@@ -220,6 +219,7 @@ const HotelBookingAdminController = {
             const { id } = req.params;
             const { email } = req.body;
 
+            // Validasi ID
             if (!id || isNaN(id)) {
                 return res.status(400).json({
                     status: "ERROR",
@@ -227,6 +227,7 @@ const HotelBookingAdminController = {
                 });
             }
 
+            // 1. Cek apakah booking ada
             const [rows] = await db.query(
                 `SELECT id, booking_status, contact_email, os_ref_no, reservation_no, hotel_name, hotel_address, room_name, total_price, handling_fee, check_in_date, check_out_date, breakfast_type, special_requests
                  FROM hotel_bookings WHERE id = ?`,
@@ -242,6 +243,7 @@ const HotelBookingAdminController = {
 
             const booking = rows[0];
 
+            // 2. Validasi status (hanya Accept/Processed yang bisa kirim e-tiket)
             const allowedStatus = ['Accept', 'Processed'];
             if (!allowedStatus.includes(booking.booking_status)) {
                 return res.status(400).json({
@@ -250,6 +252,7 @@ const HotelBookingAdminController = {
                 });
             }
 
+            // 3. Ambil data paxes
             const [paxes] = await db.query(
                 `SELECT title, first_name as firstName, last_name as lastName 
                  FROM hotel_booking_paxes 
@@ -257,6 +260,7 @@ const HotelBookingAdminController = {
                 [id]
             );
 
+            // 4. Kirim email ke email yang ditentukan atau email default
             const targetEmail = email || booking.contact_email;
 
             if (!targetEmail) {
@@ -266,6 +270,7 @@ const HotelBookingAdminController = {
                 });
             }
 
+            // 5. Panggil fungsi kirim email (reuse dari hotelMailer)
             await sendBookingEmails(parseInt(id));
 
             return res.json({
@@ -301,6 +306,7 @@ const HotelBookingAdminController = {
                 });
             }
 
+            // 1. Ambil data booking
             const [rows] = await db.query(
                 `SELECT * FROM hotel_bookings WHERE id = ?`,
                 [id]
@@ -315,6 +321,7 @@ const HotelBookingAdminController = {
 
             const booking = rows[0];
 
+            // 2. Ambil data paxes
             const [paxes] = await db.query(
                 `SELECT title, first_name as firstName, last_name as lastName 
                  FROM hotel_booking_paxes 
@@ -322,6 +329,7 @@ const HotelBookingAdminController = {
                 [id]
             );
 
+            // 3. Siapkan data untuk PDF
             const pdfData = {
                 reservationNo: booking.reservation_no,
                 voucherNo: booking.voucher_no || booking.reservation_no,
@@ -337,8 +345,10 @@ const HotelBookingAdminController = {
                 specialRequests: booking.special_requests || "-"
             };
 
+            // 4. Generate PDF
             const pdfBuffer = await generateBookingPDF(pdfData, paxes);
 
+            // 5. Set response untuk download
             res.setHeader('Content-Type', 'application/pdf');
             res.setHeader('Content-Disposition', `attachment; filename="E-Voucher-${booking.reservation_no}.pdf"`);
             res.setHeader('Content-Length', pdfBuffer.length);
@@ -367,6 +377,7 @@ const HotelBookingAdminController = {
                 });
             }
 
+            // Batasi maksimal 50 booking per request
             if (bookingIds.length > 50) {
                 return res.status(400).json({
                     status: "ERROR",
@@ -380,6 +391,7 @@ const HotelBookingAdminController = {
 
             for (const id of bookingIds) {
                 try {
+                    // Cek booking
                     const [rows] = await db.query(
                         `SELECT id, booking_status, contact_email 
                          FROM hotel_bookings WHERE id = ?`,
@@ -400,6 +412,7 @@ const HotelBookingAdminController = {
                         continue;
                     }
 
+                    // Kirim email
                     await sendBookingEmails(parseInt(id));
                     results.push({ id, status: 'SUCCESS' });
                     successCount++;

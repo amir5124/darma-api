@@ -178,7 +178,6 @@ exports.saveBooking = async (req, res) => {
 exports.getBookingPengguna = async (req, res) => {
     const { username } = req.params;
 
-    // Proteksi jika username null/undefined dalam bentuk string
     if (!username || username === 'undefined' || username === 'null' || username === '{username}') {
         return res.status(200).json({
             status: 'SUCCESS', results: 0, data: [], message: 'Username tidak valid'
@@ -210,7 +209,6 @@ exports.getBookingPengguna = async (req, res) => {
                 i.depart_time, 
                 i.arrival_time, 
                 i.flight_class,
-                -- 🔥 SEMUA PENUMPANG (JSON ARRAY)
                 (
                     SELECT JSON_ARRAYAGG(
                         JSON_OBJECT(
@@ -221,14 +219,14 @@ exports.getBookingPengguna = async (req, res) => {
                             'pax_type', p.pax_type,
                             'phone', p.phone,
                             'id_number', p.id_number,
-                            'birth_date', p.birth_date
+                            'birth_date', p.birth_date,
+                            'eticket_number', p.eticket_number
                         )
                         ORDER BY p.id ASC
                     )
                     FROM passengers p 
                     WHERE p.booking_id = b.id
                 ) AS passengers,
-                -- 🔥 MAIN PAX (PENUMPANG UTAMA)
                 (
                     SELECT CONCAT(p.title, ' ', p.first_name, ' ', p.last_name) 
                     FROM passengers p 
@@ -236,7 +234,6 @@ exports.getBookingPengguna = async (req, res) => {
                     ORDER BY p.id ASC 
                     LIMIT 1
                 ) AS main_pax_name,
-                -- 🔥 TOTAL PENUMPANG
                 (SELECT COUNT(*) FROM passengers WHERE booking_id = b.id) AS total_pax
             FROM bookings b
             LEFT JOIN flight_itinerary i ON b.id = i.booking_id
@@ -307,7 +304,8 @@ exports.getBookingDetail = async (req, res) => {
                             'pax_type', p.pax_type,
                             'phone', p.phone,
                             'id_number', p.id_number,
-                            'birth_date', p.birth_date
+                            'birth_date', p.birth_date,
+                            'eticket_number', p.eticket_number
                         )
                         ORDER BY p.id ASC
                     )
@@ -386,7 +384,8 @@ exports.getBookingsByEmail = async (req, res) => {
                             'pax_type', p.pax_type,
                             'phone', p.phone,
                             'id_number', p.id_number,
-                            'birth_date', p.birth_date
+                            'birth_date', p.birth_date,
+                            'eticket_number', p.eticket_number
                         )
                         ORDER BY p.id ASC
                     )
