@@ -97,19 +97,22 @@ async function getTicketHtmlContent(bookingCode, dbConn) {
     const passengers = response.passengers || payload.paxDetails || [];
     const isRoundTrip = payload.tripType === "RoundTrip";
 
-    // 🆕 Helper cari eticket_number milik pax tertentu dari data DB
+    // 🆕 Helper cari eticket_number milik pax tertentu dari data DB (normalized)
+    const normalizeName = (str) => (str || '').trim().replace(/\s+/g, ' ').toUpperCase();
+
     const findEticketForPax = (p, pIdx) => {
-        // Coba cocokkan berdasarkan index dulu (urutan insert biasanya sama dengan urutan vendor)
+        const pFirst = normalizeName(p.firstName);
+        const pLast = normalizeName(p.lastName);
+
         const byIndex = dbPassengers[pIdx];
         if (byIndex &&
-            (byIndex.first_name || '').toUpperCase() === (p.firstName || '').toUpperCase() &&
-            (byIndex.last_name || '').toUpperCase() === (p.lastName || '').toUpperCase()) {
+            normalizeName(byIndex.first_name) === pFirst &&
+            normalizeName(byIndex.last_name) === pLast) {
             return byIndex.eticket_number || null;
         }
-        // Fallback: cocokkan berdasarkan nama saja
         const byName = dbPassengers.find(dp =>
-            (dp.first_name || '').toUpperCase() === (p.firstName || '').toUpperCase() &&
-            (dp.last_name || '').toUpperCase() === (p.lastName || '').toUpperCase()
+            normalizeName(dp.first_name) === pFirst &&
+            normalizeName(dp.last_name) === pLast
         );
         return byName?.eticket_number || null;
     };
@@ -501,7 +504,6 @@ async function checkAndSyncTicketStatus(bookingCode) {
 //    statusnya sudah Ticketed tapi passengers.eticket_number masih NULL
 // ==========================================================
 async function batchSyncOldEticketNumbers() {
-    // Ambil semua booking yang sudah ticketed tapi masih ada passenger tanpa eticket_number
     const [bookings] = await db.execute(`
         SELECT DISTINCT b.id, b.booking_code, b.reference_no, b.raw_response
         FROM bookings b
@@ -512,7 +514,10 @@ async function batchSyncOldEticketNumbers() {
 
     console.log(`🔍 Ditemukan ${bookings.length} booking yang perlu di-sync eticket number-nya.`);
 
-    const results = { success: 0, failed: 0, skipped: 0, details: [] };
+    const results = { success: 0, failed: 0, skipped: 0, noMatch: 0, details: [] };
+
+    // 🆕 Helper normalisasi nama: trim + collapse multiple spaces + uppercase
+    const normalizeName = (str) => (str || '').trim().replace(/\s+/g, ' ').toUpperCase();
 
     for (const b of bookings) {
         try {
@@ -544,26 +549,54 @@ async function batchSyncOldEticketNumbers() {
                 continue;
             }
 
+            // 🆕 Ambil daftar passenger di DB untuk booking ini (buat cek unmatched)
+            const [dbPax] = await db.execute(
+                "SELECT id, first_name, last_name FROM passengers WHERE booking_id = ?",
+                [b.id]
+            );
+
             let updatedCount = 0;
+            const unmatchedVendorNames = [];
+
             for (const pax of data.passengers) {
                 if (!pax.ticketNumber) continue;
 
+                const vendorFirst = normalizeName(pax.firstName);
+                const vendorLast = normalizeName(pax.lastName);
+
+                // Cari yang match di daftar passenger DB (pakai normalisasi)
+                const matchedDbPax = dbPax.find(dp =>
+                    normalizeName(dp.first_name) === vendorFirst &&
+                    normalizeName(dp.last_name) === vendorLast
+                );
+
+                if (!matchedDbPax) {
+                    unmatchedVendorNames.push(`${pax.firstName} ${pax.lastName}`);
+                    continue;
+                }
+
                 const [updateResult] = await db.execute(
-                    `UPDATE passengers 
-                     SET eticket_number = ?
-                     WHERE booking_id = ? 
-                       AND UPPER(first_name) = UPPER(?) 
-                       AND UPPER(last_name) = UPPER(?)`,
-                    [pax.ticketNumber, b.id, pax.firstName || '', pax.lastName || '']
+                    `UPDATE passengers SET eticket_number = ? WHERE id = ?`,
+                    [pax.ticketNumber, matchedDbPax.id]
                 );
                 if (updateResult.affectedRows > 0) updatedCount++;
             }
 
-            results.success++;
-            results.details.push({ bookingCode: b.booking_code, status: 'SUCCESS', passengersUpdated: updatedCount });
-            console.log(`✅ [SYNC] ${b.booking_code}: ${updatedCount} passenger eticket tersimpan`);
+            if (updatedCount === 0 && unmatchedVendorNames.length > 0) {
+                results.noMatch++;
+                results.details.push({
+                    bookingCode: b.booking_code,
+                    status: 'NO_MATCH',
+                    reason: 'Nama vendor tidak cocok dengan nama di DB',
+                    vendorNames: unmatchedVendorNames,
+                    dbNames: dbPax.map(d => `${d.first_name} ${d.last_name}`)
+                });
+            } else {
+                results.success++;
+                results.details.push({ bookingCode: b.booking_code, status: 'SUCCESS', passengersUpdated: updatedCount });
+            }
 
-            // Kasih jeda kecil biar tidak membanjiri API vendor
+            console.log(`✅ [SYNC] ${b.booking_code}: ${updatedCount} passenger eticket tersimpan`);
             await new Promise(r => setTimeout(r, 300));
 
         } catch (err) {
@@ -573,7 +606,7 @@ async function batchSyncOldEticketNumbers() {
         }
     }
 
-    console.log(`🏁 Batch sync selesai. Success: ${results.success}, Failed: ${results.failed}, Skipped: ${results.skipped}`);
+    console.log(`🏁 Batch sync selesai. Success: ${results.success}, Failed: ${results.failed}, Skipped: ${results.skipped}, NoMatch: ${results.noMatch}`);
     return results;
 }
 
