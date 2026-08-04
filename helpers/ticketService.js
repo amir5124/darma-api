@@ -214,11 +214,13 @@ async function getTicketHtmlContent(bookingCode, dbConn) {
                         <img src="https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877917/WhatsApp_Image_2026-01-20_at_09.45.43-removebg-preview_lqkgrw.png" height="50" style="margin-bottom: 10px;">
                         <div class="purchased-from">Jln. Negara rt.16 Tengin Baru Kec. Sepaku<br> Kab. Penajam Paser Utara -IKN<br> Telp: 081347423737<br>E-mail: linkuikn@gmail.com</div>
                     </td>
-                    <td align="right" style="vertical-align: top;">
+                   <td align="right" style="vertical-align: top;">
                         <img src="${qrDataUrl}" width="75">
                         <div style="margin-top: 5px; text-align: center; width: 85px;">
                             <div style="font-size: 8px; color: #666; text-transform: uppercase;">Booking Code</div>
                             <div style="font-size: 14px; font-weight: bold; color: #24b3ae; letter-spacing: 1px;">${response.bookingCodeAirline || booking.booking_code}</div>
+                            <div style="font-size: 7px; color: #666; text-transform: uppercase; margin-top: 4px;">Reference Number</div>
+                            <div style="font-size: 7px; font-weight: bold; color: #333;">${eticketNumber}</div>
                         </div>
                     </td>
                 </tr>
