@@ -16,7 +16,11 @@ async function getTicketHtmlContent(bookingCode, dbConn) {
     const ticketPrice = Number(booking.total_price) || 0;
     const adminFee = Number(booking.admin_fee) || 0;
     const totalAmount = ticketPrice + adminFee;
-    const eticketNumber = booking.reference_no || '-';
+    
+    // 🔧 FIX: rename dari "eticketNumber" -> "referenceNo" supaya jelas ini dari kolom reference_no,
+    // bukan dari kolom eticket_number di tabel passengers
+    const referenceNo = booking.reference_no || '-';
+    
     const payload = typeof booking.payload_request === 'string' ? JSON.parse(booking.payload_request) : booking.payload_request;
     const response = typeof booking.raw_response === 'string' ? JSON.parse(booking.raw_response) : booking.raw_response;
 
@@ -136,8 +140,8 @@ async function getTicketHtmlContent(bookingCode, dbConn) {
         };
         const mealsInfo = isRoundTrip ? `${getMeals(adPergi, 'Pergi')} ${getMeals(adPulang, 'Pulang')}` || '-' : (adPergi?.meals?.length > 0 ? adPergi.meals.map(m => mealMap[m] || m).join(', ') : '-');
 
-        // 🆕 Eticket per penumpang
-        const paxEticket = findEticketForPax(p, pIdx) || eticketNumber;
+        // 🆕 Eticket per penumpang (fallback ke referenceNo kalau eticket_number belum ada)
+        const paxEticket = findEticketForPax(p, pIdx) || referenceNo;
 
         return `<tr>
             <td style="text-align:center">${pIdx + 1}</td>
@@ -220,7 +224,7 @@ async function getTicketHtmlContent(bookingCode, dbConn) {
                             <div style="font-size: 8px; color: #666; text-transform: uppercase;">Booking Code</div>
                             <div style="font-size: 14px; font-weight: bold; color: #24b3ae; letter-spacing: 1px;">${response.bookingCodeAirline || booking.booking_code}</div>
                             <div style="font-size: 7px; color: #666; text-transform: uppercase; margin-top: 4px;">Reference Number</div>
-                            <div style="font-size: 7px; font-weight: bold; color: #333;">${eticketNumber}</div>
+                            <div style="font-size: 7px; font-weight: bold; color: #333;">${referenceNo}</div>
                         </div>
                     </td>
                 </tr>
