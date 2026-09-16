@@ -21,11 +21,11 @@ var db = require('../config/db');
 var nodemailer = require('nodemailer');
 
 var _require = require('../helpers/darmaSandbox'),
-    BASE_URL = _require.BASE_URL,
-    USER_CONFIG = _require.USER_CONFIG,
-    agent = _require.agent,
-    logger = _require.logger,
-    api = _require.api;
+  BASE_URL = _require.BASE_URL,
+  USER_CONFIG = _require.USER_CONFIG,
+  agent = _require.agent,
+  logger = _require.logger,
+  api = _require.api;
 
 var puppeteer = require('puppeteer');
 
@@ -34,8 +34,8 @@ var transporter = nodemailer.createTransport({
   port: 465,
   secure: true,
   auth: {
-    user: 'linkutransport@gmail.com',
-    pass: 'qbckptzxgdumxtdm'
+    user: 'linkunusantara@gmail.com',
+    pass: 'dokarsirkofapkvq'
   }
 });
 
@@ -481,7 +481,7 @@ var hotelController = {
                       pdfBuffer = _context5.sent;
                       _context5.next = 6;
                       return regeneratorRuntime.awrap(transporter.sendMail({
-                        from: '"LinkU Travel" <linkutransport@gmail.com>',
+                        from: '"LinkU Travel" <linkunusantara@gmail.com>',
                         to: b.roomRequest[0].email,
                         subject: "Bukti Transaksi - ".concat(resData.reservationNo),
                         html: "<p>Halo ".concat(b.roomRequest[0].paxes[0].firstName, ",</p>\n                               <p>Terima kasih telah melakukan pemesanan. Terlampir adalah bukti transaksi Anda.</p>"),
@@ -554,7 +554,7 @@ var hotelController = {
             return _context6.stop();
         }
       }
-    }, null, null, [[0, 81, 87, 90], [24, 59, 63, 71], [31, 42, 46, 54], [47,, 49, 53], [64,, 66, 70]]);
+    }, null, null, [[0, 81, 87, 90], [24, 59, 63, 71], [31, 42, 46, 54], [47, , 49, 53], [64, , 66, 70]]);
   },
   // 5. SELECT PAYMENT METHOD (LINKQU INSTRUCTION EMAIL)
   // Asumsi: Method ini dipanggil saat user memilih bank/metode bayar LinkQu di aplikasi Anda

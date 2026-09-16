@@ -1,7 +1,7 @@
 const axios = require('axios');
 const db = require('../config/db');
 const nodemailer = require('nodemailer');
-const { BASE_URL, USER_CONFIG, agent,  logger,api } = require('../helpers/darmaSandbox');
+const { BASE_URL, USER_CONFIG, agent, logger, api } = require('../helpers/darmaSandbox');
 const puppeteer = require('puppeteer');
 
 const transporter = nodemailer.createTransport({
@@ -9,8 +9,8 @@ const transporter = nodemailer.createTransport({
     port: 465,
     secure: true,
     auth: {
-        user: 'linkutransport@gmail.com',
-        pass: 'qbckptzxgdumxtdm'
+        user: 'linkunusantara@gmail.com',
+        pass: 'dokarsirkofapkvq'
     }
 });
 
@@ -102,7 +102,7 @@ const hotelController = {
     // 1. SEARCH HOTELS
     search: async (req, res) => {
         try {
-           
+
             const b = req.body;
             const payload = {
                 paxPassport: b.paxPassport || "ID",
@@ -117,7 +117,7 @@ const hotelController = {
                     childAges: room.childAges || [0]
                 })),
                 userID: USER_CONFIG.userID,
-              
+
             };
 
             const response = await api.post(`${BASE_URL}/Hotel/Search5`, payload, {
@@ -134,7 +134,7 @@ const hotelController = {
     // 2. AVAILABLE ROOMS
     availableRooms: async (req, res) => {
         try {
-          
+
             const b = req.body;
             const payload = {
                 hotelID: b.hotelID,
@@ -150,7 +150,7 @@ const hotelController = {
                     childAges: room.childAges || [0]
                 })),
                 userID: USER_CONFIG.userID,
-              
+
             };
 
             const response = await api.post(`${BASE_URL}/Hotel/AvailableRooms5`, payload, { httpsAgent: agent });
@@ -163,7 +163,7 @@ const hotelController = {
     // 3. PRICE AND POLICY INFO
     getPriceInfo: async (req, res) => {
         try {
-         
+
             const b = req.body;
             const payload = {
                 paxPassport: b.paxPassport || "ID",
@@ -177,7 +177,7 @@ const hotelController = {
                 breakfast: b.breakfast,
                 roomID: b.roomID,
                 userID: USER_CONFIG.userID,
-               
+
             };
             const response = await api.post(`${BASE_URL}/Hotel/PriceAndPolicyInfo`, payload, { httpsAgent: agent });
             res.json(response.data);
@@ -190,7 +190,7 @@ const hotelController = {
     booking: async (req, res) => {
         let connection;
         try {
-           
+
             const b = req.body;
 
             // 1. Validasi Input Dasar
@@ -225,7 +225,7 @@ const hotelController = {
                 bedType: { ID: null, bed: null },
                 agentOsRef: b.agentOsRef || `HTL-${Date.now()}`,
                 userID: USER_CONFIG.userID,
-         
+
             };
 
             const response = await api.post(`${BASE_URL}/Hotel/BookingAllSupplier`, payload, {
@@ -288,7 +288,7 @@ const hotelController = {
                         const pdfBuffer = await generateBookingPDF(pdfData, b.roomRequest[0].paxes);
 
                         await transporter.sendMail({
-                            from: '"LinkU Travel" <linkutransport@gmail.com>',
+                            from: '"LinkU Travel" <linkunusantara@gmail.com>',
                             to: b.roomRequest[0].email,
                             subject: `Bukti Transaksi - ${resData.reservationNo}`,
                             html: `<p>Halo ${b.roomRequest[0].paxes[0].firstName},</p>
@@ -451,7 +451,7 @@ const hotelController = {
     // 7. BOOKING DETAIL
     bookingDetail: async (req, res) => {
         try {
-        
+
             const b = req.body;
             const payload = {
                 reservationNo: b.reservationNo,

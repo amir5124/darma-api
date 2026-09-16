@@ -3,10 +3,10 @@ const nodemailer = require('nodemailer');
 const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
     port: 465,
-    secure: true, 
+    secure: true,
     auth: {
-        user: 'linkutransport@gmail.com',
-        pass: 'qbckptzxgdumxtdm' 
+        user: 'linkunusantara@gmail.com',
+        pass: 'dokarsirkofapkvq'
     }
 });
 

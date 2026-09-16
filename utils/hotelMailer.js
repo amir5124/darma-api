@@ -7,8 +7,8 @@ const transporter = nodemailer.createTransport({
     port: 465,
     secure: true,
     auth: {
-        user: 'linkutransport@gmail.com',
-        pass: 'qbckptzxgdumxtdm'
+        user: 'linkunusantara@gmail.com',
+        pass: 'dokarsirkofapkvq'
     }
 });
 
@@ -251,7 +251,7 @@ async function sendBookingEmails(bookingId) {
         const statusTrackingUrl = `https://darma.siappgo.id/tracking?${trackingParams}`;
 
         const mailOptions = {
-            from: '"LinkU Travel" <linkutransport@gmail.com>',
+            from: '"LinkU Travel" <linkunusantara@gmail.com>',
             to: b.contact_email,
             subject: `E-Voucher Hotel [${b.os_ref_no || b.reservation_no}] - ${b.hotel_name}`,
             html: `
@@ -280,7 +280,7 @@ async function sendBookingEmails(bookingId) {
                             </tr>
                             <tr>
                                 <td style="padding: 5px 0; color: #64748b;">Check-In</td>
-                                <td style="padding: 5px 0;">: <strong>${new Date(b.check_in_date).toLocaleDateString('id-ID', { weekday:'long', year:'numeric', month:'long', day:'numeric' })}</strong></td>
+                                <td style="padding: 5px 0;">: <strong>${new Date(b.check_in_date).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</strong></td>
                             </tr>
                         </table>
                     </div>

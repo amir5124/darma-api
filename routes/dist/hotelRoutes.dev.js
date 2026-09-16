@@ -22,11 +22,11 @@ var router = express.Router();
 var axios = require('axios');
 
 var _require = require('../helpers/darmaSandbox'),
-    BASE_URL = _require.BASE_URL,
-    USER_CONFIG = _require.USER_CONFIG,
-    agent = _require.agent,
-    getConsistentToken = _require.getConsistentToken,
-    logger = _require.logger;
+  BASE_URL = _require.BASE_URL,
+  USER_CONFIG = _require.USER_CONFIG,
+  agent = _require.agent,
+  getConsistentToken = _require.getConsistentToken,
+  logger = _require.logger;
 
 var puppeteer = require('puppeteer');
 
@@ -40,8 +40,8 @@ var transporter = nodemailer.createTransport({
   port: 465,
   secure: true,
   auth: {
-    user: 'linkutransport@gmail.com',
-    pass: 'qbckptzxgdumxtdm'
+    user: 'linkunusantara@gmail.com',
+    pass: 'dokarsirkofapkvq'
   }
 });
 
@@ -634,7 +634,7 @@ router.post('/booking-detail', function _callee8(req, res) {
           pdfBuffer = _context9.sent;
           _context9.next = 40;
           return regeneratorRuntime.awrap(transporter.sendMail({
-            from: '"LinkU Travel" <linkutransport@gmail.com>',
+            from: '"LinkU Travel" <linkunusantara@gmail.com>',
             to: localData.contact_email,
             subject: "E-Tiket Hotel - ".concat(detail.reservationNo),
             html: "<p>Halo Bapak/Ibu,\n\nBooking hotel Anda telah berhasil dikonfirmasi.\n\nSilakan menggunakan voucher yang terlampir pada email ini untuk proses check-in di hotel.\n\nDetail reservasi dapat dilihat pada voucher yang terlampir.\n\nTerima kasih telah menggunakan layanan LinkU.\n\nJika membutuhkan bantuan, silakan hubungi layanan pelanggan kami.\n\nSalam hangat,\nLinkU\nLayanan terbaikmu</p>",
@@ -795,9 +795,9 @@ router.post('/booking', function _callee10(req, res) {
           handlingFeeTercatat = Math.round(parseFloat(b.handlingFee || 0));
           _context11.next = 27;
           return regeneratorRuntime.awrap(connection.execute("INSERT INTO hotel_bookings \n    (\n        reservation_no, voucher_no, os_ref_no, agent_os_ref, hotel_id, \n        hotel_name, hotel_address, internal_code, check_in_date, check_out_date, \n        city_id, room_id, room_name, breakfast_type, contact_email, \n        contact_phone, total_price, commission, handling_fee, booking_status, \n        username, special_requests\n    ) \n    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [resData.reservationNo, resData.voucherNo, resData.osRefNo, payload.agentOsRef, String(resData.hotelID || b.hotelID), resData.hotelName || b.hotelName || "Hotel", resData.hotelAddress || "", b.internalCode, resData.checkInDate || b.checkInDate.replace('Z', ''), resData.checkOutDate || b.checkOutDate.replace('Z', ''), String(b.cityID), String(b.roomID), resData.roomName || b.roomName || "", b.breakfast || "", b.roomRequest[0].email, b.roomRequest[0].phone, finalModalDariPriceInfo, // Contoh: 163288
-          komisiTercatat, // Contoh: 15000
-          handlingFeeTercatat, // Contoh: 5000 (Sesuai input user)
-          currentStatus, username, payload.roomRequest[0].requestDescription]));
+            komisiTercatat, // Contoh: 15000
+            handlingFeeTercatat, // Contoh: 5000 (Sesuai input user)
+            currentStatus, username, payload.roomRequest[0].requestDescription]));
 
         case 27:
           _ref5 = _context11.sent;
@@ -955,7 +955,7 @@ router.post('/booking', function _callee10(req, res) {
                       pdfBuffer = _context10.sent;
                       _context10.next = 12;
                       return regeneratorRuntime.awrap(transporter.sendMail({
-                        from: '"LinkU Travel" <linkutransport@gmail.com>',
+                        from: '"LinkU Travel" <linkunusantara@gmail.com>',
                         to: b.roomRequest[0].email,
                         subject: "E-Tiket Hotel - ".concat(resData.reservationNo),
                         html: "<p>Halo Bapak/Ibu,\n\nBooking hotel Anda telah berhasil dikonfirmasi.\n\nSilakan menggunakan voucher yang terlampir pada email ini untuk proses check-in di hotel.\n\nDetail reservasi dapat dilihat pada voucher yang terlampir.\n\nTerima kasih telah menggunakan layanan LinkU.\n\nJika membutuhkan bantuan, silakan hubungi layanan pelanggan kami.\n\nSalam hangat,\nLinkU\nLayanan terbaikmu</p>",
@@ -1027,7 +1027,7 @@ router.post('/booking', function _callee10(req, res) {
           return _context11.stop();
       }
     }
-  }, null, null, [[0, 90, 96, 99], [34, 69, 73, 81], [41, 52, 56, 64], [57,, 59, 63], [74,, 76, 80]]);
+  }, null, null, [[0, 90, 96, 99], [34, 69, 73, 81], [41, 52, 56, 64], [57, , 59, 63], [74, , 76, 80]]);
 });
 router.get('/history', function _callee12(req, res) {
   var connection, _req$query, username, _req$query$page, page, _req$query$limit, limit, limitNum, pageNum, offsetNum, _ref9, _ref10, _ref10$, total, _ref11, _ref12, bookings, bookingsWithPaxes;

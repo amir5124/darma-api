@@ -20,8 +20,8 @@ const transporter = nodemailer.createTransport({
     port: 465,
     secure: true,
     auth: {
-        user: 'linkutransport@gmail.com',
-        pass: 'qbckptzxgdumxtdm'
+        user: 'linkunusantara@gmail.com',
+        pass: 'dokarsirkofapkvq'
     },
 });
 

@@ -19,8 +19,8 @@ var transporter = nodemailer.createTransport({
   port: 465,
   secure: true,
   auth: {
-    user: 'linkutransport@gmail.com',
-    pass: 'qbckptzxgdumxtdm'
+    user: 'linkunusantara@gmail.com',
+    pass: 'dokarsirkofapkvq'
   }
 });
 /**
@@ -207,7 +207,7 @@ function sendBookingEmails(bookingId) {
           }).toString();
           statusTrackingUrl = "https://darma.siappgo.id/tracking?".concat(trackingParams);
           mailOptions = {
-            from: '"LinkU Travel" <linkutransport@gmail.com>',
+            from: '"LinkU Travel" <linkunusantara@gmail.com>',
             to: b.contact_email,
             subject: "E-Voucher Hotel [".concat(b.os_ref_no || b.reservation_no, "] - ").concat(b.hotel_name),
             html: "\n                <div style=\"font-family: 'Segoe UI', Tahoma, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; padding: 30px; border-radius: 16px; color: #1e293b; line-height: 1.5;\">\n                    <div style=\"text-align: center; margin-bottom: 20px;\">\n                        <img src=\"https://res.cloudinary.com/dgsdmgcc7/image/upload/v1768877917/WhatsApp_Image_2026-01-20_at_09.45.43-removebg-preview_lqkgrw.png\" height=\"50\" alt=\"LinkU Logo\">\n                    </div>\n\n                    <h2 style=\"color: #24b3ae; text-align: center; margin-top: 0;\">Konfirmasi Reservasi \uD83C\uDF89</h2>\n                    <p>Halo <strong>".concat(greetingName, "</strong>,</p>\n                    <p>Terima kasih telah memilih LinkU. Pesanan hotel Anda telah berhasil diproses. Berikut adalah ringkasan reservasi Anda:</p>\n\n                    <div style=\"background-color: #f1f5f9; padding: 20px; border-radius: 12px; margin: 25px 0; border-left: 5px solid #24b3ae;\">\n                        <table style=\"width: 100%; border-collapse: collapse; font-size: 14px;\">\n                            <tr>\n                                <td style=\"padding: 5px 0; color: #64748b;\">No. Reservasi</td>\n                                <td style=\"padding: 5px 0;\">: <strong>").concat(b.reservation_no, "</strong></td>\n                            </tr>\n                            <tr>\n                                <td style=\"padding: 5px 0; color: #64748b;\">O/S Ref No. (Darma)</td>\n                                <td style=\"padding: 5px 0;\">: <strong style=\"color: #24b3ae;\">").concat(b.os_ref_no || 'Sedang Diproses', "</strong></td>\n                            </tr>\n                            <tr>\n                                <td style=\"padding: 5px 0; color: #64748b;\">Hotel</td>\n                                <td style=\"padding: 5px 0;\">: <strong>").concat(b.hotel_name, "</strong></td>\n                            </tr>\n                            <tr>\n                                <td style=\"padding: 5px 0; color: #64748b;\">Check-In</td>\n                                <td style=\"padding: 5px 0;\">: <strong>").concat(new Date(b.check_in_date).toLocaleDateString('id-ID', {

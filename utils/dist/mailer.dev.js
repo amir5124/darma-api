@@ -7,8 +7,8 @@ var transporter = nodemailer.createTransport({
   port: 465,
   secure: true,
   auth: {
-    user: 'linkutransport@gmail.com',
-    pass: 'qbckptzxgdumxtdm'
+    user: 'linkunusantara@gmail.com',
+    pass: 'dokarsirkofapkvq'
   }
 });
 /**
@@ -21,9 +21,9 @@ var transporter = nodemailer.createTransport({
 
 var sendBookingEmail = function sendBookingEmail(to, subject, htmlContent) {
   var attachments,
-      mailOptions,
-      info,
-      _args = arguments;
+    mailOptions,
+    info,
+    _args = arguments;
   return regeneratorRuntime.async(function sendBookingEmail$(_context) {
     while (1) {
       switch (_context.prev = _context.next) {

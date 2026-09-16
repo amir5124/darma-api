@@ -13,8 +13,8 @@ const transporter = nodemailer.createTransport({
     port: 465,
     secure: true,
     auth: {
-        user: 'linkutransport@gmail.com',
-        pass: 'qbckptzxgdumxtdm'
+        user: 'linkunusantara@gmail.com',
+        pass: 'dokarsirkofapkvq'
     }
 });
 
@@ -518,7 +518,7 @@ router.post('/booking-detail', async (req, res) => {
                     try {
                         const pdfBuffer = await generateBookingPDF(pdfData, paxes);
                         await transporter.sendMail({
-                            from: '"LinkU Travel" <linkutransport@gmail.com>',
+                            from: '"LinkU Travel" <linkunusantara@gmail.com>',
                             to: localData.contact_email,
                             subject: `E-Tiket Hotel - ${detail.reservationNo}`,
                             html: `
@@ -738,7 +738,7 @@ router.post('/booking', async (req, res) => {
                         const isProcessed = currentStatus === 'Processed';
 
                         await transporter.sendMail({
-                            from: '"LinkU Travel" <linkutransport@gmail.com>',
+                            from: '"LinkU Travel" <linkunusantara@gmail.com>',
                             to: b.roomRequest[0].email,
                             subject: `E-Voucher Hotel [${currentStatus.toUpperCase()}] - ${resData.reservationNo}`,
                             html: `
@@ -902,7 +902,7 @@ router.post('/hotel-bookings/draft', async (req, res) => {
              room_id, room_name, breakfast_type, contact_email, contact_phone, 
              total_price, handling_fee, special_requests, username, city_id, internal_code, 
              room_type, child_num, child_ages, booking_status, source) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             bookingValues
         );
 
