@@ -22,6 +22,22 @@ async function callDarma(path, payload, logLabel) {
     return response.data;
 }
 
+// SEMENTARA: hapus setelah trainID ketemu
+router.get('/test-trainid', async (req, res) => {
+    const candidates = ['PK', 'GMR', '1', '01', '001', '0', 'KAI', 'KA', 'KERETA', 'TRAIN', 'TRAIN01', 'TRAIN1', 'DARMA', 'KAI01', 'KAI001', USER_CONFIG.userID];
+    const results = [];
+    for (const id of candidates) {
+        try {
+            const data = await callDarma('/Train/Route', { trainID: id }, 'TEST_TRAINID');
+            results.push({ trainID: id, status: data.status, respMessage: data.respMessage, routes: data.routes ? data.routes.length : null });
+        } catch (e) {
+            results.push({ trainID: id, status: 'ERROR', respMessage: e.message });
+        }
+        await new Promise(r => setTimeout(r, 400));
+    }
+    res.json(results);
+});
+
 // =====================================================
 // 1. GET TRAIN ROUTES
 // POST /Train/Route
