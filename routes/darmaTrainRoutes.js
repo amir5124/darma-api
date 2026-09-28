@@ -4,10 +4,13 @@ const router = express.Router();
 const { BASE_URL, USER_CONFIG, agent, getConsistentToken, logger } = require('../helpers/darmaSandbox');
 
 // Helper kecil biar tiap endpoint gak nulis ulang boilerplate axios call
+// Kalau payload.trainID kosong, otomatis dipakaikan trainID default dari
+// USER_CONFIG (misal produk Darma yang sudah tetap untuk akun ini).
 async function callDarma(path, payload, logLabel) {
     const token = await getConsistentToken();
     const finalPayload = {
         ...payload,
+        trainID: payload.trainID || USER_CONFIG.trainID,
         userID: USER_CONFIG.userID,
         accessToken: token
     };
@@ -22,20 +25,20 @@ async function callDarma(path, payload, logLabel) {
     return response.data;
 }
 
-// SEMENTARA: hapus setelah trainID ketemu
-router.get('/test-trainid', async (req, res) => {
-    const candidates = ['PK', 'GMR', '1', '01', '001', '0', 'KAI', 'KA', 'KERETA', 'TRAIN', 'TRAIN01', 'TRAIN1', 'DARMA', 'KAI01', 'KAI001', USER_CONFIG.userID];
-    const results = [];
-    for (const id of candidates) {
-        try {
-            const data = await callDarma('/Train/Route', { trainID: id }, 'TEST_TRAINID');
-            results.push({ trainID: id, status: data.status, respMessage: data.respMessage, routes: data.routes ? data.routes.length : null });
-        } catch (e) {
-            results.push({ trainID: id, status: 'ERROR', respMessage: e.message });
-        }
-        await new Promise(r => setTimeout(r, 400));
+// =====================================================
+// 0. GET TRAIN LIST (sumber trainID yang valid)
+// POST /Train/List
+// Response: { trains: [{ name, ID }], ... }
+// =====================================================
+router.post('/list', async (req, res) => {
+    try {
+        const data = await callDarma('/Train/List', {}, 'REQ_TRAIN_LIST');
+
+        res.json(data);
+    } catch (error) {
+        logger.error("Train List Error: " + error.message);
+        res.status(500).json({ status: "ERROR", respMessage: error.message });
     }
-    res.json(results);
 });
 
 // =====================================================
